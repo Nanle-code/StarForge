@@ -24,6 +24,8 @@ rand     = "0.8"
 ureq       = { version = "=2.7.1", features = ["json"] }
 dialoguer  = { version = "0.11", features = ["fuzzy-select"] }
 stellar-xdr = { version = "22.0.0", features = ["serde"] }
+base64     = "0.21"
+urlencoding = "2.1"
 
 [profile.release]
 opt-level = 3

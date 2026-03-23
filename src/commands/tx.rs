@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::{Args, Subcommand};
 use colored::*;
 
-use crate::utils::{config, horizon};
+use crate::utils::{config, horizon, print as p};
 
 #[derive(Args)]
 pub struct TxArgs {
@@ -12,7 +12,9 @@ pub struct TxArgs {
 
 #[derive(Subcommand)]
 pub enum TxCommands {
-    // fetch and display recent transactions for a Stellar account
+    /// Send a Stellar payment transaction
+    Send(SendArgs),
+    /// Fetch and display recent transactions for a Stellar account
     History {
         public_key: String,
 
@@ -25,13 +27,182 @@ pub enum TxCommands {
     },
 }
 
+#[derive(Args)]
+pub struct SendArgs {
+    /// Wallet name to send from
+    #[arg(long)]
+    pub from: String,
+    /// Destination public key
+    #[arg(long)]
+    pub to: String,
+    /// Amount to send
+    #[arg(long)]
+    pub amount: String,
+    /// Asset to send (XLM or CODE:ISSUER format)
+    #[arg(long, default_value = "XLM")]
+    pub asset: String,
+    /// Network to use
+    #[arg(long, default_value = "testnet", value_parser = ["testnet", "mainnet"])]
+    pub network: String,
+    /// Skip confirmation prompt
+    #[arg(long, default_value = "false")]
+    pub yes: bool,
+}
+
 pub fn handle(args: TxArgs) -> Result<()> {
     match args.command {
+        TxCommands::Send(args) => handle_send(args),
         TxCommands::History {
             public_key,
             limit,
             network,
         } => handle_history(public_key, limit, network),
+    }
+}
+
+fn handle_send(args: SendArgs) -> Result<()> {
+    p::header("Send Stellar Payment");
+
+    // Load configuration and find wallet
+    let cfg = config::load()?;
+    let wallet = cfg.wallets
+        .iter()
+        .find(|w| w.name == args.from)
+        .ok_or_else(|| anyhow::anyhow!("Wallet '{}' not found. Run `starforge wallet list`", args.from))?;
+
+    // Validate wallet has secret key
+    if wallet.secret_key.is_none() {
+        anyhow::bail!("Wallet '{}' has no secret key stored", args.from);
+    }
+
+    // Parse asset
+    let (asset_code, asset_issuer) = parse_asset(&args.asset)?;
+
+    // Validate amount
+    let amount_f64: f64 = args.amount.parse()
+        .map_err(|_| anyhow::anyhow!("Invalid amount: {}", args.amount))?;
+    if amount_f64 <= 0.0 {
+        anyhow::bail!("Amount must be positive");
+    }
+
+    p::separator();
+    p::kv("From Wallet", &wallet.name);
+    p::kv("From Address", &wallet.public_key);
+    p::kv("To Address", &args.to);
+    p::kv("Amount", &format!("{} {}", args.amount, args.asset));
+    p::kv("Network", &args.network);
+
+    if args.network == "mainnet" {
+        p::warn("You are sending on MAINNET. This will cost real XLM.");
+    }
+
+    p::separator();
+
+    // Step 1: Fetch source account info
+    println!();
+    p::step(1, 3, "Fetching source account info…");
+    let source_account = horizon::fetch_account(&wallet.public_key, &args.network)
+        .map_err(|e| anyhow::anyhow!(
+            "Source account not found on {}: {}\nFund it with: starforge wallet fund {}",
+            args.network, e, wallet.name
+        ))?;
+
+    // Check balance if sending XLM
+    if asset_code.is_none() {
+        let xlm_balance = source_account.balances.iter()
+            .find(|b| b.asset_type == "native")
+            .map(|b| b.balance.parse::<f64>().unwrap_or(0.0))
+            .unwrap_or(0.0);
+        
+        p::kv("XLM Balance", &format!("{:.7} XLM", xlm_balance));
+        
+        if xlm_balance < amount_f64 + 0.00001 { // Reserve for fees
+            anyhow::bail!("Insufficient XLM balance. Have: {:.7}, Need: {:.7} + fees", xlm_balance, amount_f64);
+        }
+    }
+
+    // Step 2: Validate destination account
+    p::step(2, 3, "Validating destination account…");
+    match horizon::fetch_account(&args.to, &args.network) {
+        Ok(_) => p::kv("Destination", "✓ Account exists"),
+        Err(_) => {
+            if asset_code.is_none() {
+                p::kv("Destination", "⚠ Account will be created (requires 1 XLM minimum)");
+                if amount_f64 < 1.0 {
+                    anyhow::bail!("Destination account doesn't exist. Minimum 1 XLM required to create account.");
+                }
+            } else {
+                anyhow::bail!("Destination account doesn't exist and cannot be created with non-native assets");
+            }
+        }
+    }
+
+    // Step 3: Build and simulate transaction
+    p::step(3, 3, "Building and simulating transaction…");
+    let tx_result = horizon::build_and_simulate_payment(
+        &wallet.public_key,
+        &args.to,
+        &args.amount,
+        asset_code.as_deref(),
+        asset_issuer.as_deref(),
+        &source_account.sequence,
+        &args.network,
+    )?;
+
+    p::kv("Estimated Fee", &format!("{:.7} XLM", tx_result.fee as f64 / 10_000_000.0));
+    p::kv("Transaction XDR", &format!("{}...", &tx_result.transaction_xdr[..20]));
+
+    // Confirmation prompt
+    if !args.yes {
+        println!();
+        print!("  Proceed with payment? [y/N] ");
+        use std::io::BufRead;
+        let line = std::io::stdin().lock().lines().next()
+            .unwrap_or(Ok(String::new()))?;
+        if !matches!(line.trim().to_lowercase().as_str(), "y" | "yes") {
+            p::info("Payment cancelled.");
+            return Ok(());
+        }
+    }
+
+    // Submit transaction
+    println!();
+    p::info("Submitting transaction…");
+    let submit_result = horizon::submit_payment_transaction(
+        &tx_result.transaction_xdr,
+        wallet.secret_key.as_ref().unwrap(),
+        &args.network,
+    )?;
+
+    println!();
+    p::separator();
+    println!("  {} {}", "✓".green().bold(), "Payment sent successfully!".bright_white());
+    println!();
+    p::kv_accent("Transaction Hash", &submit_result.hash);
+    
+    let explorer_base = if args.network == "mainnet" {
+        "https://stellar.expert/explorer/public/tx"
+    } else {
+        "https://stellar.expert/explorer/testnet/tx"
+    };
+    
+    p::kv("Stellar Expert", &format!("{}/{}", explorer_base, submit_result.hash));
+    p::separator();
+
+    Ok(())
+}
+
+fn parse_asset(asset: &str) -> Result<(Option<String>, Option<String>)> {
+    if asset.to_uppercase() == "XLM" {
+        Ok((None, None))
+    } else if asset.contains(':') {
+        let parts: Vec<&str> = asset.split(':').collect();
+        if parts.len() != 2 {
+            anyhow::bail!("Invalid asset format. Use CODE:ISSUER or XLM");
+        }
+        Ok((Some(parts[0].to_string()), Some(parts[1].to_string())))
+    } else {
+        anyhow::bail!("Invalid asset format. Use CODE:ISSUER or XLM");
     }
 }
 
