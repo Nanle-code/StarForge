@@ -49,8 +49,12 @@ pub enum WalletCommands {
 
 pub fn handle(cmd: WalletCommands) -> Result<()> {
     match cmd {
-        WalletCommands::Create { name, fund, network } => create(name, fund, network),
-        WalletCommands::List                  => list(),
+        WalletCommands::Create {
+            name,
+            fund,
+            network,
+        } => create(name, fund, network),
+        WalletCommands::List => list(),
         WalletCommands::Show { name, reveal } => show(name, reveal),
         WalletCommands::Fund { name } => fund_wallet(name),
         WalletCommands::Remove { name } => remove(name),

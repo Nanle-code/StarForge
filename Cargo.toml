@@ -28,7 +28,7 @@ dialoguer  = { version = "0.11", features = ["fuzzy-select", "password"] }
 aes-gcm = "0.10.3"
 argon2 = "0.5.3"
 stellar-strkey = "=0.0.9"
-stellar-xdr = { version = "22.0.0", features = ["serde"] }
+stellar-xdr = { version = "22", features = ["serde"] }
 base64     = "0.21"
 urlencoding = "2.1"
 

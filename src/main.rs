@@ -9,7 +9,7 @@ use colored::*;
     name = "starforge",
     about = "⚡ Stellar & Soroban developer productivity CLI",
     long_about = "starforge is an open-source CLI toolkit for developers building on the Stellar network.\nManage wallets, deploy Soroban contracts, and scaffold new projects — all from your terminal.",
-    version = "0.1.0",
+    version = "0.1.0"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -36,7 +36,7 @@ enum Commands {
     /// Show starforge config and environment info
     Info,
 
-    Tx(commands::tx::TxArgs),   // fetch transaction for the account
+    Tx(commands::tx::TxArgs), // fetch transaction for the account
 
     /// View or switch the active network (testnet/mainnet)
     #[command(subcommand)]
@@ -51,11 +51,11 @@ fn main() {
     }
 
     let result = match cli.command {
-        Commands::Wallet(cmd)  => commands::wallet::handle(cmd),
-        Commands::New(cmd)     => commands::new::handle(cmd),
+        Commands::Wallet(cmd) => commands::wallet::handle(cmd),
+        Commands::New(cmd) => commands::new::handle(cmd),
         Commands::Contract(cmd) => commands::contract::handle(cmd),
         Commands::Deploy(args) => commands::deploy::handle(args),
-        Commands::Info         => commands::info::handle(),
+        Commands::Info => commands::info::handle(),
         Commands::Tx(args) => commands::tx::handle(args),
         Commands::Network(cmd) => commands::network::handle(cmd),
     };

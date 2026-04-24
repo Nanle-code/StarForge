@@ -8,6 +8,26 @@ use stellar_xdr::curr::{
     Uint256, WriteXdr,
 };
 
+// Helpers to replace missing to_xdr_base64 / from_xdr_base64 methods
+fn to_xdr_base64<T: WriteXdr>(val: &T, limits: Limits) -> Result<String> {
+    let bytes = val
+        .to_xdr(limits)
+        .map_err(|e| anyhow::anyhow!("XDR serialization failed: {:?}", e))?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
+}
+
+fn from_xdr_base64<T: ReadXdr>(s: &str, limits: Limits) -> Result<T> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(s)
+        .map_err(|e| anyhow::anyhow!("Base64 decode failed: {}", e))?;
+    T::from_xdr(&bytes, limits).map_err(|e| anyhow::anyhow!("XDR deserialization failed: {:?}", e))
+}
+
+fn from_xdr_base64<T: ReadXdr>(s: &str, limits: Limits) -> Result<T> {
+    let bytes = base64::decode(s).map_err(|e| anyhow::anyhow!("Base64 decode failed: {}", e))?;
+    T::from_xdr(&bytes, limits).map_err(|e| anyhow::anyhow!("XDR deserialization failed: {:?}", e))
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SimulationResult {
     pub return_value: String,
@@ -155,7 +175,7 @@ pub fn inspect_contract(contract_id: &str, network: &str) -> Result<ContractInsp
         id: 1,
         method: "getLedgerEntries".to_string(),
         params: serde_json::json!({
-            "keys": [build_contract_instance_key(contract_id)?.to_xdr_base64(Limits::none())?],
+            "keys": [to_xdr_base64(&build_contract_instance_key(contract_id)?, Limits::none())?],
             "xdrFormat": "base64",
         }),
     };
@@ -231,7 +251,7 @@ fn parse_contract_inspect_result(
         anyhow::anyhow!("Contract '{}' was not found on {}.", contract_id, network)
     })?;
 
-    let ledger_entry = LedgerEntryData::from_xdr_base64(entry.xdr.as_bytes(), Limits::none())
+    let ledger_entry = from_xdr_base64::<LedgerEntryData>(&entry.xdr, Limits::none())
         .context("Failed to decode contract ledger entry from Soroban RPC")?;
 
     let contract_data = match ledger_entry {

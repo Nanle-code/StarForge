@@ -29,7 +29,11 @@ pub enum NewCommands {
 
 pub fn handle(cmd: NewCommands) -> Result<()> {
     match cmd {
-        NewCommands::Contract { name, template, interactive } => {
+        NewCommands::Contract {
+            name,
+            template,
+            interactive,
+        } => {
             if interactive {
                 scaffold_contract_interactive(name)
             } else {
@@ -43,10 +47,10 @@ pub fn handle(cmd: NewCommands) -> Result<()> {
 // ── Interactive mode ──────────────────────────────────────────────────────────
 
 struct ContractOptions {
-    name:         String,
-    author:       String,
-    license:      String,
-    storage:      String,
+    name: String,
+    author: String,
+    license: String,
+    storage: String,
     include_tests: bool,
 }
 
@@ -92,7 +96,13 @@ fn scaffold_contract_interactive(default_name: String) -> Result<()> {
         .default(true)
         .interact()?;
 
-    let opts = ContractOptions { name, author, license, storage, include_tests };
+    let opts = ContractOptions {
+        name,
+        author,
+        license,
+        storage,
+        include_tests,
+    };
 
     // Summary + confirm
     println!();
@@ -101,7 +111,14 @@ fn scaffold_contract_interactive(default_name: String) -> Result<()> {
     println!("    Author        : {}", opts.author.cyan());
     println!("    License       : {}", opts.license.cyan());
     println!("    Storage       : {}", opts.storage.cyan());
-    println!("    Tests         : {}", if opts.include_tests { "yes".green() } else { "no".yellow() });
+    println!(
+        "    Tests         : {}",
+        if opts.include_tests {
+            "yes".green()
+        } else {
+            "no".yellow()
+        }
+    );
     println!();
 
     let confirmed = Confirm::with_theme(&theme)
@@ -151,10 +168,10 @@ fn scaffold_contract(
 
     p::step(3, 4, &format!("Generating '{}' contract source…", template));
     let src = match template.as_str() {
-        "token"  => token_template(&name),
+        "token" => token_template(&name),
         "voting" => voting_template(&name),
-        "nft"    => nft_template(&name),
-        _        => hello_world_template(&name, storage, include_tests),
+        "nft" => nft_template(&name),
+        _ => hello_world_template(&name, storage, include_tests),
     };
     fs::write(dir.join("src/lib.rs"), src)?;
 
@@ -191,11 +208,11 @@ fn scaffold_dapp(name: String) -> Result<()> {
     fs::write(dir.join("package.json"), dapp_package(&name))?;
 
     p::step(3, 3, "Writing app scaffold…");
-    fs::write(dir.join("index.html"),     dapp_index(&name))?;
-    fs::write(dir.join("src/main.jsx"),   dapp_main())?;
-    fs::write(dir.join("src/App.jsx"),    dapp_app(&name))?;
-    fs::write(dir.join(".gitignore"),     "node_modules/\ndist/\n")?;
-    fs::write(dir.join("README.md"),      dapp_readme(&name))?;
+    fs::write(dir.join("index.html"), dapp_index(&name))?;
+    fs::write(dir.join("src/main.jsx"), dapp_main())?;
+    fs::write(dir.join("src/App.jsx"), dapp_app(&name))?;
+    fs::write(dir.join(".gitignore"), "node_modules/\ndist/\n")?;
+    fs::write(dir.join("README.md"), dapp_readme(&name))?;
 
     println!();
     p::success(&format!("dApp '{}' scaffolded!", name));
@@ -211,7 +228,7 @@ fn to_pascal(s: &str) -> String {
         .map(|w| {
             let mut c = w.chars();
             match c.next() {
-                None    => String::new(),
+                None => String::new(),
                 Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
             }
         })
@@ -231,7 +248,8 @@ fn cargo_toml(name: &str, license: &str, author: &str) -> String {
     } else {
         format!("authors = [\"{author}\"]\n")
     };
-    format!(r#"[package]
+    format!(
+        r#"[package]
 name = "{name}"
 version = "0.1.0"
 edition = "2021"
@@ -254,7 +272,8 @@ debug-assertions = false
 panic = "abort"
 codegen-units = 1
 lto = true
-"#)
+"#
+    )
 }
 
 fn cargo_config() -> &'static str {
@@ -274,27 +293,32 @@ fn hello_world_template(name: &str, storage: &str, include_tests: bool) -> Strin
     };
 
     let storage_method = match storage {
-        "persistent" => format!(r#"
+        "persistent" => format!(
+            r#"
     pub fn set_value(env: Env, key: Symbol, value: u64) {{
         env.storage().persistent().set(&key, &value);
     }}
 
     pub fn get_value(env: Env, key: Symbol) -> Option<u64> {{
         env.storage().persistent().get(&key)
-    }}"#),
-        "temporary" => format!(r#"
+    }}"#
+        ),
+        "temporary" => format!(
+            r#"
     pub fn set_value(env: Env, key: Symbol, value: u64) {{
         env.storage().temporary().set(&key, &value);
     }}
 
     pub fn get_value(env: Env, key: Symbol) -> Option<u64> {{
         env.storage().temporary().get(&key)
-    }}"#),
+    }}"#
+        ),
         _ => String::new(),
     };
 
     let test_module = if include_tests {
-        format!(r#"
+        format!(
+            r#"
 
 #[cfg(test)]
 mod test {{
@@ -309,7 +333,9 @@ mod test {{
         let words = client.hello(&symbol_short!("Dev"));
         assert_eq!(words, vec![&env, symbol_short!("Hello"), symbol_short!("Dev")]);
     }}
-}}"#, pascal = pascal)
+}}"#,
+            pascal = pascal
+        )
     } else {
         String::new()
     };
@@ -337,7 +363,8 @@ impl {pascal} {{
 
 fn token_template(name: &str) -> String {
     let pascal = to_pascal(name);
-    format!(r#"#![no_std]
+    format!(
+        r#"#![no_std]
 use soroban_sdk::{{contract, contractimpl, Address, Env, String}};
 
 #[contract]
@@ -367,12 +394,15 @@ impl {pascal} {{
         let _ = (to, amount);
     }}
 }}
-"#, pascal = pascal)
+"#,
+        pascal = pascal
+    )
 }
 
 fn voting_template(name: &str) -> String {
     let pascal = to_pascal(name);
-    format!(r#"#![no_std]
+    format!(
+        r#"#![no_std]
 use soroban_sdk::{{contract, contractimpl, Address, Env, Symbol}};
 
 #[contract]
@@ -399,12 +429,15 @@ impl {pascal} {{
         (0, 0)
     }}
 }}
-"#, pascal = pascal)
+"#,
+        pascal = pascal
+    )
 }
 
 fn nft_template(name: &str) -> String {
     let pascal = to_pascal(name);
-    format!(r#"#![no_std]
+    format!(
+        r#"#![no_std]
 use soroban_sdk::{{contract, contractimpl, Address, Env, String}};
 
 #[contract]
@@ -429,13 +462,16 @@ impl {pascal} {{
         let _ = (to, token_id);
     }}
 }}
-"#, pascal = pascal)
+"#,
+        pascal = pascal
+    )
 }
 
 // ── dApp scaffold files ───────────────────────────────────────────────────────
 
 fn dapp_package(name: &str) -> String {
-    format!(r#"{{
+    format!(
+        r#"{{
   "name": "{name}",
   "version": "0.1.0",
   "type": "module",
@@ -454,11 +490,13 @@ fn dapp_package(name: &str) -> String {
     "vite": "^5.4.0"
   }}
 }}
-"#)
+"#
+    )
 }
 
 fn dapp_index(name: &str) -> String {
-    format!(r#"<!DOCTYPE html>
+    format!(
+        r#"<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -470,7 +508,8 @@ fn dapp_index(name: &str) -> String {
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
-"#)
+"#
+    )
 }
 
 fn dapp_main() -> &'static str {
@@ -485,7 +524,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 }
 
 fn dapp_app(name: &str) -> String {
-    format!(r#"import React from 'react'
+    format!(
+        r#"import React from 'react'
 
 export default function App() {{
   return (
@@ -495,11 +535,13 @@ export default function App() {{
     </div>
   )
 }}
-"#)
+"#
+    )
 }
 
 fn dapp_readme(name: &str) -> String {
-    format!(r#"# {name}
+    format!(
+        r#"# {name}
 
 A Stellar dApp scaffolded with [starforge](https://github.com/YOUR_USERNAME/starforge).
 
@@ -509,11 +551,13 @@ A Stellar dApp scaffolded with [starforge](https://github.com/YOUR_USERNAME/star
 npm install
 npm run dev
 ```
-"#)
+"#
+    )
 }
 
 fn readme(name: &str, template: &str) -> String {
-    format!(r#"# {name}
+    format!(
+        r#"# {name}
 
 A Soroban smart contract scaffolded with [starforge](https://github.com/YOUR_USERNAME/starforge).
 
@@ -538,5 +582,9 @@ starforge deploy \
 ```
 
 Template: `{template}`
-"#, name = name, snake = name.replace('-', "_"), template = template)
+"#,
+        name = name,
+        snake = name.replace('-', "_"),
+        template = template
+    )
 }

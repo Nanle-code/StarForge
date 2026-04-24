@@ -139,8 +139,8 @@ pub fn load() -> Result<Config> {
     }
     let contents = fs::read_to_string(&path)
         .with_context(|| format!("Failed to read config at {:?}", path))?;
-    let config: Config = toml::from_str(&contents)
-        .with_context(|| "Failed to parse config file")?;
+    let config: Config =
+        toml::from_str(&contents).with_context(|| "Failed to parse config file")?;
     Ok(config)
 }
 
@@ -229,9 +229,7 @@ pub fn save(config: &Config) -> Result<()> {
         fs::create_dir_all(&dir)
             .with_context(|| format!("Failed to create config dir {:?}", dir))?;
     }
-    let contents = toml::to_string_pretty(config)
-        .with_context(|| "Failed to serialize config")?;
-    fs::write(config_path(), contents)
-        .with_context(|| "Failed to write config file")?;
+    let contents = toml::to_string_pretty(config).with_context(|| "Failed to serialize config")?;
+    fs::write(config_path(), contents).with_context(|| "Failed to write config file")?;
     Ok(())
 }

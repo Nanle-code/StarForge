@@ -35,9 +35,9 @@ pub fn handle(args: DeployArgs) -> Result<()> {
     let wasm_size_kb = wasm_bytes.len() as f64 / 1024.0;
 
     p::separator();
-    p::kv("WASM file",  &args.wasm.display().to_string());
-    p::kv("WASM size",  &format!("{:.1} KB", wasm_size_kb));
-    p::kv("Network",    &args.network);
+    p::kv("WASM file", &args.wasm.display().to_string());
+    p::kv("WASM size", &format!("{:.1} KB", wasm_size_kb));
+    p::kv("Network", &args.network);
 
     if wasm_size_kb > 128.0 {
         p::warn(&format!(
@@ -51,7 +51,12 @@ pub fn handle(args: DeployArgs) -> Result<()> {
         cfg.wallets
             .iter()
             .find(|w| &w.name == wallet_name)
-            .ok_or_else(|| anyhow::anyhow!("Wallet '{}' not found. Run `starforge wallet list`", wallet_name))?
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Wallet '{}' not found. Run `starforge wallet list`",
+                    wallet_name
+                )
+            })?
     } else if !cfg.wallets.is_empty() {
         p::info(&format!(
             "No --wallet specified. Using: {}",
@@ -64,7 +69,7 @@ pub fn handle(args: DeployArgs) -> Result<()> {
         );
     };
 
-    p::kv("Wallet",     &wallet.name);
+    p::kv("Wallet", &wallet.name);
     p::kv_accent("Public Key", &wallet.public_key);
     p::separator();
 
@@ -76,7 +81,10 @@ pub fn handle(args: DeployArgs) -> Result<()> {
         println!();
         print!("  Proceed? [y/N] ");
         use std::io::BufRead;
-        let line = std::io::stdin().lock().lines().next()
+        let line = std::io::stdin()
+            .lock()
+            .lines()
+            .next()
             .unwrap_or(Ok(String::new()))?;
         if !matches!(line.trim().to_lowercase().as_str(), "y" | "yes") {
             p::info("Deployment cancelled.");
@@ -86,22 +94,27 @@ pub fn handle(args: DeployArgs) -> Result<()> {
 
     println!();
     p::step(1, 3, "Verifying account on-chain…");
-    let account = horizon::fetch_account(&wallet.public_key, &args.network)
-        .map_err(|e| anyhow::anyhow!(
+    let account = horizon::fetch_account(&wallet.public_key, &args.network).map_err(|e| {
+        anyhow::anyhow!(
             "Account not active on {}: {}\nFund it with: starforge wallet fund {}",
-            args.network, e, wallet.name
-        ))?;
+            args.network,
+            e,
+            wallet.name
+        )
+    })?;
 
-    let xlm = account.balances.iter()
+    let xlm = account
+        .balances
+        .iter()
         .find(|b| b.asset_type == "native")
         .map(|b| b.balance.as_str())
         .unwrap_or("0");
     p::kv_accent("XLM Balance", &format!("{} XLM", xlm));
 
     p::step(2, 3, "Calculating WASM hash…");
-    let hash_val = wasm_bytes.iter()
-        .enumerate()
-        .fold(0u64, |acc, (i, &b)| acc.wrapping_add((b as u64).wrapping_mul(i as u64 + 1)));
+    let hash_val = wasm_bytes.iter().enumerate().fold(0u64, |acc, (i, &b)| {
+        acc.wrapping_add((b as u64).wrapping_mul(i as u64 + 1))
+    });
     let wasm_hash = format!("{:016x}", hash_val);
     p::kv("WASM hash (local)", &wasm_hash);
 
@@ -109,11 +122,21 @@ pub fn handle(args: DeployArgs) -> Result<()> {
 
     println!();
     p::separator();
-    println!("  {} {}", "✓".green().bold(), "Ready! Run this to complete the deployment:".bright_white());
+    println!(
+        "  {} {}",
+        "✓".green().bold(),
+        "Ready! Run this to complete the deployment:".bright_white()
+    );
     println!();
     println!("  {}", "stellar contract deploy \\".cyan());
-    println!("    {}", format!("--wasm {} \\", args.wasm.display()).cyan());
-    println!("    {}", format!("--source {} \\", wallet.public_key).cyan());
+    println!(
+        "    {}",
+        format!("--wasm {} \\", args.wasm.display()).cyan()
+    );
+    println!(
+        "    {}",
+        format!("--source {} \\", wallet.public_key).cyan()
+    );
     println!("    {}", format!("--network {}", args.network).cyan());
     println!();
     p::info("Install the Stellar CLI: https://developers.stellar.org/docs/tools/stellar-cli");
