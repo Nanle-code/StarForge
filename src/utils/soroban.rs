@@ -1,5 +1,6 @@
 use crate::utils::config::WalletEntry;
 use anyhow::{Context, Result};
+use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use stellar_strkey::{ed25519, Contract};
 use stellar_xdr::curr::{
@@ -13,18 +14,13 @@ fn to_xdr_base64<T: WriteXdr>(val: &T, limits: Limits) -> Result<String> {
     let bytes = val
         .to_xdr(limits)
         .map_err(|e| anyhow::anyhow!("XDR serialization failed: {:?}", e))?;
-    Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
+    Ok(STANDARD.encode(&bytes))
 }
 
 fn from_xdr_base64<T: ReadXdr>(s: &str, limits: Limits) -> Result<T> {
-    let bytes = base64::engine::general_purpose::STANDARD
+    let bytes = STANDARD
         .decode(s)
         .map_err(|e| anyhow::anyhow!("Base64 decode failed: {}", e))?;
-    T::from_xdr(&bytes, limits).map_err(|e| anyhow::anyhow!("XDR deserialization failed: {:?}", e))
-}
-
-fn from_xdr_base64<T: ReadXdr>(s: &str, limits: Limits) -> Result<T> {
-    let bytes = base64::decode(s).map_err(|e| anyhow::anyhow!("Base64 decode failed: {}", e))?;
     T::from_xdr(&bytes, limits).map_err(|e| anyhow::anyhow!("XDR deserialization failed: {:?}", e))
 }
 
@@ -170,12 +166,13 @@ pub fn submit_transaction(
 }
 
 pub fn inspect_contract(contract_id: &str, network: &str) -> Result<ContractInspectResult> {
+    let key_b64 = to_xdr_base64(&build_contract_instance_key(contract_id)?, Limits::none())?;
     let request = SorobanRpcRequest {
         jsonrpc: "2.0".to_string(),
         id: 1,
         method: "getLedgerEntries".to_string(),
         params: serde_json::json!({
-            "keys": [to_xdr_base64(&build_contract_instance_key(contract_id)?, Limits::none())?],
+            "keys": [key_b64],
             "xdrFormat": "base64",
         }),
     };
@@ -252,7 +249,7 @@ fn parse_contract_inspect_result(
     })?;
 
     let ledger_entry = from_xdr_base64::<LedgerEntryData>(&entry.xdr, Limits::none())
-        .context("Failed to decode contract ledger entry from Soroban RPC")?;
+        .with_context(|| "Failed to decode contract ledger entry from Soroban RPC")?;
 
     let contract_data = match ledger_entry {
         LedgerEntryData::ContractData(contract_data) => contract_data,
@@ -516,41 +513,42 @@ mod tests {
     }
 
     #[test]
-    fn parses_contract_inspection_response() {
+    fn parses_contract_inspection_response() -> anyhow::Result<()> {
         let contract_id = Contract([9; 32]).to_string();
         let response = GetLedgerEntriesResult {
             latest_ledger: 912345,
             entries: vec![RpcLedgerEntry {
-                xdr: LedgerEntryData::ContractData(ContractDataEntry {
-                    ext: ExtensionPoint::V0,
-                    contract: ScAddress::Contract(Hash([9; 32])),
-                    key: ScVal::LedgerKeyContractInstance,
-                    durability: ContractDataDurability::Persistent,
-                    val: ScVal::ContractInstance(ScContractInstance {
-                        executable: ContractExecutable::Wasm(Hash([0xab; 32])),
-                        storage: Some(
-                            vec![
-                                ScMapEntry {
-                                    key: ScVal::Symbol(ScSymbol(
-                                        "COUNTER".as_bytes().try_into().unwrap(),
-                                    )),
-                                    val: ScVal::I64(42),
-                                },
-                                ScMapEntry {
-                                    key: ScVal::Symbol(ScSymbol(
-                                        "OWNER".as_bytes().try_into().unwrap(),
-                                    )),
-                                    val: ScVal::Address(ScAddress::Contract(Hash([3; 32]))),
-                                },
-                            ]
-                            .try_into()
-                            .map(ScMap)
-                            .unwrap(),
-                        ),
+                xdr: to_xdr_base64(
+                    &LedgerEntryData::ContractData(ContractDataEntry {
+                        ext: ExtensionPoint::V0,
+                        contract: ScAddress::Contract(Hash([9; 32])),
+                        key: ScVal::LedgerKeyContractInstance,
+                        durability: ContractDataDurability::Persistent,
+                        val: ScVal::ContractInstance(ScContractInstance {
+                            executable: ContractExecutable::Wasm(Hash([0xab; 32])),
+                            storage: Some(
+                                vec![
+                                    ScMapEntry {
+                                        key: ScVal::Symbol(ScSymbol(
+                                            "COUNTER".as_bytes().try_into().unwrap(),
+                                        )),
+                                        val: ScVal::I64(42),
+                                    },
+                                    ScMapEntry {
+                                        key: ScVal::Symbol(ScSymbol(
+                                            "OWNER".as_bytes().try_into().unwrap(),
+                                        )),
+                                        val: ScVal::Address(ScAddress::Contract(Hash([3; 32]))),
+                                    },
+                                ]
+                                .try_into()
+                                .map(ScMap)
+                                .unwrap(),
+                            ),
+                        }),
                     }),
-                })
-                .to_xdr_base64(Limits::none())
-                .unwrap(),
+                    Limits::none(),
+                )?,
                 last_modified_ledger_seq: Some(912300),
                 live_until_ledger_seq: Some(912999),
             }],
@@ -576,6 +574,7 @@ mod tests {
             result.instance_storage[1].value,
             Contract([3; 32]).to_string()
         );
+        Ok(())
     }
 
     #[test]

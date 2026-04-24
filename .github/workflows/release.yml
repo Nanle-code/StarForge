@@ -93,7 +93,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v3
         with:
-          path: artifacts
+          path: artifacts/
 
       - name: Generate checksums
         run: |
