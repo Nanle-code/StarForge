@@ -56,6 +56,12 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
+      - name: Run rustfmt
+        run: cargo fmt -- --check
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
 
       - name: Run rustfmt
         run: cargo fmt -- --check
