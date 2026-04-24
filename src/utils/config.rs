@@ -150,9 +150,12 @@ mod tests {
 
     #[test]
     fn test_valid_public_key() {
-        // Well-formed Stellar public key (56 chars, starts with G, valid base32)
-        let key = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
-        assert!(validate_public_key(key).is_ok());
+        // Generate a real keypair using ed25519-dalek and encode as Stellar public key
+        let keypair = ed25519_dalek::Keypair::generate(&mut rand::thread_rng());
+        let public_key_bytes = keypair.public.to_bytes();
+        // Encode as Stellar public key (gives exactly 56 chars, starts with G)
+        let key = stellar_strkey::ed25519::from(&public_key_bytes).to_str();
+        assert!(validate_public_key(&key).is_ok());
     }
 
     #[test]
@@ -171,9 +174,16 @@ mod tests {
 
     #[test]
     fn test_rejects_key_invalid_characters() {
-        // Lowercase letters are not valid base32
-        let key = "Gaazi4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
-        let err = validate_public_key(key).unwrap_err();
+        // Generate a valid key first
+        let keypair = ed25519_dalek::Keypair::generate(&mut rand::thread_rng());
+        let mut key = stellar_strkey::Ed25519::from(&keypair.public.to_bytes()).to_str();
+
+        // Corrupt a character in the body (not the first char 'G')
+        let mut chars: Vec<char> = key.chars().collect();
+        chars[5] = 'a'; // Position 5: put invalid lowercase 'a' in body
+        key = chars.iter().collect();
+
+        let err = validate_public_key(&key).unwrap_err();
         assert!(err.to_string().contains("invalid character"));
     }
 
