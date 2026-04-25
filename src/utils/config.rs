@@ -154,7 +154,7 @@ mod tests {
         let keypair = ed25519_dalek::Keypair::generate(&mut rand::thread_rng());
         let public_key_bytes = keypair.public.to_bytes();
         // Encode as Stellar public key (gives exactly 56 chars, starts with G)
-        let key = stellar_strkey::ed25519::from(&public_key_bytes).to_str();
+        let key = stellar_strkey::ed25519::from_bytes(&public_key_bytes).to_string();
         assert!(validate_public_key(&key).is_ok());
     }
 
@@ -176,7 +176,7 @@ mod tests {
     fn test_rejects_key_invalid_characters() {
         // Generate a valid key first
         let keypair = ed25519_dalek::Keypair::generate(&mut rand::thread_rng());
-        let mut key = stellar_strkey::Ed25519::from(&keypair.public.to_bytes()).to_str();
+        let mut key = stellar_strkey::ed25519::from_bytes(&keypair.public.to_bytes()).to_string();
 
         // Corrupt a character in the body (not the first char 'G')
         let mut chars: Vec<char> = key.chars().collect();
