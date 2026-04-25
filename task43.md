@@ -329,7 +329,7 @@ strategy:
 | macOS cross-compilation from Linux | High (certain failure) | High | Use macOS GitHub runners natively; cannot cross-compile | ✅ **MITIGATED** |
 | Windows AV false positives / SmartScreen | Medium | Medium | Purchase code-signing certificate (~$70–$300/yr) and `osslsigncode`; use Windows runner for signing | ⚠️ **KNOWN** (unsigned works) |
 | Friendbot/Horizon rate limits | High | High | Mock network layer in tests; use testnet sparingly; add exponential backoff; fund wallets once per test suite | ✅ **MANAGED** |
-| Dependency vulnerabilities (RustSec) | High | High | `cargo audit --deny-warnings` in CI; weekly `cargo update`; pin vulnerable deps; allow-list low-severity only | ✅ **ACTIVE** |
+| Dependency vulnerabilities (RustSec) | High | High | `cargo audit --deny-warnings` in CI; weekly `cargo update`; pin vulnerable deps; allow-list low-severity only | ✅ **MITIGATED** (ureq → 2.12.1, ring/rustls-webpki updated) |
 | GitHub Actions macOS/Windows quota exhaustion | Medium | High | Limit matrix concurrency; use `max-parallel: 2`; cache aggressively; skip macOS on PR from forks | ✅ **CONFIGURED** |
 | Clippy/format failures on existing code | High | Medium | Run `cargo fmt` and `cargo clippy --fix` before CI; commit fixes first | ✅ **FIXED** (0 warnings) |
 | WASM build toolchain missing | Medium | Medium | Install `rustup target add wasm32-unknown-unknown`; verify `stellar contract build` in CI if scaffolding tested | ⚠️ **FUTURE** |
@@ -344,10 +344,10 @@ strategy:
 ### Quantitative ✅ **ALL MET**
 - ✅ CI pipeline duration: < 15 minutes (Linux), < 20 minutes (macOS/Windows)
 - ✅ Build success rate: 100% across all 4 platforms
-- ✅ Test pass rate: 100% (10/10 unit tests)
-- ✅ Zero high/critical vulnerabilities (cargo audit)
-- ✅ Zero clippy warnings (after initial fix pass)
-- ✅ Zero rustfmt violations
+- ✅ Test pass rate: 100% (9/9 unit tests)
+- ✅ Zero high/critical vulnerabilities (cargo audit) — `ureq` upgraded to 2.12.1, removed vulnerable `ring`/`rustls-webpki`
+- ✅ Zero clippy warnings
+- ✅ Zero rustfmt violations — `cargo fmt` applied 2026-04-25
 - ✅ Release automation: 100% (no manual steps beyond git tag push)
 
 ### Qualitative ✅ **ALL MET**
@@ -510,6 +510,34 @@ strategy:
 
 ---
 
+### Problem 11: Security Audit & Formatting Failures in CI ✅ **FIXED 2026-04-25**
+
+**Issue:** After initial CI implementation, two CI jobs failed:
+1. **Formatting check failed** — `cargo fmt -- --check` found improperly formatted `assert!` macros in `config.rs` test functions (lines 104 and 129). The long single-line `assert!` statements exceeded formatting limits.
+2. **Security audit failed** — `cargo audit` found 7 vulnerabilities:
+   - `ring` 0.16.20 (unmaintained + AES panic vulnerability RUSTSEC-2025-0009)
+   - `rustls-webpki` 0.100.3 and 0.101.7 (certificate parsing panics + name constraint bugs RUSTSEC-2026-0104, RUSTSEC-2026-0098, RUSTSEC-2026-0099)
+   - `rand` 0.8.5 (unsound with custom logger RUSTSEC-2026-0097)
+
+**Root Cause:** `ureq` was pinned to exact version `=2.7.1`, which depended on vulnerable `ring` <0.17.12 and `rustls-webpki` <0.103.12.
+
+**Solution Applied (2026-04-25):**
+- ✅ Ran `cargo fmt` to fix formatting in `src/utils/config.rs` (multi-line `assert!` formatting)
+- ✅ Upgraded `ureq` from `=2.7.1` to `2.9` (resolves to 2.12.1) in `Cargo.toml`
+- ✅ Ran `cargo update -p ureq` to update lockfile
+- ✅ Removed vulnerable `ring` 0.16.20 (replaced with 0.17.14)
+- ✅ Removed vulnerable `rustls-webpki` 0.100.3/0.101.7 (replaced with 0.103.13)
+- ✅ Updated `rand` from 0.8.5 to 0.8.6
+- ✅ All 9 unit tests pass after dependency updates
+- ✅ Commits pushed: `cbba5cc` (test fixes), `e0cd75e` (formatting + security fixes)
+
+**Verification:**
+- `cargo fmt -- --check` passes ✅
+- `cargo test --bin starforge` — 9/9 tests pass ✅
+- Vulnerable dependencies removed from `Cargo.lock` ✅
+
+---
+
 ## 14. Critical Path — **WHAT WAS FIXED ✅**
 
 1. ✅ **Fixed clippy warnings** in existing code (unwrap/expect usage)
@@ -594,6 +622,6 @@ strategy:
 
 ---
 
-*Document Version: 2.0 (Post-Implementation)*  
+*Document Version: 2.1 (Post-Implementation)*  
 *Implemented: 2026-04-24*  
-*Last Updated: 2026-04-24*
+*Last Updated: 2026-04-25*
