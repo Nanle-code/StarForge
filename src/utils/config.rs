@@ -147,12 +147,23 @@ pub fn load() -> Result<Config> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ed25519_dalek::SigningKey;
+    use rand::RngCore;
+    use stellar_strkey::ed25519::PublicKey as StellarPublicKey;
+
+    fn generate_valid_stellar_public_key() -> String {
+        let mut rng = rand::thread_rng();
+        let mut seed = [0u8; 32];
+        rng.fill_bytes(&mut seed);
+        let signing_key = SigningKey::from_bytes(&seed);
+        let verifying_key = signing_key.verifying_key();
+        StellarPublicKey(verifying_key.to_bytes()).to_string()
+    }
 
     #[test]
     fn test_valid_public_key() {
-        // Valid Stellar public key: 56 chars, starts with G, all 'A's (valid base32)
-        let key = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-        assert!(validate_public_key(key).is_ok());
+        let key = generate_valid_stellar_public_key();
+        assert!(validate_public_key(&key).is_ok(), "Generated key should be valid: {}", key);
     }
 
     #[test]
@@ -171,11 +182,13 @@ mod tests {
 
     #[test]
     fn test_rejects_key_invalid_characters() {
-        // Valid key with lowercase 'a' in position 5 (should be uppercase 'A')
-        // Base32 valid chars: A-Z, 2-7 -> 'a' is invalid
-        let key = "GAAAAaAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-        let err = validate_public_key(key).unwrap_err();
-        assert!(err.to_string().contains("invalid character"));
+        let mut key = generate_valid_stellar_public_key();
+        // Corrupt a body character (not the leading 'G') with invalid lowercase 'a'
+        let mut chars: Vec<char> = key.chars().collect();
+        chars[5] = 'a';
+        key = chars.iter().collect();
+        let err = validate_public_key(&key).unwrap_err();
+        assert!(err.to_string().contains("invalid character"), "Expected invalid character error for key: {}", key);
     }
 
     #[test]
