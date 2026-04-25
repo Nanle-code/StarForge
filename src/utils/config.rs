@@ -163,7 +163,11 @@ mod tests {
     #[test]
     fn test_valid_public_key() {
         let key = generate_valid_stellar_public_key();
-        assert!(validate_public_key(&key).is_ok(), "Generated key should be valid: {}", key);
+        assert!(
+            validate_public_key(&key).is_ok(),
+            "Generated key should be valid: {}",
+            key
+        );
     }
 
     #[test]
@@ -188,7 +192,11 @@ mod tests {
         chars[5] = 'a';
         key = chars.iter().collect();
         let err = validate_public_key(&key).unwrap_err();
-        assert!(err.to_string().contains("invalid character"), "Expected invalid character error for key: {}", key);
+        assert!(
+            err.to_string().contains("invalid character"),
+            "Expected invalid character error for key: {}",
+            key
+        );
     }
 
     #[test]
