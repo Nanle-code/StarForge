@@ -15,12 +15,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-
       - name: Run rustfmt
         run: cargo fmt -- --check
 
@@ -29,12 +27,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-
       - name: Cache cargo
         uses: actions/cache@v3
         with:
@@ -43,7 +39,6 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
       - name: Run clippy
         run: cargo clippy
 
@@ -54,22 +49,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - name: Run rustfmt
-        run: cargo fmt -- --check
-
-  clippy:
-    name: Run clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
       - name: Cache cargo
         uses: actions/cache@v3
         with:
@@ -78,27 +57,17 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Run clippy
-        run: cargo clippy
+      - name: Run tests
+        run: cargo test --release
 
   audit:
     name: Security audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-
       - name: Install cargo-audit
         uses: taiki-e/install-action@cargo-audit
-
       - name: Run audit
-        run: cargo audit --deny-warnings>
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - name: Run rustfmt
-        run: cargo fmt -- --check
+        run: cargo audit --deny-warnings
