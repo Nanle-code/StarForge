@@ -7,6 +7,8 @@
 ![Network: Stellar](https://img.shields.io/badge/Network-Stellar-blue.svg)
 ![Status: Active](https://img.shields.io/badge/Status-Active-green.svg)
 ![Stellar Wave](https://img.shields.io/badge/Stellar-Wave%20Program-blueviolet.svg)
+![CI](https://github.com/Nanle-code/StarForge/actions/workflows/ci.yml/badge.svg)](https://github.com/Nanle-code/StarForge/actions/workflows/ci.yml)
+![Release](https://github.com/Nanle-code/StarForge/actions/workflows/release.yml/badge.svg)](https://github.com/Nanle-code/StarForge/actions/workflows/release.yml)
 
 ---
 

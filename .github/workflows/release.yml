@@ -4,18 +4,104 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: Build for ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            use-cross: true
+            archive: tar.gz
+          
+          - target: x86_64-pc-windows-gnu
+            os: ubuntu-latest
+            use-cross: true
+            archive: zip
+          
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            use-cross: false
+            archive: tar.gz
+          
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            use-cross: false
+            archive: tar.gz
+
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Build
-        run: cargo build --release --locked
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: starforge-linux
-          path: target/release/starforge
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.use-cross
+        uses: taiki-e/install-action@cross
+
+      - name: Build
+        run: |
+          if [ "${{ matrix.use-cross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.target }}
+          else
+            cargo build --release --target ${{ matrix.target }}
+          fi
+
+      - name: Strip symbols
+        if: matrix.os != 'windows-latest'
+        run: strip target/${{ matrix.target }}/release/starforge
+
+      - name: Package (Unix)
+        if: matrix.archive == 'tar.gz'
+        run: |
+          cp target/${{ matrix.target }}/release/starforge .
+          tar czf starforge-${{ matrix.target }}.tar.gz starforge
+          rm starforge
+
+      - name: Package (Windows)
+        if: matrix.archive == 'zip'
+        run: |
+          cp target/${{ matrix.target }}/release/starforge.exe .
+          7z a starforge-${{ matrix.target }}.zip starforge.exe
+          rm starforge.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: starforge-${{ matrix.target }}
+          path: starforge-${{ matrix.target }}.*
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v3
+        with:
+          path: artifacts/
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          find . -type f -name 'starforge*' -exec sha256sum {} \; > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/**/starforge-*
+            artifacts/**/SHA256SUMS
+          draft: false
+          prerelease: ${{ contains(github.ref, '-') }}

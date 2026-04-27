@@ -1,5 +1,6 @@
 use crate::utils::config::WalletEntry;
 use anyhow::{Context, Result};
+use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use stellar_strkey::{ed25519, Contract};
 use stellar_xdr::curr::{
@@ -7,6 +8,21 @@ use stellar_xdr::curr::{
     LedgerKeyContractData, Limits, PublicKey, ScAddress, ScMap, ScString, ScSymbol, ScVal,
     Uint256,
 };
+
+// Helpers to replace missing to_xdr_base64 / from_xdr_base64 methods
+fn to_xdr_base64<T: WriteXdr>(val: &T, limits: Limits) -> Result<String> {
+    let bytes = val
+        .to_xdr(limits)
+        .map_err(|e| anyhow::anyhow!("XDR serialization failed: {:?}", e))?;
+    Ok(STANDARD.encode(&bytes))
+}
+
+fn from_xdr_base64<T: ReadXdr>(s: &str, limits: Limits) -> Result<T> {
+    let bytes = STANDARD
+        .decode(s)
+        .map_err(|e| anyhow::anyhow!("Base64 decode failed: {}", e))?;
+    T::from_xdr(&bytes, limits).map_err(|e| anyhow::anyhow!("XDR deserialization failed: {:?}", e))
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SimulationResult {
@@ -150,15 +166,13 @@ pub fn submit_transaction(
 }
 
 pub fn inspect_contract(contract_id: &str, network: &str) -> Result<ContractInspectResult> {
-    let ledger_key = build_contract_instance_key(contract_id)?;
-    let ledger_key_xdr = ledger_key_to_xdr_base64(&ledger_key)?;
-    
+    let key_b64 = to_xdr_base64(&build_contract_instance_key(contract_id)?, Limits::none())?;
     let request = SorobanRpcRequest {
         jsonrpc: "2.0".to_string(),
         id: 1,
         method: "getLedgerEntries".to_string(),
         params: serde_json::json!({
-            "keys": [ledger_key_xdr],
+            "keys": [key_b64],
             "xdrFormat": "base64",
         }),
     };
@@ -252,9 +266,32 @@ fn parse_contract_inspect_result(
         anyhow::anyhow!("Contract '{}' was not found on {}.", contract_id, network)
     })?;
 
-    // For now, return a mock result since we can't decode XDR properly yet
-    // In production, use: LedgerEntryData::from_xdr(entry.xdr.as_bytes(), Limits::none())?
-    
+    let ledger_entry = from_xdr_base64::<LedgerEntryData>(&entry.xdr, Limits::none())
+        .with_context(|| "Failed to decode contract ledger entry from Soroban RPC")?;
+
+    let contract_data = match ledger_entry {
+        LedgerEntryData::ContractData(contract_data) => contract_data,
+        other => {
+            anyhow::bail!(
+                "Unexpected ledger entry returned for '{}': {}",
+                contract_id,
+                other.name()
+            );
+        }
+    };
+
+    let instance = match &contract_data.val {
+        ScVal::ContractInstance(instance) => instance,
+        _ => {
+            anyhow::bail!(
+                "Contract '{}' did not return a contract instance entry.",
+                contract_id
+            );
+        }
+    };
+
+    let (executable, wasm_hash) = describe_executable(&instance.executable);
+
     Ok(ContractInspectResult {
         contract_id: contract_id.to_string(),
         executable: "Wasm".to_string(),
@@ -490,6 +527,71 @@ mod tests {
             }
             other => panic!("unexpected ledger key: {other:?}"),
         }
+    }
+
+    #[test]
+    fn parses_contract_inspection_response() -> anyhow::Result<()> {
+        let contract_id = Contract([9; 32]).to_string();
+        let response = GetLedgerEntriesResult {
+            latest_ledger: 912345,
+            entries: vec![RpcLedgerEntry {
+                xdr: to_xdr_base64(
+                    &LedgerEntryData::ContractData(ContractDataEntry {
+                        ext: ExtensionPoint::V0,
+                        contract: ScAddress::Contract(Hash([9; 32])),
+                        key: ScVal::LedgerKeyContractInstance,
+                        durability: ContractDataDurability::Persistent,
+                        val: ScVal::ContractInstance(ScContractInstance {
+                            executable: ContractExecutable::Wasm(Hash([0xab; 32])),
+                            storage: Some(
+                                vec![
+                                    ScMapEntry {
+                                        key: ScVal::Symbol(ScSymbol(
+                                            "COUNTER".as_bytes().try_into().unwrap(),
+                                        )),
+                                        val: ScVal::I64(42),
+                                    },
+                                    ScMapEntry {
+                                        key: ScVal::Symbol(ScSymbol(
+                                            "OWNER".as_bytes().try_into().unwrap(),
+                                        )),
+                                        val: ScVal::Address(ScAddress::Contract(Hash([3; 32]))),
+                                    },
+                                ]
+                                .try_into()
+                                .map(ScMap)
+                                .unwrap(),
+                            ),
+                        }),
+                    }),
+                    Limits::none(),
+                )?,
+                last_modified_ledger_seq: Some(912300),
+                live_until_ledger_seq: Some(912999),
+            }],
+        };
+
+        let result = parse_contract_inspect_result(&contract_id, "testnet", response).unwrap();
+
+        assert_eq!(result.contract_id, contract_id);
+        assert_eq!(result.executable, "Wasm");
+        assert_eq!(
+            result.wasm_hash,
+            Some("abababababababababababababababababababababababababababababababab".to_string())
+        );
+        assert_eq!(result.storage_durability, "Persistent");
+        assert_eq!(result.latest_ledger, 912345);
+        assert_eq!(result.last_modified_ledger_seq, Some(912300));
+        assert_eq!(result.live_until_ledger_seq, Some(912999));
+        assert_eq!(result.instance_storage.len(), 2);
+        assert_eq!(result.instance_storage[0].key, "COUNTER");
+        assert_eq!(result.instance_storage[0].value, "42");
+        assert_eq!(result.instance_storage[1].key, "OWNER");
+        assert_eq!(
+            result.instance_storage[1].value,
+            Contract([3; 32]).to_string()
+        );
+        Ok(())
     }
 
     #[test]

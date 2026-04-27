@@ -22,13 +22,13 @@ anyhow   = "1.0"
 chrono   = { version = "0.4", features = ["serde"] }
 rand     = "0.8"
 ed25519-dalek = "2.1"
-ureq       = { version = "=2.7.1", features = ["json"] }
+ureq       = { version = "2.9", features = ["json"] }
 clap_complete  = "=4.4.10"
 dialoguer  = { version = "0.11", features = ["fuzzy-select", "password"] }
 aes-gcm = "0.10.3"
 argon2 = "0.5.3"
 stellar-strkey = "=0.0.9"
-stellar-xdr = { version = "22.0.0", features = ["serde"] }
+stellar-xdr = { version = "22", features = ["serde"] }
 base64     = "0.21"
 urlencoding = "2.1"
 indicatif = "0.17.7"

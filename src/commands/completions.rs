@@ -20,7 +20,7 @@ pub fn handle(shell: CompletionShell) -> Result<()> {
     let mut cmd = Cli::command();
     let shell = match shell {
         CompletionShell::Bash => Shell::Bash,
-        CompletionShell::Zsh  => Shell::Zsh,
+        CompletionShell::Zsh => Shell::Zsh,
         CompletionShell::Fish => Shell::Fish,
     };
     generate(shell, &mut cmd, "starforge", &mut io::stdout());

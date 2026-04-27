@@ -259,8 +259,6 @@ pub fn load() -> Result<Config> {
     if !path.exists() {
         return Ok(Config::default());
     }
-    let contents = fs::read_to_string(&path)
-        .with_context(|| format!("Failed to read config at {:?}", path))?;
     let mut config: Config = toml::from_str(&contents)
         .with_context(|| "Failed to parse config file")?;
     
@@ -278,6 +276,18 @@ pub fn load() -> Result<Config> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ed25519_dalek::SigningKey;
+    use rand::RngCore;
+    use stellar_strkey::ed25519::PublicKey as StellarPublicKey;
+
+    fn generate_valid_stellar_public_key() -> String {
+        let mut rng = rand::thread_rng();
+        let mut seed = [0u8; 32];
+        rng.fill_bytes(&mut seed);
+        let signing_key = SigningKey::from_bytes(&seed);
+        let verifying_key = signing_key.verifying_key();
+        StellarPublicKey(verifying_key.to_bytes()).to_string()
+    }
 
     #[test]
     fn test_valid_public_key() {
@@ -360,10 +370,8 @@ pub fn save(config: &Config) -> Result<()> {
         fs::create_dir_all(&dir)
             .with_context(|| format!("Failed to create config dir {:?}", dir))?;
     }
-    let contents = toml::to_string_pretty(config)
-        .with_context(|| "Failed to serialize config")?;
-    fs::write(config_path(), contents)
-        .with_context(|| "Failed to write config file")?;
+    let contents = toml::to_string_pretty(config).with_context(|| "Failed to serialize config")?;
+    fs::write(config_path(), contents).with_context(|| "Failed to write config file")?;
     Ok(())
 }
 
