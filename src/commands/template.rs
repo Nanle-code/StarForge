@@ -1,61 +1,46 @@
 use crate::utils::{print as p, templates};
 use anyhow::Result;
 use clap::Subcommand;
-use colored::*;
-use dialoguer::{Confirm, Input};
 use std::path::PathBuf;
 
 #[derive(Subcommand)]
 pub enum TemplateCommands {
-    /// Search for templates in the marketplace
     Search {
-        /// Search query (matches name, description, or tags)
         query: String,
-        /// Filter by tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
     },
-    /// List all available templates
     List,
-    /// Show details of a specific template
     Show {
-        /// Template name
         name: String,
     },
-    /// Publish a template to the local marketplace
     Publish {
-        /// Path to the template directory
         path: PathBuf,
-        /// Template name
         #[arg(long)]
         name: Option<String>,
-        /// Template description
         #[arg(long)]
         description: Option<String>,
-        /// Author name
         #[arg(long)]
         author: Option<String>,
-        /// Tags (comma-separated)
         #[arg(long)]
         tags: Option<String>,
-        /// Version
         #[arg(long, default_value = "1.0.0")]
         version: String,
     },
-    /// Remove a template from the local marketplace
     Remove {
-        /// Template name
         name: String,
     },
-    /// Initialize the template registry with example templates
     Init,
 }
 
 pub fn handle(cmd: TemplateCommands) -> Result<()> {
     match cmd {
-        TemplateCommands::Publish { path } => publish(path),
+        TemplateCommands::Publish { path, .. } => publish(path),
         TemplateCommands::List => list(),
-        TemplateCommands::Search { query } => search(query),
+        TemplateCommands::Search { query, tags } => search(query, tags),
+        TemplateCommands::Show { name } => show(name),
+        TemplateCommands::Remove { name } => remove(name),
+        TemplateCommands::Init => init(),
     }
 }
 
@@ -66,7 +51,7 @@ fn publish(path: PathBuf) -> Result<()> {
     p::success("Template registered successfully");
     p::kv_accent("Name", &template.name);
     p::kv("Version", &template.version);
-    p::kv("Source", &template.source);
+    p::kv("Source", &template.source.to_string());
     if !template.tags.is_empty() {
         p::kv("Tags", &template.tags.join(", "));
     }
@@ -88,7 +73,7 @@ fn list() -> Result<()> {
     for (i, template) in registry.templates.iter().enumerate() {
         println!("  {:>2}. {}@{}", i + 1, template.name, template.version);
         p::kv("Description", &template.description);
-        p::kv("Source", &template.source);
+        p::kv("Source", &template.source.to_string());
         if !template.tags.is_empty() {
             p::kv("Tags", &template.tags.join(", "));
         }
@@ -103,8 +88,16 @@ fn list() -> Result<()> {
     Ok(())
 }
 
-fn search(query: String) -> Result<()> {
-    let results = templates::search_templates(&query)?;
+fn search(query: String, tags: Option<String>) -> Result<()> {
+    let parsed_tags = tags.map(|value| {
+        value
+            .split(',')
+            .map(|item| item.trim().to_string())
+            .filter(|item| !item.is_empty())
+            .collect::<Vec<_>>()
+    });
+
+    let results = templates::search_templates(&query, parsed_tags.as_deref())?;
     p::header(&format!("Template search results for '{}'", query));
     if results.is_empty() {
         p::info("No templates matched that query.");
@@ -114,7 +107,7 @@ fn search(query: String) -> Result<()> {
     for (i, template) in results.iter().enumerate() {
         println!("  {:>2}. {}@{}", i + 1, template.name, template.version);
         p::kv("Description", &template.description);
-        p::kv("Source", &template.source);
+        p::kv("Source", &template.source.to_string());
         if !template.tags.is_empty() {
             p::kv("Tags", &template.tags.join(", "));
         }
@@ -123,5 +116,35 @@ fn search(query: String) -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+fn show(name: String) -> Result<()> {
+    let template = templates::get_template(&name)?;
+    p::header(&format!("Template: {}", template.name));
+    p::kv("Version", &template.version);
+    p::kv("Description", &template.description);
+    p::kv("Author", &template.author);
+    p::kv("Source", &template.source.to_string());
+    p::kv("Verified", if template.verified { "yes" } else { "no" });
+    p::kv("Downloads", &template.downloads.to_string());
+    if !template.tags.is_empty() {
+        p::kv("Tags", &template.tags.join(", "));
+    }
+    if let Some(path) = template.path.as_ref() {
+        p::kv("Path", path);
+    }
+    Ok(())
+}
+
+fn remove(name: String) -> Result<()> {
+    templates::remove_template(&name)?;
+    p::success(&format!("Removed template '{}'", name));
+    Ok(())
+}
+
+fn init() -> Result<()> {
+    templates::initialize_registry()?;
+    p::success("Template registry initialized");
     Ok(())
 }
