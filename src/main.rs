@@ -8,87 +8,55 @@ use colored::*;
 #[derive(Parser)]
 #[command(
     name = "starforge",
-    about = "⚡ Stellar & Soroban developer productivity CLI",
-    long_about = "starforge is an open-source CLI toolkit for developers building on the Stellar network.\nManage wallets, deploy Soroban contracts, and scaffold new projects — all from your terminal.",
+    about = "âš¡ Stellar & Soroban developer productivity CLI",
+    long_about = "starforge is an open-source CLI toolkit for developers building on the Stellar network.\nManage wallets, deploy Soroban contracts, and scaffold new projects â€” all from your terminal.",
     version = "0.1.0"
 )]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
 
-    /// Suppress the ASCII banner and decorative output
     #[arg(long, short = 'q', global = true)]
     quiet: bool,
 
-    /// Log output format: human (default) or json
     #[arg(long, global = true, default_value = "human", value_parser = ["human", "json"])]
     log_format: String,
 
-    /// Directory to write rotating log files into (optional)
     #[arg(long, global = true)]
     log_dir: Option<std::path::PathBuf>,
 }
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Manage test wallets (create, list, fund, show, remove)
     #[command(subcommand)]
     Wallet(commands::wallet::WalletCommands),
-    /// Generate Soroban project boilerplate
     #[command(subcommand)]
     New(commands::new::NewCommands),
-    /// Contract operations (invoke, inspect, etc.)
     #[command(subcommand)]
     Contract(commands::contract::ContractCommands),
-    /// Deep contract storage inspection (state, key, storage)
     #[command(subcommand)]
     Inspect(commands::inspect::InspectCommands),
-    /// Deploy a compiled Soroban contract (.wasm)
     Deploy(commands::deploy::DeployArgs),
-    /// Show starforge config and environment info
     Info,
-
-    Tx(commands::tx::TxArgs), // fetch transaction for the account
-
-    /// View or switch the active network (testnet/mainnet)
+    Tx(commands::tx::TxArgs),
     #[command(subcommand)]
     Network(commands::network::NetworkCommands),
-    /// Generate shell completions for bash, zsh, and fish
     #[command(subcommand)]
     Completions(commands::completions::CompletionShell),
-
-    /// Interactive REPL for local Soroban contract testing
     Shell(commands::shell::ShellArgs),
-
-    /// Live monitoring (contract events or wallet threshold)
     Monitor(commands::monitor::MonitorArgs),
-
-    /// Interactive CLI tutorials
     #[command(subcommand)]
     Tutorial(commands::tutorial::TutorialCommands),
-
-    /// Performance benchmarking utilities
     Benchmark(commands::benchmark::BenchmarkArgs),
-
-    /// Contract testing utilities for Soroban wasm
     Test(commands::test::TestArgs),
-
-    /// Gas analysis and optimization helpers
     #[command(subcommand)]
     Gas(commands::gas::GasCommands),
-
-    /// Manage third-party plugins
     #[command(subcommand)]
     Plugin(commands::plugin::PluginCommands),
-    /// Manage community contract templates
     #[command(subcommand)]
     Template(commands::template::TemplateCommands),
-
-    /// Contract upgrade management (propose, approve, execute, rollback)
     #[command(subcommand)]
     Upgrade(commands::upgrade::UpgradeCommands),
-
-    /// Execute an installed plugin command (e.g. `starforge defi ...`)
     #[command(external_subcommand)]
     External(Vec<String>),
 }
@@ -96,7 +64,6 @@ enum Commands {
 fn main() {
     let cli = Cli::parse();
 
-    // Initialise structured logging before anything else runs.
     let log_cfg =
         utils::logging::config_from_env(Some(cli.log_format.as_str()), cli.log_dir.clone());
     if let Err(e) = utils::logging::init(log_cfg) {
@@ -125,6 +92,7 @@ fn main() {
         Commands::Gas(_) => "gas",
         Commands::Plugin(_) => "plugin",
         Commands::Template(_) => "template",
+        Commands::Upgrade(_) => "upgrade",
         Commands::External(_) => "external",
     }
     .to_string();
@@ -148,6 +116,7 @@ fn main() {
         Commands::Gas(args) => commands::gas::handle(args),
         Commands::Plugin(args) => commands::plugin::handle(args),
         Commands::Template(args) => commands::template::handle(args),
+        Commands::Upgrade(args) => commands::upgrade::handle(args),
         Commands::External(args) => handle_external_plugin(args),
     };
     let duration = start.elapsed();
@@ -161,7 +130,7 @@ fn main() {
     );
 
     if let Err(e) = result {
-        eprintln!("\n  {} {}\n", "✗ Error:".red().bold(), e);
+        eprintln!("\n  {} {}\n", "âœ— Error:".red().bold(), e);
         std::process::exit(1);
     }
 }
@@ -199,12 +168,13 @@ fn handle_external_plugin(args: Vec<String>) -> anyhow::Result<()> {
 fn print_banner() {
     println!(
         "{}",
-        "\n  ███████╗████████╗ █████╗ ██████╗ ███████╗ ██████╗ ██████╗  ██████╗ ███████╗\n  ██╔════╝╚══██╔══╝██╔══██╗██╔══██╗██╔════╝██╔═══██╗██╔══██╗██╔════╝ ██╔════╝\n  ███████╗   ██║   ███████║██████╔╝█████╗  ██║   ██║██████╔╝██║  ███╗█████╗  \n  ╚════██║   ██║   ██╔══██║██╔══██╗██╔══╝  ██║   ██║██╔══██╗██║   ██║██╔══╝  \n  ███████║   ██║   ██║  ██║██║  ██║██║     ╚██████╔╝██║  ██║╚██████╔╝███████╗\n  ╚══════╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝      ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝\n"
-        .cyan().bold()
+        "\n  â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•— â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•— â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•— â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•— â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•— â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—  â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•— â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—\n  â–ˆâ–ˆâ•”â•â•â•â•â•â•šâ•â•â–ˆâ–ˆâ•”â•â•â•â–ˆâ–ˆâ•”â•â•â–ˆâ–ˆâ•—â–ˆâ–ˆâ•”â•â•â–ˆâ–ˆâ•—â–ˆâ–ˆâ•”â•â•â•â•â•â–ˆâ–ˆâ•”â•â•â•â–ˆâ–ˆâ•—â–ˆâ–ˆâ•”â•â•â–ˆâ–ˆâ•—â–ˆâ–ˆâ•”â•â•â•â•â• â–ˆâ–ˆâ•”â•â•â•â•â•\n  â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—   â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•‘â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•”â•â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—  â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ•‘â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•”â•â–ˆâ–ˆâ•‘  â–ˆâ–ˆâ–ˆâ•—â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—  \n  â•šâ•â•â•â•â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ•”â•â•â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•”â•â•â–ˆâ–ˆâ•—â–ˆâ–ˆâ•”â•â•â•  â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•”â•â•â–ˆâ–ˆâ•—â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•”â•â•â•  \n  â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•‘   â–ˆâ–ˆâ•‘   â–ˆâ–ˆâ•‘  â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•‘  â–ˆâ–ˆâ•‘â–ˆâ–ˆâ•‘     â•šâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•”â•â–ˆâ–ˆâ•‘  â–ˆâ–ˆâ•‘â•šâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•”â•â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ•—\n  â•šâ•â•â•â•â•â•â•   â•šâ•â•   â•šâ•â•  â•šâ•â•â•šâ•â•  â•šâ•â•â•šâ•â•      â•šâ•â•â•â•â•â• â•šâ•â•  â•šâ•â• â•šâ•â•â•â•â•â• â•šâ•â•â•â•â•â•â•\n"
+            .cyan()
+            .bold()
     );
     println!(
         "  {} {}\n",
-        "⚡ Stellar & Soroban Developer CLI".bright_white(),
+        "âš¡ Stellar & Soroban Developer CLI".bright_white(),
         "v0.1.0".dimmed()
     );
 }
