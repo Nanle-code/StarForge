@@ -1,5 +1,5 @@
 use crate::plugins::manifest;
-use crate::utils::config::{self, Config};
+use crate::utils::config::Config;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -393,6 +393,24 @@ pub fn load_all_registered_commands() -> Vec<RegisteredCommand> {
         .into_iter()
         .flat_map(|p| p.commands)
         .collect()
+}
+
+/// Return installed plugin command names in deterministic, machine-readable order.
+pub fn load_registered_command_names() -> Vec<String> {
+    let mut names: Vec<String> = load_all_registered_commands()
+        .into_iter()
+        .filter_map(|cmd| {
+            let name = cmd.name.trim();
+            if name.is_empty() {
+                None
+            } else {
+                Some(name.to_string())
+            }
+        })
+        .collect();
+    names.sort();
+    names.dedup();
+    names
 }
 
 /// Remove a plugin from the registry and optionally delete its library file.

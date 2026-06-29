@@ -291,7 +291,8 @@ async fn handle_invoke(args: InvokeArgs) -> Result<()> {
         &arg_types,
         &args.network,
         submit_wallet.as_ref(),
-    ).await?;
+    )
+    .await?;
 
     let simulation_result = outcome.simulation;
     p::kv_accent("Simulation", "✓ Success");

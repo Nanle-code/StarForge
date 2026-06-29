@@ -4,6 +4,14 @@ on:
   push:
   pull_request:
 
+# Harden against transient crates.io download failures on the runners
+# (e.g. "curl failed [55] ... SSL_ERROR_SYSCALL"). Disabling HTTP/2 multiplexing
+# and raising the retry count is the standard mitigation for that error.
+env:
+  CARGO_NET_RETRY: "10"
+  CARGO_HTTP_MULTIPLEXING: "false"
+  CARGO_TERM_COLOR: always
+
 jobs:
   fmt:
     name: Rustfmt

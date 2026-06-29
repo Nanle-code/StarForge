@@ -298,7 +298,8 @@ async fn handle_prepare(args: PrepareArgs) -> Result<()> {
     let wallet = cfg.wallets.first().ok_or_else(|| {
         anyhow::anyhow!("No wallets found. Create one with `starforge wallet create`")
     })?;
-    horizon::fetch_account(&wallet.public_key, &args.network).await
+    horizon::fetch_account(&wallet.public_key, &args.network)
+        .await
         .map_err(|e| anyhow::anyhow!("Account not active on {}: {}", args.network, e))?;
 
     p::step(3, 3, "Generating upgrade command…");
@@ -591,7 +592,8 @@ async fn handle_execute(args: ExecuteArgs) -> Result<()> {
 
     println!();
     p::step(1, 2, "Verifying account on-chain…");
-    horizon::fetch_account(&wallet.public_key, &args.network).await
+    horizon::fetch_account(&wallet.public_key, &args.network)
+        .await
         .map_err(|e| anyhow::anyhow!("Account not active on {}: {}", args.network, e))?;
 
     p::step(2, 2, "Generating upgrade command…");

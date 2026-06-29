@@ -20,6 +20,9 @@ ignore = [
     "RUSTSEC-2026-0104",
     # number_prefix unmaintained; pulled in via indicatif. No safe upgrade.
     "RUSTSEC-2025-0119",
+    # rustls-pemfile unmaintained; pulled in transitively via reqwest's rustls-tls.
+    # Functionality moved into rustls-pki-types; no upgrade path on reqwest 0.11.
+    "RUSTSEC-2025-0134",
 ]
 
 [licenses]

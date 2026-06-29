@@ -327,7 +327,8 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
             wasm_size_kb,
             wallet,
             &args.network,
-        ).await;
+        )
+        .await;
     }
 
     if args.simulate {
@@ -388,15 +389,17 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
     let pb = p::progress_bar(3, "Starting deployment steps...");
 
     pb.set_message("Verifying account on-chain...");
-    let account = horizon::fetch_account(&wallet.public_key, &args.network).await.map_err(|e| {
-        pb.abandon();
-        anyhow::anyhow!(
-            "Account not active on {}: {}\nFund it with: starforge wallet fund {}",
-            args.network,
-            e,
-            wallet.name
-        )
-    })?;
+    let account = horizon::fetch_account(&wallet.public_key, &args.network)
+        .await
+        .map_err(|e| {
+            pb.abandon();
+            anyhow::anyhow!(
+                "Account not active on {}: {}\nFund it with: starforge wallet fund {}",
+                args.network,
+                e,
+                wallet.name
+            )
+        })?;
 
     let xlm = account
         .balances

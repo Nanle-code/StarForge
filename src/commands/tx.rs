@@ -160,8 +160,9 @@ async fn handle_batch(args: BatchArgs) -> Result<()> {
 
     println!();
     p::step(1, 2, "Fetching source account info…");
-    let source_account =
-        horizon::fetch_account(&wallet.public_key, &args.network).await.map_err(|e| {
+    let source_account = horizon::fetch_account(&wallet.public_key, &args.network)
+        .await
+        .map_err(|e| {
             anyhow::anyhow!(
                 "Source account not found on {}: {}\nFund it with: starforge wallet fund {}",
                 args.network,
@@ -249,11 +250,9 @@ async fn handle_batch(args: BatchArgs) -> Result<()> {
     }
 
     p::info("Submitting batch transaction…");
-    let submit_result = horizon::submit_payment_transaction(
-        &tx_result.transaction_xdr,
-        &secret_key,
-        &args.network,
-    ).await?;
+    let submit_result =
+        horizon::submit_payment_transaction(&tx_result.transaction_xdr, &secret_key, &args.network)
+            .await?;
 
     println!();
     p::separator();
@@ -342,8 +341,9 @@ async fn handle_send(args: SendArgs) -> Result<()> {
     // Step 1: Fetch source account info
     println!();
     p::step(1, 3, "Fetching source account info…");
-    let source_account =
-        horizon::fetch_account(&wallet.public_key, &args.network).await.map_err(|e| {
+    let source_account = horizon::fetch_account(&wallet.public_key, &args.network)
+        .await
+        .map_err(|e| {
             anyhow::anyhow!(
                 "Source account not found on {}: {}\nFund it with: starforge wallet fund {}",
                 args.network,
@@ -463,11 +463,9 @@ async fn handle_send(args: SendArgs) -> Result<()> {
     }
 
     p::info("Submitting transaction…");
-    let submit_result = horizon::submit_payment_transaction(
-        &tx_result.transaction_xdr,
-        &secret_key,
-        &args.network,
-    ).await?;
+    let submit_result =
+        horizon::submit_payment_transaction(&tx_result.transaction_xdr, &secret_key, &args.network)
+            .await?;
 
     println!();
     p::separator();

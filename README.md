@@ -6,7 +6,6 @@
 ![Language: Rust](https://img.shields.io/badge/Language-Rust-orange.svg)
 ![Network: Stellar](https://img.shields.io/badge/Network-Stellar-blue.svg)
 ![Status: Active](https://img.shields.io/badge/Status-Active-green.svg)
-![Stellar Wave](https://img.shields.io/badge/Stellar-Wave%20Program-blueviolet.svg)
 
 ---
 
@@ -16,7 +15,7 @@
 
 Think of it as the "Hardhat or Foundry" experience for the Stellar ecosystem, built in Rust for speed and reliability.
 
-This project is actively maintained and participates in the [Stellar Wave Program](https://www.drips.network/wave/stellar) on Drips â€” a monthly open-source contribution sprint where contributors earn rewards for merged pull requests.
+This project is actively maintained and open to community contributions.
 
 ---
 
@@ -162,7 +161,28 @@ starforge config get network
 # Set a configuration value
 starforge config set telemetry false
 starforge config set network mainnet
+
+# Migrate an older config file to the latest schema version
+starforge config migrate --dry-run   # preview the changes without writing
+starforge config migrate             # apply migrations (backs up config.toml.bak first)
 ```
+
+#### Config schema migrations
+
+StarForge versions its config file (`~/.starforge/config.toml`) with a `version`
+field. When the CLI is upgraded and the config schema changes, the file is read
+into a schema-agnostic value, its version is detected, and a sequence of
+migrations (`v1 → v2 → …`) reshapes it **before** it is deserialized into the
+current `Config`. This prevents the most dangerous class of upgrade bug —
+silently dropping wallet entries when a field is renamed or restructured.
+
+- A backup (`config.toml.bak`) is written before any migration overwrites the
+  file, plus a timestamped copy for recoverability.
+- `starforge config migrate --dry-run` shows exactly what would change without
+  modifying anything.
+- Reads (`config show`, telemetry, etc.) migrate in memory only and never
+  rewrite the file; persistence happens on an explicit `config migrate` or the
+  next `save`.
 
 Common settings:
 - **telemetry**: Enable/disable anonymous usage telemetry (`true` or `false`)
@@ -410,7 +430,7 @@ export STARFORGE_TELEMETRY=0
 
 **What's NOT collected**: Wallet addresses, secret keys, contract code, configuration values, error messages, or personal information.
 
-For detailed information, see [TELEMETRY_PRIVACY.md](./TELEMETRY_PRIVACY.md).
+See [Privacy & Telemetry](#privacy--telemetry) for opt-out options.
 
 ---
 
@@ -427,35 +447,21 @@ All templates include a working test suite and a README with build/deploy instru
 
 ## Contributing
 
-We welcome contributions from developers of all experience levels! Whether you're fixing a bug, adding a feature, or improving documentation, your work helps the Stellar ecosystem.
-
-**New contributor?** Start here: [CONTRIBUTING.md](CONTRIBUTING.md) has everything you need to get set up and submit your first PR.
-
-**Need a quick reference?** Check out [CONTRIBUTOR_QUICK_REFERENCE.md](CONTRIBUTOR_QUICK_REFERENCE.md) for common commands and patterns.
-
-### Key Contribution Resources
-
-| Resource | What it covers |
-|----------|---|
-| [CONTRIBUTING.md](CONTRIBUTING.md) | **Full contributor guide** — setup, building, testing, PR process |
-| [CONTRIBUTOR_QUICK_REFERENCE.md](CONTRIBUTOR_QUICK_REFERENCE.md) | **Quick lookup** — common commands, project structure, troubleshooting |
-| [CI_ENFORCEMENT.md](CI_ENFORCEMENT.md) | **CI pipeline** — formatting, linting, security, and test requirements |
-| [CODE_STYLE_STANDARDS.md](CODE_STYLE_STANDARDS.md) | **Code style** — naming, documentation, linting rules, IDE setup |
-| [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) | **Deep dive** — architecture, adding features, release process |
+We welcome contributions from developers of all experience levels!
 
 ### Quick Start
 
 1. Fork and clone the repository
-2. Follow [CONTRIBUTING.md](CONTRIBUTING.md) to set up Rust and the project
-3. Create a branch: `git checkout -b feat/issue-XXX-description`
-4. Make your changes and run `cargo test`
-5. Push and open a Pull Request with a clear description
-
-### Rewards
-
-This project participates in the **[Stellar Wave Program](https://www.drips.network/wave/stellar)** on Drips. Contributors who resolve issues during an active Wave earn Points that translate to real USDC rewards.
-
-**Read the [Terms & Rules](https://docs.drips.network/wave/terms-and-rules) before contributing.**
+2. Install Rust 1.80+ via [rustup](https://rustup.rs)
+3. Build and test: `cargo build && cargo test --locked`
+4. Create a branch: `git checkout -b feat/issue-XXX-description`
+5. Before pushing, run:
+   ```bash
+   cargo fmt --all
+   cargo clippy --all-targets --all-features --locked -- -D warnings
+   cargo test --locked
+   ```
+6. Push and open a Pull Request with a clear description
 
 ---
 ## License
@@ -467,42 +473,4 @@ MIT Â© 2025 â€” See [LICENSE](./LICENSE) for details.
 ## Acknowledgements
 
 Built for the Stellar ecosystem.
-Participates in the [Stellar Wave Program](https://www.drips.network/wave/stellar) via [Drips](https://www.drips.network).
 Powered by the [Stellar Horizon API](https://developers.stellar.org/api/horizon) and [Soroban](https://soroban.stellar.org).
-
----
-
-## Documentation
-
-StarForge has comprehensive documentation covering all aspects of the project:
-
-### ?? Core Documentation
-- **[README.md](README.md)** - This file, quick start and overview
-- **[Documentation.md](Documentation.md)** - Extended documentation with architecture overview
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Complete system architecture and design
-- **[DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md)** - Contributing and development guide
-- **[API_REFERENCE.md](API_REFERENCE.md)** - Complete command reference
-- **[docs/COMMAND_REFERENCE.md](docs/COMMAND_REFERENCE.md)** - Navigable CLI command index
-
-### ?? Feature Documentation
-- **[TEMPLATE_MARKETPLACE.md](TEMPLATE_MARKETPLACE.md)** - Template marketplace feature
-- **[QUICK_START_TEMPLATES.md](QUICK_START_TEMPLATES.md)** - Template quick start guide
-
-### ?? Navigation
-- **[DOCUMENTATION_INDEX.md](DOCUMENTATION_INDEX.md)** - Complete documentation index
-- **[DOCUMENTATION_SUMMARY.md](DOCUMENTATION_SUMMARY.md)** - Documentation overview
-
-### ?? Examples
-- **[examples/template_marketplace_usage.md](examples/template_marketplace_usage.md)** - Practical examples
-- **[tutorials/hello-world/](tutorials/hello-world/)** - Beginner tutorial
-
-**Total**: 17 documentation files with 7,700+ lines covering architecture, development, API reference, and examples.
-
-For a complete overview, see [DOCUMENTATION_INDEX.md](DOCUMENTATION_INDEX.md).
-
-
-# Remove a template
-starforge template remove my-template
-
-# Remove template + delete all local files
-starforge template remove my-template --purge

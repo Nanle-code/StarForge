@@ -33,6 +33,14 @@ pub struct TestArgs {
     #[arg(long)]
     pub report: Option<String>,
 
+    /// Regenerate all stored snapshots instead of comparing against them
+    #[arg(long)]
+    pub update_snapshots: bool,
+
+    /// Fuzz the named contract function with random ScVal inputs
+    #[arg(long, value_name = "FUNCTION_NAME")]
+    pub fuzz: Option<String>,
+
     /// Path to contract source directory for test generation
     #[arg(long)]
     pub contract_path: Option<PathBuf>,
@@ -55,11 +63,12 @@ pub async fn handle(args: TestArgs) -> Result<()> {
     if let Some(r) = &args.report {
         p::kv("Report", r);
     }
-    p::kv("Generate tests", if args.generate { "yes" } else { "no" });
-    p::kv(
-        "Parallel execution",
-        if args.parallel { "yes" } else { "no" },
-    );
+    if args.update_snapshots {
+        p::kv("Snapshots", "update mode");
+    }
+    if let Some(fn_name) = &args.fuzz {
+        p::kv("Fuzz target", fn_name);
+    }
     if args.parallel {
         p::kv("Workers", &args.workers.to_string());
     }
@@ -158,6 +167,8 @@ pub async fn handle(args: TestArgs) -> Result<()> {
         test_runner::TestOptions {
             coverage: args.coverage,
             report_format: args.report.clone(),
+            update_snapshots: args.update_snapshots,
+            fuzz_function: args.fuzz.clone(),
             parallel: args.parallel,
             generate: args.generate,
             source: args.source.clone(),
@@ -171,6 +182,10 @@ pub async fn handle(args: TestArgs) -> Result<()> {
     p::kv("Wasm bytes", &result.size_bytes.to_string());
     p::kv("Cases executed", &result.cases_executed.to_string());
     p::kv("Failures", &result.failures.to_string());
+    p::kv(
+        "Snapshot",
+        &format!("{:?}", result.snapshot_status).to_lowercase(),
+    );
     p::kv("Generated cases", &result.generated_cases.len().to_string());
 
     if let Some(cov) = &result.coverage {

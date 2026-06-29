@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+
 use crate::utils::config;
 use anyhow::{Context, Result};
 use once_cell::sync::Lazy;
@@ -275,6 +277,44 @@ pub struct TransactionSubmitResult {
 struct HorizonError {
     pub title: String,
     pub detail: Option<String>,
+    pub extras: Option<HorizonErrorExtras>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HorizonErrorExtras {
+    pub result_codes: Option<HorizonResultCodes>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HorizonResultCodes {
+    pub transaction: Option<String>,
+    pub operations: Option<Vec<String>>,
+}
+
+fn format_horizon_error_body(body: &str) -> Option<String> {
+    let horizon_error = serde_json::from_str::<HorizonError>(body).ok()?;
+    let mut parts = vec![horizon_error.title];
+
+    if let Some(detail) = horizon_error.detail.filter(|detail| !detail.is_empty()) {
+        parts.push(detail);
+    }
+
+    if let Some(result_codes) = horizon_error.extras.and_then(|extras| extras.result_codes) {
+        let mut codes = Vec::new();
+        if let Some(transaction) = result_codes.transaction {
+            codes.push(format!("transaction={transaction}"));
+        }
+        if let Some(operations) = result_codes.operations {
+            if !operations.is_empty() {
+                codes.push(format!("operations={}", operations.join(",")));
+            }
+        }
+        if !codes.is_empty() {
+            parts.push(format!("result_codes: {}", codes.join("; ")));
+        }
+    }
+
+    Some(parts.join(" - "))
 }
 
 #[derive(Debug, Clone)]
@@ -434,11 +474,8 @@ pub async fn submit_multisig_transaction(
             .await
             .unwrap_or_else(|_| "Unknown error".to_string());
 
-        if let Ok(horizon_error) = serde_json::from_str::<HorizonError>(&error_text) {
-            let detail = horizon_error
-                .detail
-                .unwrap_or_else(|| "No additional details".to_string());
-            anyhow::bail!("Transaction failed: {} - {}", horizon_error.title, detail);
+        if let Some(detail) = format_horizon_error_body(&error_text) {
+            anyhow::bail!("Transaction failed: {}", detail);
         } else {
             anyhow::bail!("Transaction failed with status {}: {}", status, error_text);
         }

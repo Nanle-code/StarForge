@@ -1,3 +1,4 @@
+use crate::utils::preflight;
 use crate::utils::print as p;
 use crate::utils::templates;
 use anyhow::{Context, Result};
@@ -100,7 +101,7 @@ fn search_templates(query: &str) -> Result<()> {
     Ok(())
 }
 
-// ── Interactive mode ──────────────────────────────────────────────────────────
+// ?? Interactive mode ??????????????????????????????????????????????????????????
 
 struct ContractOptions {
     name: String,
@@ -114,7 +115,7 @@ fn scaffold_contract_interactive(default_name: String) -> Result<()> {
     let theme = ColorfulTheme::default();
 
     println!();
-    println!("  {} Let's set up your contract.\n", "✦".cyan());
+    println!("  {} Let's set up your contract.\n", "?".cyan());
 
     // 1. Contract name
     let name: String = Input::with_theme(&theme)
@@ -162,7 +163,7 @@ fn scaffold_contract_interactive(default_name: String) -> Result<()> {
 
     // Summary + confirm
     println!();
-    println!("  {} Summary:", "◆".bright_white());
+    println!("  {} Summary:", "?".bright_white());
     println!("    Contract name : {}", opts.name.cyan());
     println!("    Author        : {}", opts.author.cyan());
     println!("    License       : {}", opts.license.cyan());
@@ -183,7 +184,7 @@ fn scaffold_contract_interactive(default_name: String) -> Result<()> {
         .interact()?;
 
     if !confirmed {
-        println!("\n  {} Aborted — no files written.\n", "✗".red());
+        println!("\n  {} Aborted - no files written.\n", "?".red());
         return Ok(());
     }
 
@@ -212,13 +213,25 @@ fn scaffold_contract(
     let dir = Path::new(&name);
     if dir.exists() {
         anyhow::bail!(
-            "Directory '{}' already exists.\n  • Choose a different project name, or remove the existing directory first.",
+            "Directory '{}' already exists.\n  . Choose a different project name, or remove the existing directory first.",
             name
         );
     }
 
     p::header(&format!("Scaffolding Soroban contract: {}", name));
     println!("  Template: {}\n", template.cyan());
+
+    let preflight = preflight::run_contract_preflight(false)?;
+    p::success(&format!(
+        "Rust toolchain ready: cargo {}, wasm32 target installed",
+        preflight.cargo_version
+    ));
+    if !preflight.stellar_cli_available {
+        p::warn(
+            "`stellar` CLI was not found. The contract can be scaffolded now, but install Stellar CLI before building or deploying.",
+        );
+    }
+
     // Ensure selected template is compatible with current CLI version
     let entry = templates::get_template(&template)?;
     match templates::check_template_compatibility(&entry) {
@@ -255,16 +268,16 @@ fn scaffold_contract(
     // Roll back the partially-created directory if any step below fails.
     let mut target_guard = PathCleanup::new(dir.to_path_buf());
 
-    p::step(1, 4, "Creating directory structure…");
+    p::step(1, 4, "Creating directory structure.");
     fs::create_dir_all(dir.join("src"))?;
     fs::create_dir_all(dir.join(".cargo"))?;
 
-    p::step(2, 4, "Writing Cargo.toml…");
+    p::step(2, 4, "Writing Cargo.toml.");
     fs::write(dir.join("Cargo.toml"), cargo_toml(&name, license, author))?;
     fs::write(dir.join(".cargo/config.toml"), cargo_config())?;
     fs::write(dir.join(".gitignore"), "target/\n.soroban/\n")?;
 
-    p::step(3, 4, &format!("Generating '{}' contract source…", template));
+    p::step(3, 4, &format!("Generating '{}' contract source.", template));
     let src = match template.as_str() {
         "token" => token_template(&name),
         "voting" => voting_template(&name),
@@ -284,7 +297,7 @@ fn scaffold_contract(
     };
     fs::write(dir.join("src/lib.rs"), src)?;
 
-    p::step(4, 4, "Writing README.md…");
+    p::step(4, 4, "Writing README.md.");
     fs::write(dir.join("README.md"), readme(&name, &template, source))?;
 
     // Scaffolding completed: keep the directory.
@@ -312,14 +325,14 @@ fn scaffold_dapp(name: String) -> Result<()> {
 
     p::header(&format!("Scaffolding Stellar dApp: {}", name));
 
-    p::step(1, 3, "Creating project structure…");
+    p::step(1, 3, "Creating project structure.");
     fs::create_dir_all(dir.join("src/components"))?;
     fs::create_dir_all(dir.join("public"))?;
 
-    p::step(2, 3, "Writing package.json…");
+    p::step(2, 3, "Writing package.json.");
     fs::write(dir.join("package.json"), dapp_package(&name))?;
 
-    p::step(3, 3, "Writing app scaffold…");
+    p::step(3, 3, "Writing app scaffold.");
     fs::write(dir.join("index.html"), dapp_index(&name))?;
     fs::write(dir.join("src/main.jsx"), dapp_main())?;
     fs::write(dir.join("src/App.jsx"), dapp_app(&name))?;
@@ -333,7 +346,7 @@ fn scaffold_dapp(name: String) -> Result<()> {
     Ok(())
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ?? Helpers ??????????????????????????????????????????????????????????????????
 
 fn to_pascal(s: &str) -> String {
     s.split(['-', '_', ' '])
@@ -347,7 +360,7 @@ fn to_pascal(s: &str) -> String {
         .collect()
 }
 
-// ── Cargo files ──────────────────────────────────────────────────────────────
+// ?? Cargo files ??????????????????????????????????????????????????????????????
 
 fn cargo_toml(name: &str, license: &str, author: &str) -> String {
     let license_field = if license == "None" || license.is_empty() {
@@ -394,7 +407,7 @@ rustflags = ["-C", "target-feature=+multivalue,+sign-ext"]
 "#
 }
 
-// ── Contract templates ────────────────────────────────────────────────────────
+// ?? Contract templates ????????????????????????????????????????????????????????
 
 fn hello_world_template(name: &str, storage: &str, include_tests: bool) -> String {
     let pascal = to_pascal(name);
@@ -821,7 +834,7 @@ mod test {{
     )
 }
 
-// ── dApp scaffold files ───────────────────────────────────────────────────────
+// ?? dApp scaffold files ???????????????????????????????????????????????????????
 
 fn dapp_package(name: &str) -> String {
     format!(
@@ -900,7 +913,7 @@ fn dapp_app(name: &str) -> String {
 export default function App() {{
   return (
     <div style={{{{ fontFamily: 'monospace', padding: '2rem' }}}}>
-      <h1>⚡ {name}</h1>
+      <h1>? {name}</h1>
       <p>Your Stellar dApp is ready. Start building!</p>
     </div>
   )
@@ -962,10 +975,10 @@ Source: `{source}`
     )
 }
 
-// ── Template Marketplace ──────────────────────────────────────────────────────
+// ?? Template Marketplace ??????????????????????????????????????????????????????
 
 fn handle_template_search(query: &str, tags: Option<&str>) -> Result<()> {
-    p::header("Template Marketplace — Search");
+    p::header("Template Marketplace - Search");
     p::kv("Query", query);
 
     let tag_list = tags.map(|t| {
@@ -994,14 +1007,14 @@ fn handle_template_search(query: &str, tags: Option<&str>) -> Result<()> {
 
     for (i, tmpl) in results.iter().enumerate() {
         let verified = if tmpl.verified {
-            " ✓".green()
+            " ?".green()
         } else {
             "".normal()
         };
         println!("  {}. {}{}", i + 1, tmpl.name.cyan().bold(), verified);
         println!("     {}", tmpl.description.dimmed());
         println!(
-            "     {} • {} • {} downloads",
+            "     {} . {} . {} downloads",
             tmpl.version.yellow(),
             tmpl.author.dimmed(),
             tmpl.downloads
@@ -1074,7 +1087,7 @@ fn install_step<T>(
     let pb = p::spinner(label);
     match action() {
         Ok(value) => {
-            pb.finish_with_message(format!("✓ {}", done));
+            pb.finish_with_message(format!("? {}", done));
             Ok(value)
         }
         Err(e) => {
@@ -1090,7 +1103,7 @@ fn scaffold_from_marketplace(name: String, template_name: String) -> Result<()> 
     // Get template from registry
     let template = templates::get_template(&template_name).with_context(|| {
         format!(
-            "Template '{}' not found in the registry.\n  • List templates with `starforge template list`.\n  • Search with `starforge new contract --search {}`.",
+            "Template '{}' not found in the registry.\n  . List templates with `starforge template list`.\n  . Search with `starforge new contract --search {}`.",
             template_name, template_name
         )
     })?;
@@ -1098,7 +1111,7 @@ fn scaffold_from_marketplace(name: String, template_name: String) -> Result<()> 
     let dir = Path::new(&name);
     if dir.exists() {
         anyhow::bail!(
-            "Directory '{}' already exists.\n  • Choose a different project name, or remove the existing directory first.",
+            "Directory '{}' already exists.\n  . Choose a different project name, or remove the existing directory first.",
             name
         );
     }
@@ -1121,19 +1134,19 @@ fn scaffold_from_marketplace(name: String, template_name: String) -> Result<()> 
     let mut target_guard = PathCleanup::new(dir.to_path_buf());
 
     install_step(
-        &format!("[1/3] Fetching template '{}'…", template.name),
+        &format!("[1/3] Fetching template '{}'.", template.name),
         &format!("Fetched template '{}'", template.name),
         || templates::fetch_template(&template, &temp_dir),
         || {
             format!(
-                "Failed to fetch template '{}' from {}.\n  • Check your network connection and that `git` is installed.\n  • The partial download was rolled back automatically.",
+                "Failed to fetch template '{}' from {}.\n  . Check your network connection and that `git` is installed.\n  . The partial download was rolled back automatically.",
                 template.name, template.source
             )
         },
     )?;
 
     install_step(
-        "[2/3] Validating template structure…",
+        "[2/3] Validating template structure.",
         "Template structure is valid",
         || {
             templates::validate_template_structure(
@@ -1146,14 +1159,14 @@ fn scaffold_from_marketplace(name: String, template_name: String) -> Result<()> 
         },
         || {
             format!(
-                "Template '{}' is missing required files (expected Cargo.toml, src/ and src/lib.rs).\n  • The template may be malformed; contact its author or pick another.\n  • The partial install was rolled back automatically.",
+                "Template '{}' is missing required files (expected Cargo.toml, src/ and src/lib.rs).\n  . The template may be malformed; contact its author or pick another.\n  . The partial install was rolled back automatically.",
                 template.name
             )
         },
     )?;
 
     install_step(
-        "[3/3] Installing into project directory…",
+        "[3/3] Installing into project directory.",
         &format!("Installed into '{}'", name),
         || {
             fs::create_dir_all(dir).with_context(|| {
@@ -1163,7 +1176,7 @@ fn scaffold_from_marketplace(name: String, template_name: String) -> Result<()> 
         },
         || {
             format!(
-                "Failed to install template into '{}'.\n  • Check that you have write permission for this location and enough disk space.\n  • The half-written project directory was rolled back automatically.",
+                "Failed to install template into '{}'.\n  . Check that you have write permission for this location and enough disk space.\n  . The half-written project directory was rolled back automatically.",
                 name
             )
         },

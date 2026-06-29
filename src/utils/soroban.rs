@@ -95,14 +95,9 @@ pub async fn invoke_contract(
 ) -> Result<InvokeOutcome> {
     let simulation = simulate_transaction(contract_id, function, args, arg_types, network).await?;
     let transaction = match wallet {
-        Some(w) => Some(submit_transaction(
-            contract_id,
-            function,
-            args,
-            arg_types,
-            network,
-            w,
-        ).await?),
+        Some(w) => {
+            Some(submit_transaction(contract_id, function, args, arg_types, network, w).await?)
+        }
         None => None,
     };
     Ok(InvokeOutcome {
@@ -134,8 +129,9 @@ pub async fn simulate_transaction(
     };
 
     // Make the RPC call
-    let result: serde_json::Value =
-        rpc_request_with_url(&rpc_url, request).await.context("Simulation request failed")?;
+    let result: serde_json::Value = rpc_request_with_url(&rpc_url, request)
+        .await
+        .context("Simulation request failed")?;
 
     // Parse the simulation result
     let return_value = decode_return_value(&result)?;
@@ -165,8 +161,9 @@ pub async fn simulate_deploy_transaction(
         }),
     };
 
-    let result: serde_json::Value =
-        rpc_request_with_url(&rpc_url, request).await.context("Deploy simulation request failed")?;
+    let result: serde_json::Value = rpc_request_with_url(&rpc_url, request)
+        .await
+        .context("Deploy simulation request failed")?;
 
     Ok(SimulationResult {
         return_value: decode_return_value(&result)?,
@@ -204,8 +201,9 @@ pub async fn submit_transaction(
     };
 
     // Make the RPC call
-    let result: serde_json::Value =
-        rpc_request_with_url(&rpc_url, request).await.context("Transaction submission failed")?;
+    let result: serde_json::Value = rpc_request_with_url(&rpc_url, request)
+        .await
+        .context("Transaction submission failed")?;
 
     // Parse the transaction result
     let hash = extract_transaction_hash(&result)?;
@@ -263,7 +261,8 @@ pub async fn inspect_contract(contract_id: &str, network: &str) -> Result<Contra
         }),
     };
 
-    let response: GetLedgerEntriesResult = rpc_request_with_url(&get_rpc_url(network)?, request).await
+    let response: GetLedgerEntriesResult = rpc_request_with_url(&get_rpc_url(network)?, request)
+        .await
         .with_context(|| {
             format!(
                 "Failed to inspect contract '{}' on {}",

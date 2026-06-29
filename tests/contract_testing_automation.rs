@@ -54,6 +54,8 @@ fn parallel_test_runner_executes_cases() {
         TestOptions {
             coverage: false,
             report_format: Some("json".into()),
+            update_snapshots: false,
+            fuzz_function: None,
             parallel: true,
             generate: false,
             source: None,
@@ -82,6 +84,8 @@ fn generated_tests_include_auth_cases() {
         TestOptions {
             coverage: true,
             report_format: None,
+            update_snapshots: false,
+            fuzz_function: None,
             parallel: false,
             generate: true,
             source: Some(file.path().to_path_buf()),

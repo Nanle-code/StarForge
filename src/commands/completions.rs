@@ -1,7 +1,18 @@
 use anyhow::Result;
-use clap::{CommandFactory, Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Shell};
 use std::io::{self, Write};
+
+/// Shell completion generation options
+#[derive(Args)]
+pub struct CompletionArgs {
+    /// Include dynamic plugin command completions resolved at shell-completion time
+    #[arg(long)]
+    pub dynamic: bool,
+
+    #[command(subcommand)]
+    pub shell: CompletionShell,
+}
 
 /// Shell to generate completions for
 #[derive(Subcommand)]
@@ -14,8 +25,8 @@ pub enum CompletionShell {
     Fish,
 }
 
-pub async fn handle(shell: CompletionShell) -> Result<()> {
-    let shell = match shell {
+pub async fn handle(args: CompletionArgs) -> Result<()> {
+    let shell = match args.shell {
         CompletionShell::Bash => Shell::Bash,
         CompletionShell::Zsh => Shell::Zsh,
         CompletionShell::Fish => Shell::Fish,
@@ -23,17 +34,21 @@ pub async fn handle(shell: CompletionShell) -> Result<()> {
     let mut buf = Vec::new();
     generate_completion(shell, &mut buf);
 
-    // Append plugin command completions so they are visible in tab completion.
-    let plugin_cmds = crate::plugins::registry::load_all_registered_commands();
-    if !plugin_cmds.is_empty() {
-        append_plugin_completions(shell, &plugin_cmds, &mut buf);
+    if args.dynamic {
+        append_dynamic_plugin_completions(shell, &mut buf);
+    } else {
+        // Keep existing generation-time plugin names for users who prefer static scripts.
+        let plugin_cmds = crate::plugins::registry::load_all_registered_commands();
+        if !plugin_cmds.is_empty() {
+            append_static_plugin_completions(shell, &plugin_cmds, &mut buf);
+        }
     }
 
     io::stdout().write_all(&buf)?;
     Ok(())
 }
 
-fn append_plugin_completions(
+fn append_static_plugin_completions(
     shell: Shell,
     cmds: &[crate::plugins::registry::RegisteredCommand],
     buf: &mut Vec<u8>,
@@ -69,6 +84,75 @@ fn append_plugin_completions(
                     cmd.description.replace('\'', "\\'")
                 );
             }
+        }
+        _ => {}
+    }
+}
+
+fn append_dynamic_plugin_completions(shell: Shell, buf: &mut Vec<u8>) {
+    use std::io::Write;
+    match shell {
+        Shell::Bash => {
+            let _ = writeln!(
+                buf,
+                r#"
+# Dynamic plugin commands
+_starforge_plugin_commands() {{
+    starforge --list-plugin-commands 2>/dev/null
+}}
+
+_starforge_with_plugins() {{
+    _starforge "$@"
+    if [[ ${{COMP_CWORD:-0}} -eq 1 ]]; then
+        local cur="${{COMP_WORDS[COMP_CWORD]}}"
+        local plugin_words
+        plugin_words="$(_starforge_plugin_commands)"
+        if [[ -n "$plugin_words" ]]; then
+            COMPREPLY+=( $(compgen -W "$plugin_words" -- "$cur") )
+        fi
+    fi
+}}
+
+complete -F _starforge_with_plugins starforge
+"#
+            );
+        }
+        Shell::Zsh => {
+            let _ = writeln!(
+                buf,
+                r#"
+# Dynamic plugin commands
+_starforge_plugin_commands() {{
+    local -a plugin_commands
+    plugin_commands=("${{(@f)$(starforge --list-plugin-commands 2>/dev/null)}}")
+    if (( ${{#plugin_commands}} )); then
+        compadd -- $plugin_commands
+    fi
+}}
+
+_starforge_with_plugins() {{
+    _starforge "$@"
+    if (( CURRENT == 2 )); then
+        _starforge_plugin_commands
+    fi
+}}
+
+compdef _starforge_with_plugins starforge
+"#
+            );
+        }
+        Shell::Fish => {
+            let _ = writeln!(
+                buf,
+                r#"
+# Dynamic plugin commands
+function __starforge_complete_plugins
+    starforge --list-plugin-commands 2>/dev/null
+end
+
+complete -c starforge -n "__fish_use_subcommand" -f -a "(__starforge_complete_plugins)" -d "Installed plugin command"
+"#
+            );
         }
         _ => {}
     }
@@ -134,8 +218,7 @@ enum Commands {
     #[command(subcommand)]
     Node(crate::commands::node::NodeCommands),
     /// Generate shell completions for bash, zsh, and fish
-    #[command(subcommand)]
-    Completions(CompletionShell),
+    Completions(CompletionArgs),
     /// Interactive REPL for local Soroban contract testing
     Shell(crate::commands::shell::ShellArgs),
     /// Live monitoring (contract events or wallet threshold)
@@ -176,6 +259,12 @@ mod tests {
         let mut buf = Vec::new();
         generate_completion(shell, &mut buf);
         String::from_utf8(buf).expect("completion output is valid UTF-8")
+    }
+
+    fn dynamic_completion_output(shell: Shell) -> String {
+        let mut buf = Vec::new();
+        append_dynamic_plugin_completions(shell, &mut buf);
+        String::from_utf8(buf).expect("dynamic completion output is valid UTF-8")
     }
 
     // ── bash ──────────────────────────────────────────────────────────────────
@@ -364,5 +453,29 @@ mod tests {
                 shell
             );
         }
+    }
+
+    #[test]
+    fn bash_dynamic_completion_queries_plugin_command_list() {
+        let out = dynamic_completion_output(Shell::Bash);
+        assert!(out.contains("--list-plugin-commands"));
+        assert!(out.contains("_starforge_with_plugins"));
+        assert!(out.contains("complete -F _starforge_with_plugins starforge"));
+    }
+
+    #[test]
+    fn zsh_dynamic_completion_queries_plugin_command_list() {
+        let out = dynamic_completion_output(Shell::Zsh);
+        assert!(out.contains("--list-plugin-commands"));
+        assert!(out.contains("_starforge_plugin_commands"));
+        assert!(out.contains("compdef _starforge_with_plugins starforge"));
+    }
+
+    #[test]
+    fn fish_dynamic_completion_queries_plugin_command_list() {
+        let out = dynamic_completion_output(Shell::Fish);
+        assert!(out.contains("--list-plugin-commands"));
+        assert!(out.contains("__starforge_complete_plugins"));
+        assert!(out.contains("complete -c starforge"));
     }
 }

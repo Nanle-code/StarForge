@@ -331,19 +331,22 @@ pub async fn handle(cmd: WalletCommands) -> Result<()> {
             mem,
             iterations,
             parallelism,
-        } => create(
-            name,
-            fund,
-            network,
-            encrypt,
-            strict,
-            use_mnemonic,
-            words,
-            account_index,
-            mem,
-            iterations,
-            parallelism,
-        ).await,
+        } => {
+            create(
+                name,
+                fund,
+                network,
+                encrypt,
+                strict,
+                use_mnemonic,
+                words,
+                account_index,
+                mem,
+                iterations,
+                parallelism,
+            )
+            .await
+        }
         WalletCommands::List => list(),
         WalletCommands::Show { name, reveal } => show(name, reveal).await,
         WalletCommands::Fund { name } => fund_wallet(name).await,
@@ -366,17 +369,20 @@ pub async fn handle(cmd: WalletCommands) -> Result<()> {
             iterations,
             parallelism,
             backup,
-        } => rotate_wallet(
-            name,
-            fund,
-            network,
-            encrypt,
-            strict,
-            mem,
-            iterations,
-            parallelism,
-            backup,
-        ).await,
+        } => {
+            rotate_wallet(
+                name,
+                fund,
+                network,
+                encrypt,
+                strict,
+                mem,
+                iterations,
+                parallelism,
+                backup,
+            )
+            .await
+        }
         WalletCommands::Export {
             name,
             all,
@@ -934,13 +940,15 @@ async fn merge_wallet(
     p::separator();
     println!();
     p::step(1, 3, "Fetching source account…");
-    let source_account = horizon::fetch_account(&wallet.public_key, &network).await.map_err(|e| {
-        anyhow::anyhow!(
-            "Source account not found on {}: {}\nIt may already be merged or never funded.",
-            network,
-            e
-        )
-    })?;
+    let source_account = horizon::fetch_account(&wallet.public_key, &network)
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Source account not found on {}: {}\nIt may already be merged or never funded.",
+                network,
+                e
+            )
+        })?;
 
     validate_account_mergeable(&source_account)?;
     let xlm_balance = native_xlm_balance(&source_account);
@@ -954,13 +962,15 @@ async fn merge_wallet(
     }
 
     p::step(2, 3, "Validating destination account…");
-    horizon::fetch_account(&destination, &network).await.map_err(|_| {
-        anyhow::anyhow!(
-            "Destination account does not exist on {}. \
+    horizon::fetch_account(&destination, &network)
+        .await
+        .map_err(|_| {
+            anyhow::anyhow!(
+                "Destination account does not exist on {}. \
              The destination must be funded before it can receive a merge.",
-            network
-        )
-    })?;
+                network
+            )
+        })?;
     p::kv("Destination", "✓ Account exists");
 
     p::step(3, 3, "Building account merge transaction…");
@@ -1021,7 +1031,8 @@ async fn merge_wallet(
     let secret_key = wallet_secret_key(wallet)?;
     p::info("Submitting account merge…");
     let submit_result =
-        horizon::submit_payment_transaction(&tx_result.transaction_xdr, &secret_key, &network).await?;
+        horizon::submit_payment_transaction(&tx_result.transaction_xdr, &secret_key, &network)
+            .await?;
 
     println!();
     p::separator();
@@ -2022,7 +2033,11 @@ fn multisig_show(name: String) -> Result<()> {
     Ok(())
 }
 
-async fn multisig_submit(name: String, transaction: PathBuf, network: Option<String>) -> Result<()> {
+async fn multisig_submit(
+    name: String,
+    transaction: PathBuf,
+    network: Option<String>,
+) -> Result<()> {
     config::validate_wallet_name(&name)?;
     config::validate_file_path(&transaction, Some("json"))?;
 

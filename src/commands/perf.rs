@@ -139,7 +139,10 @@ pub async fn handle(cmd: PerfCommands) -> Result<()> {
         PerfCommands::Bottleneck { contract, network } => bottleneck(contract, network),
         PerfCommands::Optimize { contract, network } => optimize(contract, network),
         PerfCommands::Cache { contract, enable } => cache(contract, enable),
-        PerfCommands::Benchmark { contract, iterations } => benchmark(contract, iterations),
+        PerfCommands::Benchmark {
+            contract,
+            iterations,
+        } => benchmark(contract, iterations),
     }
 }
 
@@ -418,8 +421,11 @@ fn bottleneck(contract: String, _network: String) -> Result<()> {
         return Ok(());
     }
 
-    let avg_gas: f64 = gas_history.iter().map(|r| r.gas_used as f64).sum::<f64>() / gas_history.len() as f64;
-    let max_record = gas_history.iter().max_by(|a, b| a.gas_used.cmp(&b.gas_used));
+    let avg_gas: f64 =
+        gas_history.iter().map(|r| r.gas_used as f64).sum::<f64>() / gas_history.len() as f64;
+    let max_record = gas_history
+        .iter()
+        .max_by(|a, b| a.gas_used.cmp(&b.gas_used));
 
     p::separator();
     p::info("Bottleneck Analysis");
@@ -461,19 +467,27 @@ fn optimize(contract: String, _network: String) -> Result<()> {
 
     let mut suggestions = Vec::new();
 
-    let success_rate = 1.0 - (gas_history.iter().filter(|r| !r.success).count() as f64 / gas_history.len() as f64);
+    let success_rate =
+        1.0 - (gas_history.iter().filter(|r| !r.success).count() as f64 / gas_history.len() as f64);
     if success_rate < 0.95 {
         suggestions.push("High failure rate detected. Review contract logic and error handling.");
     }
 
-    let avg_time: f64 = gas_history.iter().map(|r| r.execution_time_ms as f64).sum::<f64>() / gas_history.len() as f64;
+    let avg_time: f64 = gas_history
+        .iter()
+        .map(|r| r.execution_time_ms as f64)
+        .sum::<f64>()
+        / gas_history.len() as f64;
     if avg_time > 5000.0 {
-        suggestions.push("Execution time exceeds 5 seconds. Consider breaking into smaller operations.");
+        suggestions
+            .push("Execution time exceeds 5 seconds. Consider breaking into smaller operations.");
     }
 
-    let avg_gas: f64 = gas_history.iter().map(|r| r.gas_used as f64).sum::<f64>() / gas_history.len() as f64;
+    let avg_gas: f64 =
+        gas_history.iter().map(|r| r.gas_used as f64).sum::<f64>() / gas_history.len() as f64;
     if avg_gas > 100_000.0 {
-        suggestions.push("Gas usage is high. Profile critical functions and optimize storage access.");
+        suggestions
+            .push("Gas usage is high. Profile critical functions and optimize storage access.");
     }
 
     if suggestions.is_empty() {
@@ -546,9 +560,18 @@ fn benchmark(contract: String, iterations: u32) -> Result<()> {
 
     println!();
     p::info("Summary");
-    p::kv("Avg Gas", &format!("{:.0}", total_gas as f64 / iterations as f64));
-    p::kv("Avg Time", &format!("{:.0}ms", total_time as f64 / iterations as f64));
-    p::kv("Success Rate", &format!("{:.1}%", (successes as f64 / iterations as f64) * 100.0));
+    p::kv(
+        "Avg Gas",
+        &format!("{:.0}", total_gas as f64 / iterations as f64),
+    );
+    p::kv(
+        "Avg Time",
+        &format!("{:.0}ms", total_time as f64 / iterations as f64),
+    );
+    p::kv(
+        "Success Rate",
+        &format!("{:.1}%", (successes as f64 / iterations as f64) * 100.0),
+    );
 
     p::separator();
     Ok(())

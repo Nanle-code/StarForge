@@ -1,5 +1,7 @@
 #![allow(clippy::items_after_test_module)]
 
+pub mod migrations;
+
 use crate::utils::crypto;
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
@@ -114,10 +116,10 @@ pub fn validate_secret_key(secret: &str) -> Result<()> {
         }
 
         // Validate base64 parts (first 3 parts are always base64)
-        for part in parts.iter().take(3) {
-            BASE64
-                .decode(part)
-                .map_err(|_| anyhow::anyhow!("Invalid base64 in encrypted secret bundle"))?;
+        for (i, part) in parts.iter().enumerate().take(3) {
+            BASE64.decode(part).map_err(|_| {
+                anyhow::anyhow!("Invalid base64 in encrypted secret bundle at part {}", i)
+            })?;
         }
 
         // If 5 or 6-part bundle, validate KDF parameters are valid u32
@@ -261,8 +263,12 @@ pub struct Config {
     pub wallet_encryption: Option<crypto::KdfOptions>,
 }
 
-fn default_version() -> String {
-    "1".to_string()
+/// The current on-disk config schema version, as a string.
+///
+/// Bump this (and add a migration in [`migrations`]) whenever the [`Config`]
+/// shape changes in a way that would otherwise silently drop or mis-read data.
+pub fn default_version() -> String {
+    CURRENT_CONFIG_VERSION.to_string()
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -450,7 +456,7 @@ impl Default for Config {
         );
 
         Self {
-            version: "1".to_string(),
+            version: CURRENT_CONFIG_VERSION.to_string(),
             network: "testnet".to_string(),
             wallets: vec![],
             networks,
@@ -461,81 +467,120 @@ impl Default for Config {
     }
 }
 
-const CURRENT_CONFIG_VERSION: &str = "1";
+/// Current config schema version, as a string (matches the serialized form).
+pub const CURRENT_CONFIG_VERSION: &str = "2";
 
-pub fn migrate_config(mut config: Config) -> Result<Config> {
-    let config_version = config.version.as_str();
+/// Numeric form of [`CURRENT_CONFIG_VERSION`], used by the migration engine.
+pub const CURRENT_CONFIG_VERSION_NUM: u32 = 2;
 
-    if config_version == CURRENT_CONFIG_VERSION {
-        return Ok(config);
-    }
-
-    // Create backup before migration
-    backup_config(&config)?;
-
-    // Apply migrations in sequence
-    match config_version {
-        "" | "0" => {
-            // Migration from v0 to v1: Add version field
-            config.version = "1".to_string();
-        }
-        _ => {
-            anyhow::bail!(
-                "Unknown config version '{}'. Current version is '{}'.",
-                config_version,
-                CURRENT_CONFIG_VERSION
-            );
-        }
-    }
-
-    Ok(config)
+/// Outcome of running migrations against a raw config value.
+#[derive(Debug, Clone)]
+pub struct MigrationOutcome {
+    /// The config value after all migrations were applied.
+    pub value: serde_json::Value,
+    /// Ordered `(from, to)` version steps that were applied.
+    pub steps: Vec<(u32, u32)>,
+    /// Human-readable diff between the original and migrated values.
+    pub changes: Vec<migrations::Change>,
 }
 
-fn backup_config(config: &Config) -> Result<()> {
-    let backup_path = config_dir().join(format!(
-        "config.backup.v{}.{}.toml",
-        config.version,
-        chrono::Utc::now().timestamp()
-    ));
+impl MigrationOutcome {
+    /// True when at least one migration step was applied.
+    pub fn migrated(&self) -> bool {
+        !self.steps.is_empty()
+    }
+}
 
-    let contents =
-        toml::to_string_pretty(config).with_context(|| "Failed to serialize config for backup")?;
+/// Runs the migration pipeline on a raw [`serde_json::Value`] without touching
+/// the file system. This is the pure core shared by `load()` and the
+/// `config migrate --dry-run` command.
+pub fn migrate_json_value(original: &serde_json::Value) -> Result<MigrationOutcome> {
+    let mut value = original.clone();
+    let steps = migrations::migrate_value(&mut value, CURRENT_CONFIG_VERSION_NUM)?;
+    let changes = migrations::diff(original, &value);
+    Ok(MigrationOutcome {
+        value,
+        steps,
+        changes,
+    })
+}
 
+/// Parses raw config file contents (TOML) into a [`serde_json::Value`].
+fn parse_config_value(contents: &str) -> Result<serde_json::Value> {
+    toml::from_str::<serde_json::Value>(contents)
+        .with_context(|| "Failed to parse config file as structured data")
+}
+
+/// Legacy entry point retained for compatibility: migrates an already-parsed
+/// [`Config`] by round-tripping it through the JSON migration pipeline.
+///
+/// Prefer [`load`], which performs version-aware migration directly from the raw
+/// file before deserializing into [`Config`].
+pub fn migrate_config(config: Config) -> Result<Config> {
+    let value =
+        serde_json::to_value(&config).with_context(|| "Failed to convert config for migration")?;
+    let outcome = migrate_json_value(&value)?;
+    serde_json::from_value(outcome.value).with_context(|| "Failed to deserialize migrated config")
+}
+
+/// Writes a `config.toml.bak` backup of the current on-disk config before a
+/// migration overwrites it. A timestamped copy is also retained so multiple
+/// migrations never clobber a single backup.
+fn backup_config_file(contents: &str) -> Result<PathBuf> {
+    let dir = config_dir();
+    if !dir.exists() {
+        fs::create_dir_all(&dir)
+            .with_context(|| format!("Failed to create config dir {:?}", dir))?;
+    }
+
+    let backup_path = dir.join("config.toml.bak");
     fs::write(&backup_path, contents)
         .with_context(|| format!("Failed to write backup to {:?}", backup_path))?;
 
-    Ok(())
+    // Also keep a timestamped copy so successive migrations are recoverable.
+    let timestamped = dir.join(format!(
+        "config.toml.{}.bak",
+        chrono::Utc::now().timestamp()
+    ));
+    let _ = fs::write(&timestamped, contents);
+
+    Ok(backup_path)
 }
 
+/// Restores the most recent pre-migration backup over the live config file.
+///
+/// Prefers the canonical `config.toml.bak`; otherwise falls back to the newest
+/// timestamped `config.toml.<ts>.bak` copy written by [`backup_config_file`].
 #[allow(dead_code)]
-pub fn rollback_config(version: &str) -> Result<()> {
-    let config_dir = config_dir();
-    let backup_pattern = format!("config.backup.v{}", version);
+pub fn rollback_config() -> Result<PathBuf> {
+    let dir = config_dir();
 
-    let mut backups: Vec<_> = fs::read_dir(&config_dir)?
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| {
-            entry
-                .file_name()
-                .to_string_lossy()
-                .starts_with(&backup_pattern)
-        })
-        .collect();
+    let canonical = dir.join("config.toml.bak");
+    let backup_path = if canonical.exists() {
+        canonical
+    } else {
+        let mut backups: Vec<_> = fs::read_dir(&dir)?
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                name.starts_with("config.toml.") && name.ends_with(".bak")
+            })
+            .collect();
 
-    if backups.is_empty() {
-        anyhow::bail!("No backup found for version '{}'", version);
-    }
+        if backups.is_empty() {
+            anyhow::bail!("No config backup found to roll back to");
+        }
 
-    // Sort by timestamp (newest first)
-    backups.sort_by_key(|b| std::cmp::Reverse(b.file_name()));
-
-    let latest_backup = &backups[0];
-    let backup_path = latest_backup.path();
+        // Sort by file name (timestamped) — newest first.
+        backups.sort_by_key(|b| std::cmp::Reverse(b.file_name()));
+        backups[0].path()
+    };
 
     fs::copy(&backup_path, config_path())
         .with_context(|| format!("Failed to restore backup from {:?}", backup_path))?;
 
-    Ok(())
+    Ok(backup_path)
 }
 
 pub fn config_dir() -> PathBuf {
@@ -566,21 +611,66 @@ pub fn load() -> Result<Config> {
     }
     let contents = fs::read_to_string(&path)
         .with_context(|| format!("Failed to read config at {:?}", path))?;
-    let mut config: Config =
-        toml::from_str(&contents).with_context(|| "Failed to parse config file")?;
 
-    // Migrate config if needed
-    config = migrate_config(config)?;
+    // Deserialize as a schema-agnostic value first, then migrate by version
+    // *before* attempting to deserialize into the current `Config`. This is the
+    // crux of the fix: a renamed/restructured field is reshaped here instead of
+    // being silently dropped by `#[serde(default)]`.
+    let raw = parse_config_value(&contents)?;
+    let outcome = migrate_json_value(&raw)?;
 
-    // Guarantee built-in networks are always present
+    let mut config: Config = serde_json::from_value(outcome.value)
+        .with_context(|| "Failed to deserialize config after migration")?;
+
+    // Guarantee built-in networks are always present.
     ensure_default_networks(&mut config);
 
-    // Save migrated config
-    if config.version != CURRENT_CONFIG_VERSION {
+    // NOTE: `load()` migrates in memory only and never writes to disk. This keeps
+    // reads side-effect free (so e.g. `config migrate --dry-run` and telemetry
+    // hooks don't silently rewrite the file). Persisting a migration is explicit:
+    // it happens on the next `save()` (which backs up the old file) or via
+    // `starforge config migrate`.
+    Ok(config)
+}
+
+/// Loads the raw config value and computes the migration plan without writing
+/// anything to disk. Backs the `config migrate --dry-run` command.
+///
+/// Returns `Ok(None)` when no config file exists yet.
+pub fn plan_migration() -> Result<Option<MigrationOutcome>> {
+    let path = config_path();
+    if !path.exists() {
+        return Ok(None);
+    }
+    let contents = fs::read_to_string(&path)
+        .with_context(|| format!("Failed to read config at {:?}", path))?;
+    let raw = parse_config_value(&contents)?;
+    Ok(Some(migrate_json_value(&raw)?))
+}
+
+/// Applies pending migrations to the on-disk config, writing a
+/// `config.toml.bak` backup beforehand. Returns the migration outcome.
+///
+/// This is the non-dry-run counterpart used by `config migrate`.
+pub fn apply_migration() -> Result<Option<MigrationOutcome>> {
+    let path = config_path();
+    if !path.exists() {
+        return Ok(None);
+    }
+    let contents = fs::read_to_string(&path)
+        .with_context(|| format!("Failed to read config at {:?}", path))?;
+    let raw = parse_config_value(&contents)?;
+    let outcome = migrate_json_value(&raw)?;
+
+    if outcome.migrated() {
+        let mut config: Config = serde_json::from_value(outcome.value.clone())
+            .with_context(|| "Failed to deserialize config after migration")?;
+        ensure_default_networks(&mut config);
+        // `save()` writes `config.toml.bak` before overwriting the old version.
         save(&config)?;
     }
 
-    Ok(config)
+    Ok(Some(outcome))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1058,8 +1148,23 @@ pub fn save(config: &Config) -> Result<()> {
         fs::create_dir_all(&dir)
             .with_context(|| format!("Failed to create config dir {:?}", dir))?;
     }
+
+    // If an on-disk config exists with a *different* schema version than the one
+    // we're about to write, back it up first. This is the "backup before every
+    // migration" guarantee: the original file is preserved as `config.toml.bak`
+    // the moment a version bump is persisted over it.
+    let path = config_path();
+    if let Ok(existing) = fs::read_to_string(&path) {
+        let existing_version = parse_config_value(&existing)
+            .map(|v| migrations::read_version(&v).to_string())
+            .unwrap_or_default();
+        if existing_version != config.version {
+            backup_config_file(&existing)?;
+        }
+    }
+
     let contents = toml::to_string_pretty(config).with_context(|| "Failed to serialize config")?;
-    fs::write(config_path(), contents).with_context(|| "Failed to write config file")?;
+    fs::write(&path, contents).with_context(|| "Failed to write config file")?;
     Ok(())
 }
 

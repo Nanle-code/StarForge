@@ -135,9 +135,19 @@ pub fn commit_version(
         }
 
         let commit_msg = format!("{}: {}", tag, message.lines().next().unwrap_or(message));
+        // Supply a per-invocation identity so commits succeed even when the
+        // user (or a CI runner) has no global git user.name/user.email set.
         let output = Command::new("git")
             .current_dir(template_path)
-            .args(["commit", "-m", &commit_msg])
+            .args([
+                "-c",
+                "user.name=StarForge",
+                "-c",
+                "user.email=starforge@localhost",
+                "commit",
+                "-m",
+                &commit_msg,
+            ])
             .output()
             .context("Failed to commit")?;
 

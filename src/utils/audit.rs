@@ -1,8 +1,8 @@
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use chrono::{DateTime, Utc};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditEntry {
@@ -171,7 +171,8 @@ pub fn get_audit_report(start_time: Option<&str>, end_time: Option<&str>) -> Res
 }
 
 pub fn export_audit_log_csv(entries: &[AuditEntry]) -> String {
-    let mut csv = String::from("id,action,actor,resource_type,resource_id,timestamp,success,error_message\n");
+    let mut csv =
+        String::from("id,action,actor,resource_type,resource_id,timestamp,success,error_message\n");
     for entry in entries {
         csv.push_str(&format!(
             "{},{},{},{},{},{},{},{}\n",
@@ -204,7 +205,8 @@ pub fn check_compliance_violations() -> Result<Vec<String>> {
         if !entry.success {
             violations.push(format!(
                 "Failed deployment by {} on contract {}: {}",
-                entry.actor, entry.resource_id,
+                entry.actor,
+                entry.resource_id,
                 entry.error_message.as_deref().unwrap_or("unknown error")
             ));
         }

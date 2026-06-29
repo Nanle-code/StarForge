@@ -1,0 +1,57 @@
+name: Fuzz
+
+on:
+  push:
+    paths:
+      - "src/utils/fuzzing.rs"
+      - "src/utils/state_migration.rs"
+      - "src/utils/mock_soroban.rs"
+      - "src/commands/fuzz.rs"
+      - "tests/contract_property_tests.rs"
+      - "fuzz/**"
+      - ".github/workflows/fuzz.yml"
+  pull_request:
+  schedule:
+    # Nightly guided-fuzzing run at 03:17 UTC.
+    - cron: "17 3 * * *"
+
+# Harden against transient crates.io download failures on the runners.
+env:
+  CARGO_NET_RETRY: "10"
+  CARGO_HTTP_MULTIPLEXING: "false"
+
+jobs:
+  property:
+    name: Property-Based & Engine Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+      - name: Property-based tests
+        run: cargo test --test contract_property_tests --locked
+      - name: Fuzzing engine unit tests
+        run: cargo test --locked fuzzing
+
+  cargo-fuzz:
+    name: Guided Fuzzing (nightly)
+    runs-on: ubuntu-latest
+    # Only run on the nightly schedule: guided fuzzing is slow and nightly +
+    # libFuzzer can be flaky, so it should not run (or appear) on every PR/push.
+    if: github.event_name == 'schedule'
+    # Non-blocking even when scheduled: failures should never gate the branch.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Fuzz the WASM validator (time-boxed)
+        working-directory: fuzz
+        run: cargo +nightly fuzz run fuzz_wasm_validator -- -max_total_time=60
+      - name: Fuzz state diffing (time-boxed)
+        working-directory: fuzz
+        run: cargo +nightly fuzz run fuzz_state_diff -- -max_total_time=60

@@ -74,10 +74,15 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"] }
 tracing-appender = "0.2"
 bip39 = { version = "2", features = ["rand", "std"] }
+wasmparser = "0.116.0"
+wasmprinter = "0.252"
+wat = "1.0"
 hmac = "0.12"
 rustyline = "14.0.0"
 zip = "0.6"
 tempfile = "3.8"
+zeroize = { version = "1.9.0", features = ["derive"] }
+similar = "2.2"
 wasm-bindgen = "0.2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 
@@ -89,6 +94,7 @@ criterion = "0.5.1"
 tempfile = "3.8"
 mockito = "1.2"
 wasm-bindgen-test = "0.3"
+proptest = "1.5"
 
 [[bench]]
 name = "benchmarks"

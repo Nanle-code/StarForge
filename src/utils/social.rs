@@ -668,7 +668,7 @@ impl SocialManager {
         }
 
         // Sort by total points descending
-        reputations.sort_by(|a, b| b.total_points.cmp(&a.total_points));
+        reputations.sort_by_key(|b| std::cmp::Reverse(b.total_points));
 
         // Limit results
         reputations.truncate(limit);

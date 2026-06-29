@@ -345,8 +345,7 @@ mod tests {
             network: "testnet".to_string(),
         };
 
-        let mut records: Vec<GasUsageRecord> = Vec::new();
-        records.push(record.clone());
+        let records: Vec<GasUsageRecord> = vec![record.clone()];
         fs::write(&file, serde_json::to_string_pretty(&records).unwrap()).unwrap();
 
         let loaded: Vec<GasUsageRecord> =

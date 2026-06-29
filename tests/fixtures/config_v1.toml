@@ -1,0 +1,35 @@
+# Legacy StarForge config (schema v1).
+#
+# This fixture intentionally uses the *old* shapes that the v1 -> v2 migration
+# is responsible for normalising:
+#   * a wallet whose secret is stored under the legacy `secret` key
+#   * flat top-level KDF tuning keys (kdf_mem / kdf_iterations / kdf_parallelism)
+#   * the legacy `telemetry` boolean flag
+#
+# A naive `#[serde(default)]` load would silently DROP the `secret` field,
+# making `legacy-wallet` unusable after an upgrade. The migration must preserve
+# it by renaming it to `secret_key`.
+
+version = "1"
+network = "testnet"
+telemetry = false
+
+kdf_mem = 65536
+kdf_iterations = 4
+kdf_parallelism = 2
+
+[[wallets]]
+name = "legacy-wallet"
+public_key = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNT"
+secret = "SAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNT"
+network = "testnet"
+created_at = "2024-01-01T00:00:00Z"
+funded = true
+
+[[wallets]]
+name = "modern-wallet"
+public_key = "GBBZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNT"
+secret_key = "SBBZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWNT"
+network = "testnet"
+created_at = "2024-02-01T00:00:00Z"
+funded = false

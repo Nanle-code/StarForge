@@ -53,9 +53,7 @@ If checked, describe the breaking changes and migration path:
 
 ## Documentation
 
-- [ ] README.md updated
-- [ ] DEVELOPER_GUIDE.md updated (if applicable)
-- [ ] API_REFERENCE.md updated (if applicable)
+- [ ] README.md updated (if applicable)
 - [ ] No documentation changes needed
 
 ## Screenshots (if applicable)

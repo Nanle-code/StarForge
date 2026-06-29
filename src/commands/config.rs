@@ -16,6 +16,12 @@ pub enum ConfigCommands {
     /// Manage trusted plugin source allowlist
     #[command(subcommand)]
     PluginTrust(PluginTrustCommands),
+    /// Migrate the config file to the latest schema version
+    Migrate {
+        /// Show what changes would be applied without writing anything
+        #[arg(long, default_value = "false")]
+        dry_run: bool,
+    },
     /// Set global wallet encryption parameters (Argon2id)
     SetEncryption {
         /// Argon2 memory cost in KiB (e.g. 65536)
@@ -89,6 +95,7 @@ pub async fn handle(cmd: ConfigCommands) -> Result<()> {
         ConfigCommands::Show => show(),
         ConfigCommands::Set { key, value } => set_value(&key, &value),
         ConfigCommands::PluginTrust(cmd) => plugin_trust(cmd),
+        ConfigCommands::Migrate { dry_run } => migrate(dry_run),
         ConfigCommands::SetEncryption {
             mem,
             iterations,
@@ -394,6 +401,71 @@ fn print_plugin_trust_sources(cfg: &config::Config) {
     for source in &cfg.plugin_trust.trusted_sources {
         p::info(&format!("- {}", source));
     }
+}
+
+fn migrate(dry_run: bool) -> Result<()> {
+    p::header("Config Migration");
+    p::separator();
+    p::kv("Config file", &config::config_path().display().to_string());
+    p::kv("Target schema version", config::CURRENT_CONFIG_VERSION);
+
+    if dry_run {
+        let Some(outcome) = config::plan_migration()? else {
+            p::info("No config file exists yet — nothing to migrate.");
+            return Ok(());
+        };
+
+        if !outcome.migrated() {
+            p::success("Config is already at the latest schema version. No changes needed.");
+            return Ok(());
+        }
+
+        println!();
+        p::info("Migration steps that would be applied:");
+        for (from, to) in &outcome.steps {
+            p::kv("  step", &format!("v{from} -> v{to}"));
+        }
+
+        println!();
+        p::info("Changes that would be written:");
+        for change in &outcome.changes {
+            println!("    {change}");
+        }
+
+        println!();
+        p::warn("Dry run: no files were modified. Re-run without --dry-run to apply.");
+        return Ok(());
+    }
+
+    let Some(outcome) = config::apply_migration()? else {
+        p::info("No config file exists yet — nothing to migrate.");
+        return Ok(());
+    };
+
+    if !outcome.migrated() {
+        p::success("Config is already at the latest schema version. No changes needed.");
+        return Ok(());
+    }
+
+    println!();
+    p::info("Applied migration steps:");
+    for (from, to) in &outcome.steps {
+        p::kv("  step", &format!("v{from} -> v{to}"));
+    }
+
+    println!();
+    p::info("Changes written:");
+    for change in &outcome.changes {
+        println!("    {change}");
+    }
+
+    println!();
+    p::info(&format!(
+        "A backup of the previous config was saved to {}",
+        config::config_dir().join("config.toml.bak").display()
+    ));
+    p::success("Config migrated successfully.");
+    Ok(())
 }
 
 fn set_encryption(
