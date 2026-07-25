@@ -1,4 +1,4 @@
-use crate::utils::{config, print as p};
+use crate::utils::{config, notifications, print as p};
 use anyhow::Result;
 use chrono::Utc;
 use clap::{Args, Subcommand};
@@ -24,6 +24,8 @@ pub enum AnalyticsCommands {
     Export(ExportArgs),
     /// Show a visual summary / dashboard of deployments
     Dashboard(DashboardArgs),
+    /// Run AI-style deployment monitoring with anomaly detection and alerts
+    Monitor(MonitorArgs),
 }
 
 #[derive(Args)]
@@ -125,6 +127,25 @@ pub struct DashboardArgs {
     pub network: String,
 }
 
+#[derive(Args)]
+pub struct MonitorArgs {
+    /// Network to monitor
+    #[arg(long, default_value = "testnet", value_parser = ["testnet", "mainnet"])]
+    pub network: String,
+    /// Optional contract filter for focused monitoring
+    #[arg(long)]
+    pub contract_id: Option<String>,
+    /// Polling interval in seconds when --follow is used
+    #[arg(long, default_value_t = 5)]
+    pub interval: u64,
+    /// Keep monitoring until interrupted
+    #[arg(long)]
+    pub follow: bool,
+    /// Output the report as JSON
+    #[arg(long)]
+    pub json: bool,
+}
+
 // ── Data structures ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -171,6 +192,19 @@ pub struct Anomaly {
     pub timestamp: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MonitoringReport {
+    pub network: String,
+    pub contract_id: Option<String>,
+    pub real_time: bool,
+    pub performance_score: u8,
+    pub summary: String,
+    pub anomalies: Vec<Anomaly>,
+    pub predicted_issues: Vec<String>,
+    pub alerts: Vec<String>,
+    pub historical_analysis: Vec<String>,
+}
+
 // ── Storage helpers ───────────────────────────────────────────────────────────
 
 fn analytics_dir() -> Result<PathBuf> {
@@ -200,6 +234,141 @@ fn save_events(events: &[DeploymentEvent]) -> Result<()> {
 }
 
 // ── Metrics computation ───────────────────────────────────────────────────────
+
+pub fn build_monitoring_report(
+    events: &[DeploymentEvent],
+    network: &str,
+    contract_id: Option<&str>,
+    real_time: bool,
+) -> MonitoringReport {
+    let filtered: Vec<_> = events
+        .iter()
+        .filter(|e| e.network == network)
+        .filter(|e| contract_id.is_none_or(|c| e.contract_id == c))
+        .collect();
+
+    let metrics = compute_metrics(events, contract_id, Some(network));
+    let anomalies = detect_anomalies(events, network, 3.0, 3);
+
+    let mut predicted_issues = Vec::new();
+    let mut alerts = Vec::new();
+
+    if metrics.total_deployments >= 3 {
+        let failure_ratio = if metrics.total_deployments > 0 {
+            metrics.failed as f64 / metrics.total_deployments as f64
+        } else {
+            0.0
+        };
+        if failure_ratio >= 0.25 {
+            predicted_issues.push(
+                "Elevated deployment failures suggest the next rollout may be unstable.".to_string(),
+            );
+            alerts.push(
+                "Review the latest deployment logs and rollback plan before the next release."
+                    .to_string(),
+            );
+        }
+
+        if let Some(avg_fee) = metrics.avg_fee_stroops {
+            if avg_fee > 500_000.0 {
+                predicted_issues.push(
+                    "Fee inflation is trending upward and could increase operational cost."
+                        .to_string(),
+                );
+                alerts.push(
+                    "Investigate recent transaction fees and consider batching or gas tuning."
+                        .to_string(),
+                );
+            }
+        }
+
+        if let Some(avg_duration) = metrics.avg_duration_secs {
+            if avg_duration > 120.0 {
+                predicted_issues.push(
+                    "Longer deployment durations indicate a likely performance regression."
+                        .to_string(),
+                );
+                alerts.push(
+                    "Inspect deployment build and network latency before shipping the next contract."
+                        .to_string(),
+                );
+            }
+        }
+    }
+
+    if !anomalies.is_empty() {
+        predicted_issues.push(
+            "Recent anomalies suggest a higher probability of a repeat issue in the next deployment."
+                .to_string(),
+        );
+    }
+
+    for anomaly in &anomalies {
+        alerts.push(format!(
+            "{} [{}] {}",
+            anomaly.kind, anomaly.contract_id, anomaly.description
+        ));
+    }
+
+    let mut historical_analysis = vec![
+        format!("{} deployment events tracked in {}", filtered.len(), network),
+        format!(
+            "Success rate is {:.1}% with {} failures recorded",
+            metrics.success_rate_pct,
+            metrics.failed
+        ),
+    ];
+
+    if let Some(avg_fee) = metrics.avg_fee_stroops {
+        historical_analysis.push(format!("Average deployment fee is {:.0} stroops", avg_fee));
+    }
+    if let Some(avg_duration) = metrics.avg_duration_secs {
+        historical_analysis.push(format!("Average deployment duration is {:.1}s", avg_duration));
+    }
+
+    let performance_score = if metrics.total_deployments == 0 {
+        100u8
+    } else {
+        let mut score = 100u8;
+        if metrics.failed > 0 {
+            score = score.saturating_sub((metrics.failed as u8).min(40));
+        }
+        if metrics.avg_fee_stroops.unwrap_or_default() > 500_000.0 {
+            score = score.saturating_sub(10);
+        }
+        if metrics.avg_duration_secs.unwrap_or_default() > 120.0 {
+            score = score.saturating_sub(10);
+        }
+        score
+    };
+
+    MonitoringReport {
+        network: network.to_string(),
+        contract_id: contract_id.map(|s| s.to_string()),
+        real_time,
+        performance_score,
+        summary: format!(
+            "Deployment monitoring for {} is {} and {}",
+            network,
+            if performance_score >= 80 {
+                "stable"
+            } else if performance_score >= 50 {
+                "degraded"
+            } else {
+                "at risk"
+            },
+            if anomalies.is_empty() {
+                "no anomalies were detected"
+            } else {
+                "anomalies require attention"
+            }
+        ),
+        anomalies: anomalies.clone(),
+        predicted_issues,
+        alerts,
+        historical_analysis,
+    }
+}
 
 pub fn compute_metrics(
     events: &[DeploymentEvent],
@@ -378,6 +547,7 @@ pub async fn handle(cmd: AnalyticsCommands) -> Result<()> {
         AnalyticsCommands::Anomalies(args) => handle_anomalies(args),
         AnalyticsCommands::Export(args) => handle_export(args),
         AnalyticsCommands::Dashboard(args) => handle_dashboard(args),
+        AnalyticsCommands::Monitor(args) => handle_monitor(args).await,
     }
 }
 
@@ -425,6 +595,16 @@ fn handle_track(args: TrackArgs) -> Result<()> {
     }
     p::separator();
     p::success("Deployment event recorded.");
+
+    let mut events = load_events()?;
+    events.push(event);
+    let report = build_monitoring_report(&events, &args.network, Some(&args.contract_id), false);
+    if !report.alerts.is_empty() {
+        notifications::alert(&format!(
+            "Monitoring alert: {}",
+            report.alerts.first().unwrap_or(&"Deployment behavior changed".to_string())
+        ));
+    }
     Ok(())
 }
 
@@ -703,6 +883,71 @@ fn handle_dashboard(args: DashboardArgs) -> Result<()> {
     Ok(())
 }
 
+async fn handle_monitor(args: MonitorArgs) -> Result<()> {
+    p::header("AI Deployment Monitoring");
+    config::validate_network(&args.network)?;
+
+    let mut iteration = 0u64;
+    loop {
+        let events = load_events()?;
+        let report = build_monitoring_report(
+            &events,
+            &args.network,
+            args.contract_id.as_deref(),
+            args.follow,
+        );
+
+        if args.json {
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            if !args.follow {
+                return Ok(());
+            }
+        } else {
+            p::separator();
+            println!("  {} {}", "Network:".dimmed(), args.network.cyan().bold());
+            if let Some(ref contract_id) = args.contract_id {
+                println!("  {} {}", "Contract:".dimmed(), contract_id.cyan());
+            }
+            println!("  {} {}", "Status:".dimmed(), report.summary.white());
+            println!(
+                "  {} {} / 100",
+                "Performance score:".dimmed(),
+                report.performance_score.to_string().green().bold()
+            );
+            println!("  {} {}", "Anomalies:".dimmed(), report.anomalies.len());
+            println!("  {} {}", "Predicted issues:".dimmed(), report.predicted_issues.len());
+            println!("  {} {}", "Alerts:".dimmed(), report.alerts.len());
+            println!();
+            for item in &report.historical_analysis {
+                println!("  • {}", item.dimmed());
+            }
+            println!();
+            if report.predicted_issues.is_empty() {
+                p::info("No deployment issues predicted at this time.");
+            } else {
+                for issue in &report.predicted_issues {
+                    println!("  • {}", issue.yellow());
+                }
+            }
+            if !report.alerts.is_empty() {
+                println!();
+                for alert in &report.alerts {
+                    notifications::alert(alert);
+                }
+            }
+        }
+
+        if !args.follow {
+            return Ok(());
+        }
+
+        iteration += 1;
+        if iteration > 0 {
+            tokio::time::sleep(std::time::Duration::from_secs(args.interval.max(1))).await;
+        }
+    }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn short_id(id: &str) -> String {
@@ -845,5 +1090,21 @@ mod tests {
     fn short_id_leaves_short_ids_intact() {
         let id = "GABC";
         assert_eq!(short_id(id), "GABC");
+    }
+
+    #[test]
+    fn build_monitoring_report_surfaces_alerts_and_predictions() {
+        let events = vec![
+            make_event("e1", "CA", "testnet", Some(100), true),
+            make_event("e2", "CA", "testnet", Some(100), true),
+            make_event("e3", "CA", "testnet", Some(100), false),
+            make_event("e4", "CA", "testnet", Some(10_000), true),
+        ];
+
+        let report = build_monitoring_report(&events, "testnet", Some("CA"), false);
+        assert!(report.performance_score < 100);
+        assert!(!report.predicted_issues.is_empty());
+        assert!(!report.alerts.is_empty());
+        assert!(report.anomalies.iter().any(|a| a.kind == "high-fee"));
     }
 }
