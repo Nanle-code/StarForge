@@ -98,6 +98,11 @@ pub fn map_signing_error(err: anyhow::Error, kind: HardwareWalletKind) -> anyhow
     } else if message.contains("reject") || message.contains("denied") || message.contains("cancel")
     {
         "The request was rejected on the device. Review the transaction details and approve to continue."
+    } else if message.contains("does not support")
+        || message.contains("not supported")
+        || message.contains("unsupported")
+    {
+        "This request envelope isn't supported. If the device reported it, update the Stellar app (or open the correct app) and retry; if it's a client-side limitation, no retry will help — check the error text for guidance."
     } else if message.contains("status") || message.contains("apdu") {
         "Close other wallet apps, reopen the Stellar app on the device, and retry the operation."
     } else {
@@ -369,19 +374,7 @@ impl LedgerTransport {
             sequence += 1;
         }
 
-        if response.len() < 2 {
-            anyhow::bail!("Ledger response did not include a status word");
-        }
-        let status = &response[response.len() - 2..];
-        if status != SW_OK {
-            anyhow::bail!(
-                "Ledger returned APDU status {:02x}{:02x}",
-                status[0],
-                status[1]
-            );
-        }
-
-        Ok(response[..response.len() - 2].to_vec())
+        check_apdu_status(&response)
     }
 
     fn get_public_key(&self, hd_path: &str) -> Result<String> {
@@ -493,18 +486,14 @@ impl TrezorTransport {
         // protobuf message per operation (`StellarPaymentOp`, `StellarCreateAccountOp`,
         // …), which starforge does not build yet. Refuse clearly rather than sending a
         // request the device is guaranteed to reject.
-        let mut trezor = Self::connect()?;
-        trezor
-            .init_device(None)
-            .context("Failed to initialize Trezor session")?;
-
-        let mut request = trezor_client::protos::StellarSignTx::new();
-        request.address_n = parse_hd_path(hd_path)?;
-        if !network_passphrase.is_empty() {
-            request.network_passphrase = Some(network_passphrase.to_string());
-        }
-
-        let _ = (transaction,);
+        //
+        // Validate the envelope's own addressing first, then fail on the real
+        // limitation — without touching the device. There is no point opening
+        // a session just to reject the request afterwards, and doing it this
+        // way keeps the "unsupported envelope" path exercisable in CI, where
+        // no physical Trezor is ever attached.
+        parse_hd_path(hd_path)?;
+        let _ = (transaction, network_passphrase);
         anyhow::bail!(
             "Trezor transaction signing is not supported yet.\n\
              The device requires per-operation messages rather than a raw XDR envelope.\n\
@@ -525,6 +514,61 @@ impl TrezorTransport {
                 count
             ),
         }
+    }
+}
+
+/// Coarse outcome of a Ledger APDU status word, used to turn raw device
+/// responses into actionable errors for approval, rejection, and unsupported
+/// (out-of-date app / wrong envelope) cases.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ApduOutcome {
+    Approved,
+    Rejected,
+    Unsupported,
+    Other,
+}
+
+fn classify_status_word(status: [u8; 2]) -> ApduOutcome {
+    match status {
+        SW_OK => ApduOutcome::Approved,
+        // 0x6985 = conditions of use not satisfied, 0x6982 = security status not
+        // satisfied: both are raised when the user declines the on-device prompt.
+        [0x69, 0x85] | [0x69, 0x82] => ApduOutcome::Rejected,
+        // 0x6D00 = INS not supported, 0x6E00 = CLA not supported, 0x6A81 = function
+        // not supported: the device understood the envelope but can't service it,
+        // typically because the Stellar app is outdated or the wrong app is open.
+        [0x6d, 0x00] | [0x6e, 0x00] | [0x6a, 0x81] => ApduOutcome::Unsupported,
+        _ => ApduOutcome::Other,
+    }
+}
+
+/// Validate a reassembled Ledger APDU response, stripping and interpreting the
+/// trailing status word. Returns the response payload on approval, or a
+/// descriptive error for rejection, unsupported envelopes, and other failures.
+fn check_apdu_status(response: &[u8]) -> Result<Vec<u8>> {
+    if response.len() < 2 {
+        anyhow::bail!("Ledger response did not include a status word");
+    }
+    let status = [response[response.len() - 2], response[response.len() - 1]];
+    let payload = response[..response.len() - 2].to_vec();
+
+    match classify_status_word(status) {
+        ApduOutcome::Approved => Ok(payload),
+        ApduOutcome::Rejected => anyhow::bail!(
+            "Ledger rejected the request on-device (status {:02x}{:02x}): the user denied the prompt",
+            status[0],
+            status[1]
+        ),
+        ApduOutcome::Unsupported => anyhow::bail!(
+            "Ledger does not support this request envelope (status {:02x}{:02x}): the Stellar app may be outdated or the wrong app is open",
+            status[0],
+            status[1]
+        ),
+        ApduOutcome::Other => anyhow::bail!(
+            "Ledger returned APDU status {:02x}{:02x}",
+            status[0],
+            status[1]
+        ),
     }
 }
 
@@ -611,6 +655,170 @@ mod tests {
         let message = err.to_string().to_lowercase();
         assert!(message.contains("recovery") || message.contains("retry"));
         assert!(message.contains("timeout") || message.contains("ledger"));
+    }
+
+    // -- APDU status-word interpretation: approval / rejection / unsupported --
+
+    #[test]
+    fn apdu_status_approved_returns_payload() {
+        let response = vec![1, 2, 3, 0x90, 0x00];
+        let payload = check_apdu_status(&response).unwrap();
+        assert_eq!(payload, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn apdu_status_conditions_not_satisfied_is_a_rejection() {
+        let err = check_apdu_status(&[0x69, 0x85]).unwrap_err();
+        let message = err.to_string().to_lowercase();
+        assert!(message.contains("reject"));
+    }
+
+    #[test]
+    fn apdu_status_security_not_satisfied_is_a_rejection() {
+        let err = check_apdu_status(&[0x69, 0x82]).unwrap_err();
+        assert!(err.to_string().to_lowercase().contains("reject"));
+    }
+
+    #[test]
+    fn apdu_status_ins_not_supported_is_an_unsupported_envelope() {
+        let err = check_apdu_status(&[0x6d, 0x00]).unwrap_err();
+        let message = err.to_string().to_lowercase();
+        assert!(message.contains("does not support"));
+    }
+
+    #[test]
+    fn apdu_status_cla_not_supported_is_an_unsupported_envelope() {
+        let err = check_apdu_status(&[0x6e, 0x00]).unwrap_err();
+        assert!(err.to_string().to_lowercase().contains("does not support"));
+    }
+
+    #[test]
+    fn apdu_status_unrecognized_code_falls_back_to_generic_error() {
+        let err = check_apdu_status(&[0x6f, 0xff]).unwrap_err();
+        assert!(err.to_string().contains("6fff"));
+    }
+
+    #[test]
+    fn apdu_status_missing_status_word_is_a_failure() {
+        let err = check_apdu_status(&[0x90]).unwrap_err();
+        assert!(err.to_string().to_lowercase().contains("status word"));
+    }
+
+    // -- HD path boundary / failure cases (malformed request envelopes) --
+
+    #[test]
+    fn parse_hd_path_rejects_empty_segment() {
+        assert!(parse_hd_path("m//148'").is_err());
+    }
+
+    #[test]
+    fn parse_hd_path_rejects_out_of_range_index() {
+        assert!(parse_hd_path("m/2147483648").is_err());
+    }
+
+    #[test]
+    fn parse_hd_path_rejects_empty_path() {
+        assert!(parse_hd_path("m/").is_err());
+    }
+
+    // -- map_signing_error guidance for rejection / unsupported / disconnect --
+
+    #[test]
+    fn map_signing_error_reports_rejection_guidance() {
+        let err = map_signing_error(
+            anyhow::anyhow!(
+                "Ledger rejected the request on-device (status 6985): the user denied the prompt"
+            ),
+            HardwareWalletKind::Ledger,
+        );
+        let message = err.to_string().to_lowercase();
+        assert!(message.contains("approve"));
+    }
+
+    #[test]
+    fn map_signing_error_reports_unsupported_envelope_guidance() {
+        let err = map_signing_error(
+            anyhow::anyhow!(
+                "Ledger does not support this request envelope (status 6d00): the Stellar app may be outdated"
+            ),
+            HardwareWalletKind::Ledger,
+        );
+        let message = err.to_string().to_lowercase();
+        assert!(message.contains("update") && message.contains("app"));
+    }
+
+    #[test]
+    fn map_signing_error_reports_disconnect_guidance() {
+        let err = map_signing_error(
+            anyhow::anyhow!(
+                "No Ledger device detected. Connect it, unlock it, and open the Stellar app."
+            ),
+            HardwareWalletKind::Ledger,
+        );
+        let message = err.to_string().to_lowercase();
+        assert!(message.contains("connect"));
+    }
+
+    // -- Disconnect path: exercises the real optional backend against an absent
+    // device. These run whenever the crate is compiled with `--features
+    // hardware-wallet` (as CI now does) and are deterministic on machines/runners
+    // without a physical Ledger or Trezor attached — unlike the `#[ignore]`d test
+    // below, they require no hardware and no opt-in flag.
+
+    #[cfg(feature = "hardware-wallet")]
+    #[test]
+    fn ledger_connect_without_device_reports_disconnect() {
+        let err = connect(HardwareWalletKind::Ledger).unwrap_err();
+        let message = err.to_string().to_lowercase();
+        assert!(message.contains("ledger") || message.contains("device"));
+    }
+
+    #[cfg(feature = "hardware-wallet")]
+    #[test]
+    fn trezor_connect_without_device_reports_disconnect() {
+        let err = connect(HardwareWalletKind::Trezor).unwrap_err();
+        let message = err.to_string().to_lowercase();
+        assert!(message.contains("trezor") || message.contains("device"));
+    }
+
+    #[cfg(feature = "hardware-wallet")]
+    #[test]
+    fn ledger_device_status_without_device_is_graceful() {
+        let err = device_status(HardwareWalletKind::Ledger).unwrap_err();
+        assert!(!err.to_string().is_empty());
+    }
+
+    #[cfg(feature = "hardware-wallet")]
+    #[test]
+    fn trezor_device_status_without_device_is_graceful() {
+        let err = device_status(HardwareWalletKind::Trezor).unwrap_err();
+        assert!(!err.to_string().is_empty());
+    }
+
+    // Trezor's Stellar protocol needs the transaction decomposed into
+    // structured fields rather than accepting a raw XDR envelope, which this
+    // build does not yet do — it must reject the request up front instead of
+    // hanging or mis-signing.
+    #[cfg(feature = "hardware-wallet")]
+    #[test]
+    fn trezor_sign_transaction_reports_unsupported_envelope() {
+        let err = sign_transaction(
+            HardwareWalletKind::Trezor,
+            STELLAR_HD_PATH,
+            b"fake-xdr-envelope",
+            "Test SDF Network ; September 2015",
+        )
+        .unwrap_err();
+        let message = err.to_string().to_lowercase();
+        assert!(message.contains("not supported"));
+    }
+
+    #[cfg(feature = "hardware-wallet")]
+    #[test]
+    fn trezor_sign_transaction_rejects_malformed_hd_path_before_reporting_unsupported() {
+        let err =
+            sign_transaction(HardwareWalletKind::Trezor, "not-a-path", b"data", "").unwrap_err();
+        assert!(!err.to_string().to_lowercase().contains("not supported"));
     }
 
     #[cfg(feature = "hardware-wallet")]
