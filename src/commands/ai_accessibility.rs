@@ -190,13 +190,22 @@ fn handle_status(json: bool) -> Result<()> {
     p::header("Accessibility Configuration");
     p::separator();
     p::kv("Screen reader mode", &cfg.screen_reader_mode.to_string());
-    p::kv("Simplified text mode", &cfg.simplified_text_mode.to_string());
+    p::kv(
+        "Simplified text mode",
+        &cfg.simplified_text_mode.to_string(),
+    );
     p::kv("High contrast mode", &cfg.high_contrast_mode.to_string());
     p::kv("Voice commands", &cfg.voice_commands_enabled.to_string());
-    p::kv("Keyboard shortcuts", &cfg.keyboard_shortcuts_enabled.to_string());
+    p::kv(
+        "Keyboard shortcuts",
+        &cfg.keyboard_shortcuts_enabled.to_string(),
+    );
     p::kv("Reduce motion", &cfg.reduce_motion.to_string());
     p::kv("Announce progress", &cfg.announce_progress.to_string());
-    p::kv("Verbose descriptions", &cfg.verbose_descriptions.to_string());
+    p::kv(
+        "Verbose descriptions",
+        &cfg.verbose_descriptions.to_string(),
+    );
     p::kv("Font size", &format!("{:?}", cfg.font_size));
     p::separator();
     Ok(())
@@ -416,7 +425,11 @@ fn handle_toggle(setting: &str, enable: Option<bool>) -> Result<()> {
         _ => false,
     };
 
-    p::success(&format!("{} mode: {}", label, if state { "enabled" } else { "disabled" }));
+    p::success(&format!(
+        "{} mode: {}",
+        label,
+        if state { "enabled" } else { "disabled" }
+    ));
     Ok(())
 }
 

@@ -104,12 +104,7 @@ fn price_per_1k_tokens(provider: &str, model: &str) -> Option<(f64, f64)> {
 }
 
 /// Estimate USD cost for a call given provider, model, and token counts.
-pub fn estimate_cost(
-    provider: &str,
-    model: &str,
-    tokens_in: u64,
-    tokens_out: u64,
-) -> Option<f64> {
+pub fn estimate_cost(provider: &str, model: &str, tokens_in: u64, tokens_out: u64) -> Option<f64> {
     estimate_cost_usd(provider, model, Some(tokens_in), Some(tokens_out))
 }
 

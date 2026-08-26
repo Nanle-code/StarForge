@@ -927,7 +927,7 @@ fn dapp_readme(name: &str) -> String {
         r#"# {name}
 
 A Stellar dApp scaffolded with [starforge](https://github.com/stellar/starforge).
-A Stellar dApp scaffolded with [starforge](https://github.com/YOUR_USERNAME/starforge).
+A Stellar dApp scaffolded with [starforge](https://github.com/Josetic224/StarForge).
 
 ## Getting Started
 

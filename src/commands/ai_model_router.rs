@@ -135,9 +135,15 @@ fn handle_classify(args: ClassifyArgs) -> Result<()> {
     p::kv("Complexity", &classification.complexity.to_string());
     p::kv("Category", &classification.category.to_string());
     p::kv("Est. tokens", &classification.estimated_tokens.to_string());
-    p::kv("Requires reasoning", &classification.requires_reasoning.to_string());
+    p::kv(
+        "Requires reasoning",
+        &classification.requires_reasoning.to_string(),
+    );
     p::kv("Requires code", &classification.requires_code.to_string());
-    p::kv("Confidence", &format!("{:.0}%", classification.confidence * 100.0));
+    p::kv(
+        "Confidence",
+        &format!("{:.0}%", classification.confidence * 100.0),
+    );
     if !classification.signals.is_empty() {
         p::kv("Signals", &classification.signals.join(", "));
     }
@@ -257,7 +263,15 @@ fn handle_stats(args: StatsArgs) -> Result<()> {
         p::info("No model performance data recorded yet.");
         p::info("Enable AI telemetry with: starforge ai-telemetry enable");
     } else {
-        let headers = &["Provider", "Model", "Feature", "Calls", "Success %", "Avg ms", "Avg tokens"];
+        let headers = &[
+            "Provider",
+            "Model",
+            "Feature",
+            "Calls",
+            "Success %",
+            "Avg ms",
+            "Avg tokens",
+        ];
         let rows: Vec<Vec<String>> = stats
             .iter()
             .take(20)

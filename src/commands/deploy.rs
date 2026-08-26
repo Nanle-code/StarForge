@@ -5,8 +5,8 @@ use crate::utils::{
         self, last_successful, record_deployment, set_contract_id, set_duration, update_status,
         DeployRecord, DeployStatus,
     },
-    deployment_monitor, horizon, notifications, optimizer, output, print as p, simulation_resources,
-    soroban, wallet_signer,
+    deployment_monitor, horizon, notifications, optimizer, output, print as p,
+    simulation_resources, soroban, wallet_signer,
     wasm_hash::{compute_wasm_hash, BuildEnvironment},
     wasm_preflight,
 };

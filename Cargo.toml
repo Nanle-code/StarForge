@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2021"
 description = "A developer productivity CLI for Stellar and Soroban workflows"
 license = "MIT"
-repository = "https://github.com/YOUR_USERNAME/starforge"
+repository = "https://github.com/Josetic224/StarForge"
+homepage = "https://github.com/Josetic224/StarForge"
+documentation = "https://docs.rs/starforge"
 keywords = ["stellar", "soroban", "blockchain", "cli", "web3"]
 
 [[bin]]
@@ -49,6 +51,7 @@ colored  = "=2.1.0"
 comfy-table  = "7.1.1"
 dirs     = "=5.0.1"
 anyhow   = "1.0"
+thiserror = "1.0"
 chrono   = { version = "0.4", features = ["serde"] }
 rand     = "0.8"
 ed25519-dalek = ">=2.1.1, <3"

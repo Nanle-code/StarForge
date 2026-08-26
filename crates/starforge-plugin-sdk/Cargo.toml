@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "SDK for building StarForge CLI plugins"
 license = "MIT"
+repository = "https://github.com/Josetic224/StarForge"
+homepage = "https://github.com/Josetic224/StarForge"
+documentation = "https://docs.rs/starforge-plugin-sdk"
+keywords = ["starforge", "plugins", "sdk"]
 
 [lib]
 name = "starforge_plugin_sdk"

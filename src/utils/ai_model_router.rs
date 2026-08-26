@@ -292,7 +292,10 @@ pub fn classify_task(prompt: &str, category_hint: Option<TaskCategory>) -> TaskC
         || lower.contains("compare")
         || lower.contains("trade-off")
         || lower.contains("risk")
-        || matches!(category, TaskCategory::Planning | TaskCategory::SecurityAudit);
+        || matches!(
+            category,
+            TaskCategory::Planning | TaskCategory::SecurityAudit
+        );
 
     if requires_reasoning {
         signals.push("reasoning_keywords".into());
@@ -301,17 +304,17 @@ pub fn classify_task(prompt: &str, category_hint: Option<TaskCategory>) -> TaskC
         signals.push("contains_code".into());
     }
 
-    let complexity = if word_count > 800 || line_count > 60 || requires_reasoning && word_count > 300
-    {
-        signals.push("high_token_count".into());
-        TaskComplexity::Expert
-    } else if word_count > 300 || line_count > 25 || requires_reasoning {
-        TaskComplexity::Complex
-    } else if word_count > 80 || requires_code {
-        TaskComplexity::Moderate
-    } else {
-        TaskComplexity::Simple
-    };
+    let complexity =
+        if word_count > 800 || line_count > 60 || requires_reasoning && word_count > 300 {
+            signals.push("high_token_count".into());
+            TaskComplexity::Expert
+        } else if word_count > 300 || line_count > 25 || requires_reasoning {
+            TaskComplexity::Complex
+        } else if word_count > 80 || requires_code {
+            TaskComplexity::Moderate
+        } else {
+            TaskComplexity::Simple
+        };
 
     let estimated_tokens = (word_count as u32 * 2).max(256).min(8192);
     let confidence = if category_hint.is_some() {
@@ -362,8 +365,7 @@ fn infer_category(lower: &str, has_code: bool, signals: &mut Vec<String>) -> Tas
         TaskCategory::Optimization
     } else if lower.contains("document") || lower.contains("readme") || lower.contains("explain") {
         TaskCategory::Documentation
-    } else if lower.contains("generate") || lower.contains("implement") || lower.contains("write")
-    {
+    } else if lower.contains("generate") || lower.contains("implement") || lower.contains("write") {
         if has_code {
             signals.push("code_generation".into());
             TaskCategory::CodeGeneration
@@ -438,7 +440,11 @@ pub async fn route_task(
 
     if prefs.prefer_local && ollama_available {
         if let Some(local) = candidates.iter().find(|m| m.is_local) {
-            return Ok(build_decision(local, &classification, "Local Ollama preferred by user"));
+            return Ok(build_decision(
+                local,
+                &classification,
+                "Local Ollama preferred by user",
+            ));
         }
     }
 
@@ -458,12 +464,12 @@ pub async fn route_task(
         score_b.cmp(&score_a)
     });
 
-    let best = candidates.first().context("No suitable model found for task")?;
+    let best = candidates
+        .first()
+        .context("No suitable model found for task")?;
 
     let reason = match (classification.complexity, classification.category) {
-        (TaskComplexity::Simple, _) if prefs.cost_sensitive => {
-            "Simple task — optimizing for cost"
-        }
+        (TaskComplexity::Simple, _) if prefs.cost_sensitive => "Simple task — optimizing for cost",
         (_, TaskCategory::CodeGeneration) => "Code generation — code-specialized model",
         (_, TaskCategory::SecurityAudit) => "Security audit — high-capability model",
         (TaskComplexity::Expert, _) => "Expert complexity — capable model selected",
@@ -573,12 +579,7 @@ pub fn config_from_decision(decision: &RoutingDecision) -> AIServiceConfig {
     providers.insert(decision.provider.clone(), provider_config);
 
     let fallback_order = std::iter::once(decision.provider.clone())
-        .chain(
-            decision
-                .fallback_chain
-                .iter()
-                .map(|(p, _)| p.clone()),
-        )
+        .chain(decision.fallback_chain.iter().map(|(p, _)| p.clone()))
         .collect();
 
     AIServiceConfig {
@@ -609,21 +610,23 @@ pub fn model_performance_stats(days: Option<u32>) -> Result<Vec<ModelPerformance
 
     let mut stats: Vec<ModelPerformanceRecord> = by_model
         .into_iter()
-        .map(|((provider, model, feature), (total, success, latency, tokens))| {
-            ModelPerformanceRecord {
-                provider,
-                model,
-                feature,
-                success_rate: if total > 0 {
-                    success as f64 / total as f64
-                } else {
-                    0.0
-                },
-                avg_latency_ms: if total > 0 { latency / total } else { 0 },
-                avg_tokens: if total > 0 { tokens / total } else { 0 },
-                total_calls: total,
-            }
-        })
+        .map(
+            |((provider, model, feature), (total, success, latency, tokens))| {
+                ModelPerformanceRecord {
+                    provider,
+                    model,
+                    feature,
+                    success_rate: if total > 0 {
+                        success as f64 / total as f64
+                    } else {
+                        0.0
+                    },
+                    avg_latency_ms: if total > 0 { latency / total } else { 0 },
+                    avg_tokens: if total > 0 { tokens / total } else { 0 },
+                    total_calls: total,
+                }
+            },
+        )
         .collect();
 
     stats.sort_by(|a, b| b.total_calls.cmp(&a.total_calls));

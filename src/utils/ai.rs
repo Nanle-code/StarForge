@@ -740,7 +740,7 @@ mod tests {
 
     #[test]
     fn test_circuit_breaker_starts_closed() {
-        let cb = CircuitBreaker::new(3, 60);
+        let mut cb = CircuitBreaker::new(3, 60);
         assert!(cb.is_available());
     }
 

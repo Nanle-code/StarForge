@@ -9,7 +9,7 @@ use std::path::PathBuf;
 // Severity / Status helpers
 // ────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ComplianceSeverity {
     Info,
     Warning,

@@ -202,6 +202,7 @@ mod tests {
             description: String::new(),
             starforge_version_min: None,
             starforge_version_max: None,
+            required_capabilities: Vec::new(),
         };
         assert!(manifest.validate().is_ok());
     }
@@ -222,6 +223,7 @@ mod tests {
             description: String::new(),
             starforge_version_min: None,
             starforge_version_max: None,
+            required_capabilities: Vec::new(),
         };
         assert!(manifest.validate().is_err());
     }

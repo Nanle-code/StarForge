@@ -126,7 +126,6 @@ pub struct ExtractedEntities {
     pub keywords: Vec<String>,
 }
 
-
 // ── Pattern Definitions ────────────────────────────────────────────────────
 
 struct Pattern {
@@ -212,7 +211,8 @@ static PATTERNS: Lazy<Vec<Pattern>> = Lazy::new(|| {
             keywords: &["show", "network"],
             intent_factory: |_| Intent::ShowNetwork,
             confidence: 0.9,
-            explanation: "Shows the currently active network (testnet/mainnet) and its configuration.",
+            explanation:
+                "Shows the currently active network (testnet/mainnet) and its configuration.",
         },
         Pattern {
             keywords: &["switch", "network"],
@@ -287,14 +287,14 @@ static PATTERNS: Lazy<Vec<Pattern>> = Lazy::new(|| {
 const STOP_WORDS: &[&str] = &[
     "a", "an", "the", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
     "do", "does", "did", "will", "would", "shall", "should", "may", "might", "must", "can",
-    "could", "i", "you", "he", "she", "it", "we", "they", "me", "him", "her", "us", "them",
-    "my", "your", "his", "its", "our", "their", "this", "that", "these", "those", "am", "to",
-    "of", "in", "for", "on", "with", "at", "by", "from", "up", "about", "into", "through",
-    "during", "before", "after", "above", "below", "between", "out", "off", "over", "under",
-    "again", "further", "then", "once", "and", "but", "or", "nor", "not", "so", "very", "just",
-    "than", "too", "also", "here", "there", "when", "where", "why", "how", "all", "each",
-    "every", "both", "few", "more", "most", "other", "some", "such", "no", "only", "own",
-    "same", "now", "if", "please", "show", "me", "want",
+    "could", "i", "you", "he", "she", "it", "we", "they", "me", "him", "her", "us", "them", "my",
+    "your", "his", "its", "our", "their", "this", "that", "these", "those", "am", "to", "of", "in",
+    "for", "on", "with", "at", "by", "from", "up", "about", "into", "through", "during", "before",
+    "after", "above", "below", "between", "out", "off", "over", "under", "again", "further",
+    "then", "once", "and", "but", "or", "nor", "not", "so", "very", "just", "than", "too", "also",
+    "here", "there", "when", "where", "why", "how", "all", "each", "every", "both", "few", "more",
+    "most", "other", "some", "such", "no", "only", "own", "same", "now", "if", "please", "show",
+    "me", "want",
 ];
 
 /// Extracts entities from the natural language input.
@@ -384,8 +384,7 @@ fn extract_entities(input: &str) -> ExtractedEntities {
     for i in 0..words.len() {
         if matches!(words[i], "call" | "run" | "execute" | "invoke") {
             if i + 1 < words.len() {
-                let func = words[i + 1]
-                    .trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+                let func = words[i + 1].trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
                 if !func.is_empty() {
                     entities.function_name = Some(func.to_string());
                     break;
@@ -396,7 +395,10 @@ fn extract_entities(input: &str) -> ExtractedEntities {
 
     // Collect meaningful keywords (exclude stop words)
     for word in &words {
-        let cleaned: String = word.chars().filter(|c| c.is_alphanumeric() || *c == '_').collect();
+        let cleaned: String = word
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == '_')
+            .collect();
         if !cleaned.is_empty()
             && cleaned.len() > 2
             && !STOP_WORDS.contains(&cleaned.as_str())
@@ -575,8 +577,7 @@ fn generate_explanation(intent: &Intent, command: &str) -> String {
         }
         Intent::ListWallets => {
             explanation.push_str("📋 I'll list all wallets saved locally.\n\n");
-            explanation
-                .push_str("This shows wallet names, public keys, and networks.\n");
+            explanation.push_str("This shows wallet names, public keys, and networks.\n");
         }
         Intent::ShowWallet { name } => {
             explanation.push_str(&format!(
@@ -592,8 +593,7 @@ fn generate_explanation(intent: &Intent, command: &str) -> String {
                 "💰 I'll fund wallet '{}' via the testnet faucet.\n\n",
                 name.as_deref().unwrap_or("wallet"),
             ));
-            explanation
-                .push_str("Friendbot sends 10,000 XLM to testnet accounts.\n");
+            explanation.push_str("Friendbot sends 10,000 XLM to testnet accounts.\n");
         }
         Intent::DeployContract { wallet, network } => {
             explanation.push_str("🚀 I'll deploy a compiled Soroban contract.\n\n");
@@ -626,23 +626,16 @@ fn generate_explanation(intent: &Intent, command: &str) -> String {
             );
         }
         Intent::SwitchNetwork { network } => {
-            explanation.push_str(&format!(
-                "🔄 I'll switch to the {} network.\n\n",
-                network
-            ));
-            explanation
-                .push_str("This changes the active network for all subsequent commands.\n");
+            explanation.push_str(&format!("🔄 I'll switch to the {} network.\n\n", network));
+            explanation.push_str("This changes the active network for all subsequent commands.\n");
         }
         Intent::StartNode => {
-            explanation
-                .push_str("🐳 I'll start a local Soroban devnet via Docker.\n\n");
+            explanation.push_str("🐳 I'll start a local Soroban devnet via Docker.\n\n");
             explanation.push_str("This launches a local Stellar node for testing.\n");
         }
         Intent::RunDoctor => {
             explanation.push_str("🩺 I'll run diagnostics on your StarForge installation.\n\n");
-            explanation.push_str(
-                "This checks for missing dependencies and connectivity issues.\n",
-            );
+            explanation.push_str("This checks for missing dependencies and connectivity issues.\n");
         }
         _ => {
             explanation.push_str("I'll execute the following command:\n\n");
@@ -728,10 +721,7 @@ pub async fn handle(args: NlArgs) -> Result<()> {
         println!();
         p::kv("Input", input);
         p::kv("Intent", &format!("{:?}", intent));
-        p::kv(
-            "Confidence",
-            &format!("{:.0}%", confidence * 100.0),
-        );
+        p::kv("Confidence", &format!("{:.0}%", confidence * 100.0));
         println!();
 
         if !entities.keywords.is_empty() {
@@ -807,9 +797,7 @@ pub async fn handle(args: NlArgs) -> Result<()> {
             println!("  {}. {}", i + 1, candidate.bright_white());
         }
         println!();
-        p::info(
-            "Please be more specific or use `starforge <command> --help`.",
-        );
+        p::info("Please be more specific or use `starforge <command> --help`.");
         return Ok(());
     }
 
