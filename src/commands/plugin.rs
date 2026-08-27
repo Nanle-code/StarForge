@@ -273,6 +273,7 @@ fn list(json: bool) -> Result<()> {
             version: String,
             trust: String,
             source: String,
+            description: String,
             commands: Vec<PluginCommandSummary>,
         }
 
@@ -282,20 +283,20 @@ fn list(json: bool) -> Result<()> {
             description: String,
         }
 
-        let plugins: Vec<PluginSummary> = reg
-            .plugins
-            .iter()
+        let plugins: Vec<PluginSummary> = registry::plugin_list_entries(&reg)
+            .into_iter()
             .map(|entry| PluginSummary {
-                name: entry.name.clone(),
-                version: entry.plugin_version.clone(),
+                name: entry.name,
+                version: entry.plugin_version,
                 trust: entry.trust.label().to_string(),
-                source: entry.source.clone(),
+                source: entry.source,
+                description: entry.description,
                 commands: entry
                     .commands
-                    .iter()
+                    .into_iter()
                     .map(|cmd| PluginCommandSummary {
-                        name: cmd.name.clone(),
-                        description: cmd.description.clone(),
+                        name: cmd.name,
+                        description: cmd.description,
                     })
                     .collect(),
             })
@@ -316,21 +317,22 @@ fn list(json: bool) -> Result<()> {
     p::kv("StarForge core version", CORE_VERSION);
     p::separator();
 
-    let entries = reg.plugins.clone();
+    let list_entries = registry::plugin_list_entries(&reg);
 
-    let plugin_rows: Vec<Vec<String>> = entries
+    let plugin_rows: Vec<Vec<String>> = list_entries
         .iter()
         .map(|entry| {
             vec![
                 entry.name.clone(),
                 entry.plugin_version.clone(),
                 entry.trust.label().to_string(),
-                "".to_string(),
+                entry.description.clone(),
             ]
         })
         .collect();
     p::table(&["Name", "Version", "Trust", "Description"], &plugin_rows);
 
+    let entries = reg.plugins.clone();
     let command_rows: Vec<Vec<String>> = entries
         .iter()
         .flat_map(|entry| {

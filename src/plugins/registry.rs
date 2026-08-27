@@ -227,6 +227,12 @@ pub struct InstalledPlugin {
     /// Commands this plugin registers.
     #[serde(default)]
     pub commands: Vec<RegisteredCommand>,
+    /// Human-readable description from the plugin manifest, if any. Older
+    /// registry entries (installed before this field existed) default to
+    /// empty; use [`resolve_plugin_description`] to get a display-ready
+    /// value that falls back to the first command's description.
+    #[serde(default)]
+    pub description: String,
 }
 
 fn registry_path() -> Result<PathBuf> {
@@ -327,10 +333,53 @@ pub fn install_plugin(
         plugin_version: plugin_version.to_string(),
         installed_at: Some(now),
         commands,
+        description: description.to_string(),
     });
     reg.plugins.sort_by(|a, b| a.name.cmp(&b.name));
     save_registry(&reg)?;
     Ok(())
+}
+
+/// Resolve a display-ready description for a plugin: prefers the explicit
+/// registry-recorded description, and falls back to the first registered
+/// command's description when that's empty (e.g. for plugins installed
+/// before `description` was tracked).
+pub fn resolve_plugin_description(plugin: &InstalledPlugin) -> String {
+    if !plugin.description.is_empty() {
+        return plugin.description.clone();
+    }
+    plugin
+        .commands
+        .first()
+        .map(|cmd| cmd.description.clone())
+        .unwrap_or_default()
+}
+
+/// A plugin entry with its description pre-resolved, for listing UIs.
+#[derive(Debug, Clone)]
+pub struct PluginListEntry {
+    pub name: String,
+    pub plugin_version: String,
+    pub trust: TrustLevel,
+    pub source: String,
+    pub description: String,
+    pub commands: Vec<RegisteredCommand>,
+}
+
+/// Build display-ready entries for every installed plugin, with descriptions
+/// resolved via [`resolve_plugin_description`].
+pub fn plugin_list_entries(reg: &PluginRegistry) -> Vec<PluginListEntry> {
+    reg.plugins
+        .iter()
+        .map(|p| PluginListEntry {
+            name: p.name.clone(),
+            plugin_version: p.plugin_version.clone(),
+            trust: p.trust.clone(),
+            source: p.source.clone(),
+            description: resolve_plugin_description(p),
+            commands: p.commands.clone(),
+        })
+        .collect()
 }
 
 /// Return all commands registered across all installed plugins (read from registry, no .so load).
