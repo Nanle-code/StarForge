@@ -22,7 +22,7 @@ pub trait Migration: Send + Sync {
 
     /// Apply the migration (upgrade)
     fn up(&self, conn: &Connection) -> Result<()>;
-
+    
     /// Rollback the migration (downgrade)
     fn down(&self, conn: &Connection) -> Result<()>;
 }
@@ -45,29 +45,32 @@ pub struct MigrationResult {
 }
 
 /// Error types for migration operations
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum MigrationError {
-    #[error("Migration version {0} is already applied")]
     AlreadyApplied(i64),
-
-    #[error("Migration version {0} not found")]
     NotFound(i64),
-
-    #[error("Cannot rollback: no migrations applied")]
     NothingToRollback,
-
-    #[error("Migration version {0} depends on unapplied version {1}")]
     MissingDependency(i64, i64),
-
-    #[error("Invalid migration sequence: versions must be consecutive")]
     InvalidSequence,
-
-    #[error("Database schema version {0} is not supported (minimum: {1}, maximum: {2})")]
     UnsupportedVersion(i64, i64, i64),
-
-    #[error("Migration failed: {0}")]
     MigrationFailed(String),
 }
+
+impl std::fmt::Display for MigrationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AlreadyApplied(v) => write!(f, "Migration version {} is already applied", v),
+            Self::NotFound(v) => write!(f, "Migration version {} not found", v),
+            Self::NothingToRollback => write!(f, "Cannot rollback: no migrations applied"),
+            Self::MissingDependency(v, dep) => write!(f, "Migration version {} depends on unapplied version {}", v, dep),
+            Self::InvalidSequence => write!(f, "Invalid migration sequence: versions must be consecutive"),
+            Self::UnsupportedVersion(v, min, max) => write!(f, "Database schema version {} is not supported (minimum: {}, maximum: {})", v, min, max),
+            Self::MigrationFailed(msg) => write!(f, "Migration failed: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for MigrationError {}
 
 pub struct Database {
     pub(crate) conn: Connection,
@@ -1127,12 +1130,12 @@ impl Migration for MigrationV1 {
     fn description(&self) -> &str {
         "initial_schema"
     }
-
+    
     fn up(&self, conn: &Connection) -> Result<()> {
         // This is a no-op since the initial schema is already applied in SCHEMA
         Ok(())
     }
-
+    
     fn down(&self, conn: &Connection) -> Result<()> {
         // Rollback: drop all tables
         conn.execute_batch(

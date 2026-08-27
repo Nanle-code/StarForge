@@ -7,6 +7,7 @@ pub mod ai_contract_suggest;
 pub mod ai_debug;
 pub mod ai_deploy_docs;
 pub mod ai_deployment_test;
+pub mod ai_doc_qa;
 pub mod ai_error;
 pub mod ai_feedback;
 pub mod ai_ide;

@@ -4,10 +4,44 @@
 //! expose your plugin to the StarForge CLI loader.
 
 /// Metadata every plugin must provide.
+#[derive(Debug, Clone)]
 pub struct PluginMeta {
     pub name: &'static str,
     pub version: &'static str,
     pub description: &'static str,
+    pub starforge_version: &'static str,
+}
+
+impl PluginMeta {
+    pub fn new(name: &'static str, version: &'static str, description: &'static str) -> Self {
+        Self {
+            name,
+            version,
+            description,
+            starforge_version: env!("CARGO_PKG_VERSION"),
+        }
+    }
+
+    pub fn with_starforge_version(
+        name: &'static str,
+        version: &'static str,
+        description: &'static str,
+        starforge_version: &'static str,
+    ) -> Self {
+        Self {
+            name,
+            version,
+            description,
+            starforge_version,
+        }
+    }
+
+    /// Checks if this plugin's target starforge_version has matching major version with running CLI core.
+    pub fn is_compatible_with(&self, running_core_version: &str) -> bool {
+        let plugin_major = self.starforge_version.split('.').next().unwrap_or("0");
+        let core_major = running_core_version.split('.').next().unwrap_or("0");
+        plugin_major == core_major
+    }
 }
 
 /// Core trait all StarForge plugins must implement.
@@ -26,7 +60,7 @@ pub trait StarForgePlugin {
 ///
 /// impl StarForgePlugin for MyPlugin {
 ///     fn meta(&self) -> PluginMeta {
-///         PluginMeta { name: "my-plugin", version: "0.1.0", description: "Does something cool" }
+///         PluginMeta::new("my-plugin", "0.1.0", "Does something cool")
 ///     }
 ///     fn run(&self, args: &[String]) -> Result<(), String> {
 ///         println!("my-plugin args: {:?}", args);

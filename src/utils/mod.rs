@@ -14,6 +14,7 @@ pub mod ai_debug_enhancement;
 pub mod ai_debugger;
 pub mod ai_deployment_planner;
 pub mod ai_deployment_testing;
+pub mod ai_doc_qa;
 pub mod ai_docs;
 pub mod ai_documentation_assistant;
 pub mod ai_error_handler;
