@@ -41,7 +41,11 @@ pub fn warn(msg: &str) {
 /// If `hints` is empty, a generic fallback is printed instead.
 pub fn cli_error(err: &anyhow::Error, hints: &[&str]) {
     // Primary message (the outermost error in the anyhow chain)
-    eprintln!("\n  {} {}\n", "✗  Error:".red().bold(), err);
+    eprintln!(
+        "\n  {} {}\n",
+        "✗  Error:".red().bold(),
+        crate::utils::logging::redact_text(&err.to_string())
+    );
 
     // Walk the anyhow cause chain and print each context layer (skipping the
     // root which was already printed above).
@@ -51,7 +55,7 @@ pub fn cli_error(err: &anyhow::Error, hints: &[&str]) {
             eprintln!(
                 "     {} {}",
                 "Context:".dimmed(),
-                cause.to_string().dimmed()
+                crate::utils::logging::redact_text(&cause.to_string()).dimmed()
             );
         }
         eprintln!();
