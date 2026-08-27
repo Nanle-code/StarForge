@@ -22,7 +22,7 @@ pub trait Migration: Send + Sync {
     
     /// Apply the migration (upgrade)
     fn up(&self, conn: &Connection) -> Result<()>;
-    
+
     /// Rollback the migration (downgrade)
     fn down(&self, conn: &Connection) -> Result<()>;
 }
@@ -120,7 +120,7 @@ impl Database {
         self.ensure_column("wallets", "rotation_history", "TEXT NOT NULL DEFAULT '[]'")?;
         
         // Run migrations if this is not a fresh database
-        if self.get_meta("schema_version").is_ok() {
+        if self.get_meta("schema_version")?.is_some() {
             self.run_migrations()?;
         } else {
             // Fresh database - set initial version
@@ -1117,7 +1117,7 @@ impl Migration for MigrationV1 {
         // This is a no-op since the initial schema is already applied in SCHEMA
         Ok(())
     }
-    
+
     fn down(&self, conn: &Connection) -> Result<()> {
         // Rollback: drop all tables
         conn.execute_batch(

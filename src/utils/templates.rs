@@ -2041,6 +2041,16 @@ pub async fn rollback_installed_template(name: &str) -> Result<TemplateUpdateRep
 mod tests {
     use super::*;
 
+    /// Regression test: the registry bundled into the binary is the last-resort
+    /// fallback used when there is no cache and no network (e.g. a fresh,
+    /// offline install). It must always deserialize cleanly.
+    #[test]
+    fn default_registry_parses() {
+        let registry: TemplateRegistry =
+            serde_json::from_str(DEFAULT_REGISTRY).expect("bundled registry.json must parse");
+        assert!(!registry.templates.is_empty());
+    }
+
     fn make_entry(name: &str) -> TemplateEntry {
         TemplateEntry {
             name: name.to_string(),

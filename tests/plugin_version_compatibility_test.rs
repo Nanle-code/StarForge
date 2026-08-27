@@ -1,7 +1,7 @@
 use starforge::plugins::interface::CORE_VERSION;
 use starforge::plugins::manifest::{
-    load_manifest_for_library, require_compatible_manifest, PluginManifest,
-    SupportedVersionPolicy, MANIFEST_FILENAME,
+    load_manifest_for_library, require_compatible_manifest, PluginManifest, SupportedVersionPolicy,
+    MANIFEST_FILENAME,
 };
 
 #[test]
@@ -160,7 +160,9 @@ fn test_load_manifest_and_require_manifest_file_system() {
 
     // Absent manifest fails require_compatible_manifest
     let missing_err = require_compatible_manifest(&lib_path, "test-plugin").unwrap_err();
-    assert!(missing_err.to_string().contains("Plugin manifest not found"));
+    assert!(missing_err
+        .to_string()
+        .contains("Plugin manifest not found"));
 
     // Write valid manifest
     std::fs::write(

@@ -52,9 +52,7 @@ jobs:
       - name: Run latency benchmarks
         run: |
           cargo bench --locked -- \
-            cli_cold_start \
-            cli_command_latency \
-            latency_budget \
+            'cli_cold_start|cli_command_latency|latency_budget' \
             2>&1 | tee target/criterion/latency-bench-output.txt
 
       # Parse Criterion output and check against latency budgets.
@@ -117,9 +115,15 @@ jobs:
             } else {
               summary += '_No latency budget report was generated._';
             }
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: summary
-            });
+            try {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: summary
+              });
+            } catch (err) {
+              // Fork PRs get a read-only GITHUB_TOKEN and can't post comments;
+              // don't fail the whole job just because the summary couldn't be posted.
+              core.warning(`Could not post latency budget comment: ${err.message}`);
+            }
