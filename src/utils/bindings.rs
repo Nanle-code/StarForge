@@ -284,6 +284,15 @@ fn read_var_u32(bytes: &[u8], offset: &mut usize) -> Result<u32> {
     }
 }
 
+fn generate_from_metadata(metadata: &ContractMetadata, language: BindingLanguage) -> String {
+    match language {
+        BindingLanguage::Rust => generate_rust(metadata),
+        BindingLanguage::TypeScript => generate_typescript(metadata),
+        BindingLanguage::Python => generate_python(metadata),
+        BindingLanguage::Go => generate_go(metadata),
+    }
+}
+
 fn generate_rust(metadata: &ContractMetadata) -> String {
     let mut out = String::from(
         "use std::process::Command;\nuse std::io::{self, Write};\nuse anyhow::{Result, Context};\n\n\
@@ -521,9 +530,13 @@ fn generate_typescript(metadata: &ContractMetadata) -> String {
 
 fn generate_python(metadata: &ContractMetadata) -> String {
     let mut out = String::from(
-        "from dataclasses import dataclass\n\
-         from typing import List, Dict, Optional, Union, Tuple\n\
+        "from dataclasses import asdict, dataclass, is_dataclass\n\
+         from typing import Any, List, Dict, Optional, Union, Tuple\n\
+         import asyncio\n\
+         import json\n\
          import subprocess\n\n\
+         class ContractInvocationError(RuntimeError):\n\
+             \"\"\"Raised when the StarForge CLI cannot invoke a contract function.\"\"\"\n\n\
          @dataclass\n\
          class ContractClientOptions:\n\
              contract_id: str\n\
@@ -532,13 +545,34 @@ fn generate_python(metadata: &ContractMetadata) -> String {
          class ContractClient:\n\
              def __init__(self, options: ContractClientOptions):\n\
                  self.options = options\n\n\
-             def _invoke_args(self, function_name: str, args: List[Tuple[str, str]]) -> List[str]:\n\
+             @staticmethod\n\
+             def _encode_arg(value: Any) -> str:\n\
+                 if isinstance(value, bool):\n\
+                     return str(value).lower()\n\
+                 if isinstance(value, bytes):\n\
+                     return value.hex()\n\
+                 if is_dataclass(value):\n\
+                     value = asdict(value)\n\
+                 if isinstance(value, (dict, list, tuple)):\n\
+                     return json.dumps(value, separators=(\",\", \":\"), default=str)\n\
+                 return str(value)\n\n\
+             def _invoke_args(self, function_name: str, args: List[Tuple[Any, str]]) -> List[str]:\n\
                  cli = [\"starforge\", \"contract\", \"invoke\", self.options.contract_id, function_name, \"--network\", self.options.network]\n\
                  for value, type_name in args:\n\
-                     cli.extend([\"--arg\", str(value), \"--type\", type_name])\n\
+                     cli.extend([\"--arg\", self._encode_arg(value), \"--type\", type_name])\n\
                  if self.options.wallet:\n\
                      cli.extend([\"--wallet\", self.options.wallet, \"--submit\"])\n\
-                 return cli\n\n",
+                 return cli\n\n\
+             def _invoke(self, function_name: str, args: List[Tuple[Any, str]]) -> Any:\n\
+                 completed = subprocess.run(self._invoke_args(function_name, args), capture_output=True, text=True)\n\
+                 if completed.returncode != 0:\n\
+                     detail = completed.stderr.strip() or completed.stdout.strip() or \"unknown error\"\n\
+                     raise ContractInvocationError(f\"{function_name} failed: {detail}\")\n\
+                 result = completed.stdout.strip()\n\
+                 try:\n\
+                     return json.loads(result)\n\
+                 except json.JSONDecodeError:\n\
+                     return result\n\n",
     );
 
     for function in &metadata.functions {
@@ -549,7 +583,7 @@ fn generate_python(metadata: &ContractMetadata) -> String {
             .map(|input| {
                 format!(
                     "{}: {}",
-                    sanitize_ident(&input.name),
+                    python_ident(&input.name),
                     python_type(&input.type_name)
                 )
             })
@@ -560,31 +594,47 @@ fn generate_python(metadata: &ContractMetadata) -> String {
             .as_deref()
             .map(python_type)
             .unwrap_or_else(|| "None".to_string());
+        let signature = if params.is_empty() {
+            "self".to_string()
+        } else {
+            format!("self, {}", params)
+        };
         out.push_str(&format!(
-            "    def {}(self, {}) -> List[str]:\n\
-             \"\"\"Returns CLI args; expected result type: {}\"\"\"\n\
+            "    def {}({}) -> {}:\n\
+             \"\"\"Invoke the contract function and decode its JSON result.\"\"\"\n\
              args = [\n",
-            py_name, params, return_type
+            py_name, signature, return_type
         ));
         for (i, input) in function.inputs.iter().enumerate() {
             if i == function.inputs.len() - 1 {
                 out.push_str(&format!(
                     "                ({}, \"{}\")\n",
-                    sanitize_ident(&input.name),
+                    python_ident(&input.name),
                     input.type_name
                 ));
             } else {
                 out.push_str(&format!(
                     "                ({}, \"{}\"),\n",
-                    sanitize_ident(&input.name),
+                    python_ident(&input.name),
                     input.type_name
                 ));
             }
         }
         out.push_str(&format!(
             "            ]\n\
-             return self._invoke_args(\"{}\", args)\n\n",
+             return self._invoke(\"{}\", args)\n\n",
             function.name
+        ));
+        let async_args = function
+            .inputs
+            .iter()
+            .map(|input| python_ident(&input.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!(
+            "    async def {}_async({}) -> {}:\n\
+             return await asyncio.to_thread(self.{}, {})\n\n",
+            py_name, signature, return_type, py_name, async_args
         ));
     }
 
@@ -594,7 +644,7 @@ fn generate_python(metadata: &ContractMetadata) -> String {
         let struct_name = pascal_case(&struct_def.name);
         out.push_str(&format!("@dataclass\nclass {}:\n", struct_name));
         for field in &struct_def.fields {
-            let field_name = snake_case(&field.name);
+            let field_name = python_ident(&snake_case(&field.name));
             let py_ty = python_type(&field.type_name);
             out.push_str(&format!("    {}: {}\n", field_name, py_ty));
         }
@@ -808,6 +858,18 @@ fn python_type(type_name: &str) -> String {
                 type_name.to_string()
             }
         }
+    }
+}
+
+fn python_ident(input: &str) -> String {
+    let ident = sanitize_ident(input);
+    match ident.as_str() {
+        "and" | "as" | "assert" | "async" | "await" | "break" | "case" | "class" | "continue"
+        | "def" | "del" | "elif" | "else" | "except" | "False" | "finally" | "for" | "from"
+        | "global" | "if" | "import" | "in" | "is" | "lambda" | "match" | "None" | "nonlocal"
+        | "not" | "or" | "pass" | "raise" | "return" | "True" | "try" | "type"
+        | "while" | "with" | "yield" => format!("{}", ident) + "_",
+        _ => ident,
     }
 }
 
@@ -1111,5 +1173,18 @@ mod tests {
     fn sanitizes_generated_identifiers() {
         assert_eq!(sanitize_ident("transfer-from"), "transfer_from");
         assert_eq!(sanitize_ident("1st"), "_1st");
+    }
+
+    #[test]
+    fn generates_typed_python_sync_and_async_clients() {
+        let generated = generate_python(&complex_metadata());
+
+        assert!(generated.contains("from typing import Any"));
+        assert!(generated.contains("def transfer(self, from_: str"));
+        assert!(generated.contains("def get_metadata(self) -> TokenMetadata:"));
+        assert!(generated.contains("async def balance_of_async(self, owner: str) -> int:"));
+        assert!(generated.contains("self._encode_arg(value)"));
+        assert!(generated.contains("raise ContractInvocationError"));
+        assert!(generated.contains("@dataclass\nclass TokenMetadata:"));
     }
 }
