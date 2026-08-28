@@ -51,6 +51,24 @@ For contributors, the hash is intentionally defined as the SHA-256 digest of the
 
 ## Installation
 
+### Python client bindings
+
+Generate a typed Python client from a contract's embedded Soroban specification:
+
+```bash
+starforge contract generate-bindings ./contract.wasm --lang python > client.py
+python -m py_compile client.py
+```
+
+The generated module targets Python 3.10+, provides synchronous methods and `*_async` convenience methods, and raises `ContractInvocationError` when the StarForge CLI reports an invocation failure. Install it locally by placing it in a small package with a `pyproject.toml`, then use it like this:
+
+```python
+from client import ContractClient, ContractClientOptions
+
+client = ContractClient(ContractClientOptions(contract_id="C...", network="testnet"))
+balance = client.balance_of(owner="G...")
+```
+
 ### Quick Install (macOS / Linux)
 
 You can install the latest release binary using the installation script:
