@@ -1,6 +1,6 @@
 use starforge::utils::multisig_builder::{
-    generate_signature, proposal_from_template, render_progress_bar, template_definitions,
-    validate_for_submit, Proposal,
+    calculate_progress, generate_signature, proposal_from_template, render_progress_bar,
+    template_definitions, validate_for_submit, Proposal,
 };
 
 #[test]
@@ -8,7 +8,7 @@ fn templates_create_proposals_with_metadata() {
     let templates = template_definitions();
     assert!(templates.iter().any(|template| template.name == "escrow"));
 
-    let proposal = proposal_from_template("escrow").unwrap();
+    let proposal = proposal_from_template("escrow", "testnet".to_string()).unwrap();
     assert_eq!(proposal.threshold, 2);
     assert_eq!(proposal.signers, vec!["buyer", "seller", "arbiter"]);
     assert_eq!(proposal.network, "testnet");
@@ -33,13 +33,13 @@ fn progress_tracks_valid_signatures_and_pending_signers() {
 
     assert_eq!(proposal.signatures.len(), 1);
     assert_eq!(proposal.threshold, 2);
-    let (_, percent) = render_progress_bar(proposal.signatures.len(), proposal.threshold);
-    assert_eq!(percent, 50);
+    let progress = calculate_progress(&proposal);
+    assert_eq!(progress.percent, 50);
     assert!(!proposal.is_complete());
     assert_eq!(proposal.pending_signers(), vec!["bob", "carol"]);
 
-    let (bar, _) = render_progress_bar(proposal.signatures.len(), proposal.threshold);
-    assert_eq!(bar, "█████░░░░░");
+    let bar = render_progress_bar(&progress, 10);
+    assert_eq!(bar, "[#####.....] 50% (1/2)");
 }
 
 #[test]
@@ -85,6 +85,6 @@ fn validation_marks_ready_when_threshold_is_met() {
 
     assert!(validate_for_submit(&proposal).is_ok());
     assert!(proposal.is_complete());
-    let (_, percent) = render_progress_bar(proposal.signatures.len(), proposal.threshold);
-    assert_eq!(percent, 100);
+    let progress = calculate_progress(&proposal);
+    assert_eq!(progress.percent, 100);
 }

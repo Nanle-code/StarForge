@@ -172,9 +172,9 @@ pub struct FailurePatternReport {
 // ── Test Optimizer ──────────────────────────────────────────────────────────
 
 pub struct TestOptimizer {
-    config_dir: PathBuf,
+    pub config_dir: PathBuf,
     pub history: HashMap<String, TestHistory>,
-    cache: HashMap<String, TestCacheEntry>,
+    pub cache: HashMap<String, TestCacheEntry>,
 }
 
 impl TestOptimizer {

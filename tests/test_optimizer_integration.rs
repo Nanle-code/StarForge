@@ -86,7 +86,7 @@ fn test_full_optimization_pipeline_with_history() {
     ];
 
     // Populate history with realistic patterns
-    opt.history.insert(make_history(
+    opt.history.extend([make_history(
         "test_security_auth",
         20,
         5,
@@ -94,10 +94,10 @@ fn test_full_optimization_pipeline_with_history() {
         3,
         300.0,
         "pass",
-    ));
+    )]);
     opt.history
-        .insert(make_history("test_wallet_e2e", 15, 8, 7, 6, 1200.0, "fail"));
-    opt.history.insert(make_history(
+        .extend([make_history("test_wallet_e2e", 15, 8, 7, 6, 1200.0, "fail")]);
+    opt.history.extend([make_history(
         "test_smoke_connectivity",
         25,
         1,
@@ -105,8 +105,8 @@ fn test_full_optimization_pipeline_with_history() {
         1,
         50.0,
         "pass",
-    ));
-    opt.history.insert(make_history(
+    )]);
+    opt.history.extend([make_history(
         "test_perf_benchmark",
         10,
         2,
@@ -114,8 +114,8 @@ fn test_full_optimization_pipeline_with_history() {
         2,
         5000.0,
         "pass",
-    ));
-    opt.history.insert(make_history(
+    )]);
+    opt.history.extend([make_history(
         "test_property_invariant",
         30,
         0,
@@ -123,8 +123,8 @@ fn test_full_optimization_pipeline_with_history() {
         0,
         200.0,
         "pass",
-    ));
-    opt.history.insert(make_history(
+    )]);
+    opt.history.extend([make_history(
         "test_integration_rollback",
         8,
         4,
@@ -132,7 +132,7 @@ fn test_full_optimization_pipeline_with_history() {
         4,
         800.0,
         "fail",
-    ));
+    )]);
 
     // Check ordering: flaky/failing tests should come first
     let ordered = opt.optimize_order(&test_names);
@@ -441,9 +441,9 @@ fn test_report_generation_and_export() {
 
     // Add some history
     opt.history
-        .insert(make_history("test_a", 10, 2, 8, 1, 100.0, "pass"));
+        .extend([make_history("test_a", 10, 2, 8, 1, 100.0, "pass")]);
     opt.history
-        .insert(make_history("test_b", 5, 3, 2, 3, 500.0, "fail"));
+        .extend([make_history("test_b", 5, 3, 2, 3, 500.0, "fail")]);
 
     let test_names = vec!["test_a".into(), "test_b".into()];
     let generated = vec![make_generated("test_a", "func1", "happy_path")];

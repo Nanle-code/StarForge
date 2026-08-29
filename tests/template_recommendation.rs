@@ -240,7 +240,7 @@ fn verified_documented_audited_entry_scores_high() {
         status: "audited".to_string(),
         audited_at: Some("2025-06-01T00:00:00Z".to_string()),
         auditor: Some("StarForge Security Team".to_string()),
-        findings: Some(0),
+        findings: None,
         score: Some(98.0),
     });
     let q = entry.quality_score();
