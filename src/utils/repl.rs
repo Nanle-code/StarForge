@@ -446,6 +446,10 @@ impl StarForgeHelper {
 impl Helper for StarForgeHelper {}
 impl Hinter for StarForgeHelper {
     type Hint = String;
+
+    fn hint(&self, _line: &str, _pos: usize, _ctx: &Context<'_>) -> Option<Self::Hint> {
+        None
+    }
 }
 
 impl Highlighter for StarForgeHelper {

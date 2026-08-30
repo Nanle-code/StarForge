@@ -17,7 +17,7 @@ path = "src/main.rs"
 [lib]
 name = "starforge"
 path = "src/lib.rs"
-crate-type = ["cdylib", "rlib"]
+crate-type = ["rlib"]
 
 # Package-wide lint policy. These lints are intentionally relaxed for the crate
 # (including integration tests, which use lightweight mock structs and helpers).
