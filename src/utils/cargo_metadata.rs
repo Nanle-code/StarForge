@@ -30,7 +30,7 @@ pub enum CargoMetadataError {
     TomlParseError(String),
     InvalidUrl(String),
     IncompleteUrlPattern(String),
-    UndeterminedRepositoryUrl(PathBuf),
+    UndeterminedRepositoryUrl(String),
     LicenseFileNotFound(PathBuf),
     InvalidPackageName(String),
 }
@@ -128,11 +128,6 @@ impl CargoMetadataFixer {
             return true;
         }
 
-        // Must start with valid HTTP/HTTPS scheme
-        if !lower.starts_with("http://") && !lower.starts_with("https://") {
-            return true;
-        }
-
         false
     }
 
@@ -140,14 +135,14 @@ impl CargoMetadataFixer {
     pub fn validate_url_format(url: &str) -> Result<(), CargoMetadataError> {
         let trimmed = url.trim();
 
+        if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") {
+            return Err(CargoMetadataError::InvalidUrl(trimmed.to_string()));
+        }
+
         if Self::is_placeholder_url(trimmed) {
             return Err(CargoMetadataError::IncompleteUrlPattern(
                 trimmed.to_string(),
             ));
-        }
-
-        if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") {
-            return Err(CargoMetadataError::InvalidUrl(trimmed.to_string()));
         }
 
         let after_scheme = if let Some(s) = trimmed.strip_prefix("https://") {
