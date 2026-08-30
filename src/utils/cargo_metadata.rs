@@ -30,7 +30,7 @@ pub enum CargoMetadataError {
     TomlParseError(String),
     InvalidUrl(String),
     IncompleteUrlPattern(String),
-    UndeterminedRepositoryUrl(String),
+    UndeterminedRepositoryUrl(PathBuf),
     LicenseFileNotFound(PathBuf),
     InvalidPackageName(String),
 }
