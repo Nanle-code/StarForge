@@ -22,7 +22,8 @@ pub fn is_json_mode_enabled() -> bool {
 
 pub fn print_json<T: Serialize>(value: &T) -> Result<()> {
     let rendered = serde_json::to_string_pretty(value)?;
-    println!("{rendered}");
+    let redacted = crate::utils::redaction::redact_secrets(&rendered);
+    println!("{redacted}");
     Ok(())
 }
 

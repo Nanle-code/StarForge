@@ -1640,11 +1640,11 @@ fn handle_plans(args: PlansArgs) -> Result<()> {
     let plans = load_plans()?;
     let filtered: Vec<_> = plans
         .iter()
-        .filter(|p| args.network.as_deref().is_none_or(|n| p.network == n))
+        .filter(|p| args.network.as_deref().map_or(true, |n| p.network == n))
         .filter(|p| {
             args.contract_id
                 .as_deref()
-                .is_none_or(|c| p.contract_id == c)
+                .map_or(true, |c| p.contract_id == c)
         })
         .collect();
 

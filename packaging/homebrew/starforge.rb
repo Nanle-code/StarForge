@@ -19,6 +19,11 @@ class Starforge < Formula
 
   def install
     bin.install "starforge"
+
+    # Install man pages if present in the tarball
+    if buildpath.exist?("man")
+      man1.install buildpath.glob("man/*.1")
+    end
   end
 
   test do

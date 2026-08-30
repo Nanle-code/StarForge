@@ -145,7 +145,7 @@ pub fn all_lessons() -> Vec<Lesson> {
             exercises: vec![Exercise::SpotTheVulnerability {
                 id: "vulnerability-patterns-101-q1".into(),
                 prompt: "What vulnerability category applies to this function?".into(),
-                code: "pub fn withdraw(env: Env, to: Address, amount: i128) {\n    let client = token::Client::new(&env, &token_id);\n    client.transfer(&env.current_contract_address(), &to, &amount);\n    let mut balance = get_balance(&env, &to);\n    balance -= amount;\n    set_balance(&env, &to, balance);\n}"
+                code: "pub fn withdraw(env: Env, to: Address, amount: i128) {\n    let client = token::Client::new(&env, &token_id);\n    client.transfer(&env.current_contract_address(), &to, &amount);\n    let mut balance: i128 = env.storage().persistent().get(&to).unwrap_or(0);\n    balance -= amount;\n    env.storage().persistent().set(&to, &balance);\n}"
                     .into(),
                 category: VulnerabilityCategory::Reentrancy,
                 explanation: "The token transfer happens BEFORE the balance is decremented. A \

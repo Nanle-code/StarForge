@@ -193,11 +193,13 @@ fn metrics_summary_groups_by_kind() {
 
 #[test]
 fn config_feature_flags_section_round_trips() {
-    let mut cfg = config::Config::default();
-    cfg.feature_flags = FeatureFlagsConfig {
-        metrics_enabled: false,
-        metrics_retention_days: 7,
-        default_attributes: Default::default(),
+    let cfg = config::Config {
+        feature_flags: FeatureFlagsConfig {
+            metrics_enabled: false,
+            metrics_retention_days: 7,
+            default_attributes: Default::default(),
+        },
+        ..Default::default()
     };
     let db = fresh_db();
     db.save_config(&cfg).unwrap();

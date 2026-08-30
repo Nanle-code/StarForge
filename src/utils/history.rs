@@ -73,6 +73,47 @@ pub fn prune_history(entries: &mut Vec<HistoryEntry>, max: usize) {
     }
 }
 
+/// Redact values that should never be persisted in command history.
+pub fn redact_command(command: &str) -> String {
+    let mut output = Vec::new();
+    let mut redact_next = false;
+
+    for token in command.split_whitespace() {
+        if redact_next {
+            output.push("[REDACTED]".to_string());
+            redact_next = false;
+            continue;
+        }
+
+        let lower = token.to_ascii_lowercase();
+        if [
+            "--secret",
+            "--secret-key",
+            "--token",
+            "--api-key",
+            "--secret-key-file",
+        ]
+        .iter()
+        .any(|flag| lower == *flag)
+        {
+            output.push(token.to_string());
+            redact_next = true;
+        } else if lower.starts_with("--secret=")
+            || lower.starts_with("--token=")
+            || lower.starts_with("--api-key=")
+            || lower.starts_with("secret_key=")
+            || lower.starts_with("api_key=")
+        {
+            let key = token.split('=').next().unwrap_or("secret");
+            output.push(format!("{}=[REDACTED]", key));
+        } else {
+            output.push(token.to_string());
+        }
+    }
+
+    output.join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,5 +199,15 @@ mod tests {
 
         prune_history(&mut entries, 5);
         assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
+    fn test_redact_command_removes_secret_values() {
+        let redacted = redact_command(
+            "invoke transfer --token super-secret --api-key=also-secret --network testnet",
+        );
+        assert!(!redacted.contains("super-secret"));
+        assert!(!redacted.contains("also-secret"));
+        assert!(redacted.contains("[REDACTED]"));
     }
 }

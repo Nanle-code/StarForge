@@ -132,3 +132,20 @@ name = "fuzz_test_generator"
 path = "fuzz_targets/fuzz_test_generator.rs"
 test = false
 doc  = false
+
+# Fuzz builds instrument the whole dependency tree with AddressSanitizer, and
+# `starforge` is a single very large crate. With the default release profile,
+# rustc's peak memory compiling it under ASan exceeds what a 16 GB CI runner
+# has, and the job is terminated part-way through with no diagnostic. Capping
+# build parallelism was not enough: the build then died compiling `starforge`
+# itself rather than the leaf crates.
+#
+# `debug = 1` keeps line tables, which is what libFuzzer needs to symbolize a
+# crash, without carrying full DWARF through codegen. `opt-level = 1` is ample
+# for a short smoke run and cuts peak memory further. Raise these if the fuzzers
+# are ever run long enough for throughput to matter.
+[profile.release]
+debug = 1
+opt-level = 1
+codegen-units = 16
+incremental = false

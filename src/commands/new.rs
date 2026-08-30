@@ -1223,8 +1223,11 @@ async fn scaffold_from_marketplace(name: String, template_name: String) -> Resul
 }
 
 fn copy_template_contents(src: &Path, dst: &Path, project_name: &str) -> Result<()> {
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
+    let mut entries: Vec<_> = fs::read_dir(src)?.filter_map(|e| e.ok()).collect();
+
+    entries.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+
+    for entry in entries {
         let path = entry.path();
         let file_name = entry.file_name();
 
@@ -1287,5 +1290,196 @@ mod install_tests {
         }
 
         assert!(dir.exists(), "committed install should be kept");
+    }
+}
+
+#[cfg(test)]
+mod determinism_tests {
+    use super::copy_template_contents;
+    use std::fs;
+    use std::path::Path;
+
+    /// Create a deterministic template directory with known files.
+    fn create_template_dir(base: &Path) {
+        fs::create_dir_all(base.join("src")).unwrap();
+        fs::create_dir_all(base.join("tests")).unwrap();
+        fs::write(
+            base.join("Cargo.toml"),
+            "[package]\nname = \"{{PROJECT_NAME}}\"\n",
+        )
+        .unwrap();
+        fs::write(
+            base.join("src/lib.rs"),
+            "pub fn hello() -> &'static str { \"{{PROJECT_NAME_PASCAL}}\" }\n",
+        )
+        .unwrap();
+        fs::write(
+            base.join("tests/test.rs"),
+            "#[test]\nfn it_works() {{ println!(\"{{PROJECT_NAME_SNAKE}}\"); }}\n",
+        )
+        .unwrap();
+        fs::write(base.join("README.md"), "# {{PROJECT_NAME}}\n").unwrap();
+    }
+
+    /// Primary flow: identical inputs produce identical outputs across runs.
+    #[test]
+    fn scaffold_output_is_deterministic_across_runs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let template_dir = tmp.path().join("template");
+        create_template_dir(&template_dir);
+
+        let out_a = tmp.path().join("output-a");
+        let out_b = tmp.path().join("output-b");
+        fs::create_dir_all(&out_a).unwrap();
+        fs::create_dir_all(&out_b).unwrap();
+
+        copy_template_contents(&template_dir, &out_a, "my-contract").unwrap();
+        copy_template_contents(&template_dir, &out_b, "my-contract").unwrap();
+
+        // Walk both output trees and compare every file.
+        let files_a = collect_files(&out_a);
+        let files_b = collect_files(&out_b);
+        assert_eq!(files_a.len(), files_b.len(), "same number of files");
+
+        for rel in &files_a {
+            let content_a = fs::read_to_string(out_a.join(rel)).unwrap();
+            let content_b = fs::read_to_string(out_b.join(rel)).unwrap();
+            assert_eq!(content_a, content_b, "content differs for {}", rel);
+        }
+    }
+
+    /// Boundary case: files are processed in sorted (alphabetical) order.
+    #[test]
+    fn files_are_processed_in_sorted_order() {
+        let tmp = tempfile::tempdir().unwrap();
+        let template_dir = tmp.path().join("template");
+        fs::create_dir_all(&template_dir).unwrap();
+
+        // Create files in reverse alphabetical order to ensure sorting matters.
+        for name in &["z_last.rs", "a_first.rs", "m_middle.rs"] {
+            fs::write(template_dir.join(name), format!("// {}\n", name)).unwrap();
+        }
+
+        let out = tmp.path().join("output");
+        fs::create_dir_all(&out).unwrap();
+        copy_template_contents(&template_dir, &out, "test").unwrap();
+
+        let files = collect_files(&out);
+        assert_eq!(files, vec!["a_first.rs", "m_middle.rs", "z_last.rs"]);
+    }
+
+    /// Boundary case: placeholders are replaced correctly for all variants.
+    #[test]
+    fn placeholder_replacement_is_correct() {
+        let tmp = tempfile::tempdir().unwrap();
+        let template_dir = tmp.path().join("template");
+        fs::create_dir_all(&template_dir).unwrap();
+        fs::write(
+            template_dir.join("lib.rs"),
+            "name={{PROJECT_NAME}} snake={{PROJECT_NAME_SNAKE}} pascal={{PROJECT_NAME_PASCAL}}",
+        )
+        .unwrap();
+
+        let out = tmp.path().join("output");
+        fs::create_dir_all(&out).unwrap();
+        copy_template_contents(&template_dir, &out, "hello-world").unwrap();
+
+        let content = fs::read_to_string(out.join("lib.rs")).unwrap();
+        assert_eq!(
+            content,
+            "name=hello-world snake=hello_world pascal=HelloWorld"
+        );
+    }
+
+    /// Failure case: non-existent source path returns an error.
+    #[test]
+    fn copy_from_missing_source_returns_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let missing = tmp.path().join("does-not-exist");
+        let out = tmp.path().join("output");
+        fs::create_dir_all(&out).unwrap();
+
+        let result = copy_template_contents(&missing, &out, "test");
+        assert!(result.is_err(), "should error on missing source");
+    }
+
+    /// Failure case: read-only destination returns an error (permission denied).
+    #[test]
+    #[cfg(unix)]
+    fn copy_to_readonly_dest_returns_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let template_dir = tmp.path().join("template");
+        fs::create_dir_all(&template_dir).unwrap();
+        fs::write(template_dir.join("file.txt"), "content").unwrap();
+
+        let out = tmp.path().join("readonly-output");
+        fs::create_dir_all(&out).unwrap();
+        // Remove write permission on the output directory.
+        let mut perms = fs::metadata(&out).unwrap().permissions();
+        perms.set_readonly(true);
+        fs::set_permissions(&out, perms).unwrap();
+
+        let result = copy_template_contents(&template_dir, &out, "test");
+        assert!(result.is_err(), "should error on read-only destination");
+    }
+
+    /// Primary flow: sub-directories are copied recursively with determinism.
+    #[test]
+    fn nested_directories_are_copied_deterministically() {
+        let tmp = tempfile::tempdir().unwrap();
+        let template_dir = tmp.path().join("template");
+        fs::create_dir_all(template_dir.join("a/b/c")).unwrap();
+        fs::create_dir_all(template_dir.join("x/y")).unwrap();
+        fs::write(template_dir.join("a/b/c/deep.txt"), "deep").unwrap();
+        fs::write(template_dir.join("x/y/shallow.txt"), "shallow").unwrap();
+        fs::write(template_dir.join("top.txt"), "top").unwrap();
+
+        let out_a = tmp.path().join("out-a");
+        let out_b = tmp.path().join("out-b");
+        fs::create_dir_all(&out_a).unwrap();
+        fs::create_dir_all(&out_b).unwrap();
+
+        copy_template_contents(&template_dir, &out_a, "proj").unwrap();
+        copy_template_contents(&template_dir, &out_b, "proj").unwrap();
+
+        let files_a = collect_files(&out_a);
+        let files_b = collect_files(&out_b);
+        assert_eq!(files_a, files_b);
+
+        for rel in &files_a {
+            assert_eq!(
+                fs::read_to_string(out_a.join(rel)).unwrap(),
+                fs::read_to_string(out_b.join(rel)).unwrap(),
+                "mismatch in {}",
+                rel
+            );
+        }
+    }
+
+    /// Helper: collect all file paths relative to `root`, sorted alphabetically.
+    fn collect_files(root: &Path) -> Vec<String> {
+        let mut files = Vec::new();
+        walk_dir(root, root, &mut files);
+        files.sort();
+        files
+    }
+
+    fn walk_dir(base: &Path, dir: &Path, out: &mut Vec<String>) {
+        for entry in fs::read_dir(dir).unwrap().filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.is_dir() {
+                walk_dir(base, &path, out);
+            } else {
+                let rel = path
+                    .strip_prefix(base)
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_string();
+                // Normalize to forward slashes for cross-platform comparison.
+                let rel = rel.replace('\\', "/");
+                out.push(rel);
+            }
+        }
     }
 }

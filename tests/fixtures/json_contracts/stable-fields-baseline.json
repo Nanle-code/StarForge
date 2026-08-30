@@ -1,0 +1,17 @@
+{
+  "commands": {
+    "contract inspect": [
+      "contract_id",
+      "executable",
+      "wasm_hash",
+      "storage_durability",
+      "latest_ledger",
+      "last_modified_ledger_seq",
+      "live_until_ledger_seq",
+      "instance_storage",
+      "instance_storage[].key",
+      "instance_storage[].value"
+    ]
+  }
+}
+

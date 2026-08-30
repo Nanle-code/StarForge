@@ -36,6 +36,10 @@ const COMMANDS: &[CmdEntry] = &[
                 "Import a wallet from a backup file, BIP39 phrase, or raw secret key",
             ),
             (
+                "import-shares",
+                "Reconstruct a wallet backup from recovery shares",
+            ),
+            (
                 "connect",
                 "Connect to a hardware wallet (Ledger/Trezor) and show device info",
             ),

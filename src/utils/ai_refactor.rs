@@ -176,10 +176,7 @@ pub struct RefactorReport {
 // Session storage helpers
 
 fn sessions_dir() -> Result<PathBuf> {
-    let dir = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".starforge")
-        .join("refactor-sessions");
+    let dir = crate::utils::config::config_dir().join("refactor-sessions");
     if !dir.exists() {
         fs::create_dir_all(&dir)?;
     }
@@ -786,7 +783,7 @@ mod tests {
         let code = "pub fn slow() { let mut x = 0; for _ in 0..100 { x += 1; } }";
         let prompt = optimize_perf_prompt(code);
         assert!(prompt.contains(code));
-        assert!(prompt.contains("optimize"));
+        assert!(prompt.contains("Optimize"));
     }
 
     #[test]

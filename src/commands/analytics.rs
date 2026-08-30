@@ -297,8 +297,8 @@ pub fn compute_metrics(
 ) -> DeploymentMetrics {
     let filtered: Vec<_> = events
         .iter()
-        .filter(|e| network.is_none_or(|n| e.network == n))
-        .filter(|e| contract_id.is_none_or(|c| e.contract_id == c))
+        .filter(|e| network.map_or(true, |n| e.network == n))
+        .filter(|e| contract_id.map_or(true, |c| e.contract_id == c))
         .collect();
 
     let total = filtered.len();
@@ -473,7 +473,7 @@ pub fn analyze_trends(
     let filtered: Vec<_> = events
         .iter()
         .filter(|e| e.network == network)
-        .filter(|e| contract_id.is_none_or(|c| e.contract_id == c))
+        .filter(|e| contract_id.map_or(true, |c| e.contract_id == c))
         .filter(|e| {
             DateTime::parse_from_rfc3339(&e.timestamp)
                 .map(|t| t.with_timezone(&Utc) > cutoff)
@@ -904,11 +904,11 @@ fn handle_list(args: ListArgs) -> Result<()> {
     let events = load_events()?;
     let mut filtered: Vec<_> = events
         .iter()
-        .filter(|e| args.network.as_deref().is_none_or(|n| e.network == n))
+        .filter(|e| args.network.as_deref().map_or(true, |n| e.network == n))
         .filter(|e| {
             args.contract_id
                 .as_deref()
-                .is_none_or(|c| e.contract_id == c)
+                .map_or(true, |c| e.contract_id == c)
         })
         .filter(|e| !args.failures || !e.success)
         .collect();
@@ -1006,7 +1006,7 @@ fn handle_export(args: ExportArgs) -> Result<()> {
     let events = load_events()?;
     let filtered: Vec<_> = events
         .iter()
-        .filter(|e| args.network.as_deref().is_none_or(|n| e.network == n))
+        .filter(|e| args.network.as_deref().map_or(true, |n| e.network == n))
         .cloned()
         .collect();
 

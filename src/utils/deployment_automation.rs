@@ -20,6 +20,7 @@ pub struct DeploymentAutomationConfig {
     pub enable_rollback_automation: bool,
     pub enable_monitoring_setup: bool,
     pub automation_level: AutomationLevel,
+    pub fresh: bool,
 }
 
 /// Automation depth level.
@@ -583,69 +584,237 @@ impl MonitoringSetup {
     }
 }
 
+use crate::utils::deployment_checkpoint::{
+    compute_config_hash, compute_session_key, compute_wasm_content_hash, CheckpointStatus,
+    DeploymentCheckpointManager, DeploymentLock,
+};
+
 /// Run complete deployment automation pipeline.
 pub async fn run_automation_pipeline(
     config: &DeploymentAutomationConfig,
 ) -> Result<CompleteAutomationResult> {
-    let automation_id = uuid::Uuid::new_v4().to_string();
+    // ── Fast-fail Input & Environment Validation ─────────────────────────────
+    let wasm_path = Path::new(&config.wasm_path);
+    if !wasm_path.exists() {
+        anyhow::bail!(
+            "WASM file not found: '{}'. Run `stellar contract build` first.",
+            config.wasm_path
+        );
+    }
+
+    let wasm_bytes = std::fs::read(wasm_path)
+        .with_context(|| format!("Failed to read WASM file at '{}'", config.wasm_path))?;
+
+    if wasm_bytes.is_empty() {
+        anyhow::bail!(
+            "WASM file at '{}' is empty (0 bytes). Cannot deploy empty WASM binary.",
+            config.wasm_path
+        );
+    }
+
+    if wasm_bytes.len() < 4 || &wasm_bytes[..4] != b"\0asm" {
+        anyhow::bail!(
+            "File at '{}' is not a valid WASM binary (invalid magic header).",
+            config.wasm_path
+        );
+    }
+
+    match config.network.as_str() {
+        "testnet" | "mainnet" | "docker-testnet" | "local" | "futurenet" => (),
+        net => anyhow::bail!(
+            "Unsupported target network '{}'. Supported networks: testnet, mainnet, docker-testnet, local, futurenet.",
+            net
+        ),
+    }
+
+    // ── Session Checkpoint & Lock Setup ─────────────────────────────────────
+    let wasm_hash = compute_wasm_content_hash(&wasm_bytes);
+    let flags = [
+        ("pre", config.enable_pre_deployment_checks),
+        ("test", config.enable_automated_testing),
+        ("verify", config.enable_post_deployment_verification),
+        ("rollback", config.enable_rollback_automation),
+        ("monitor", config.enable_monitoring_setup),
+    ];
+    let config_hash = compute_config_hash(&config.network, config.wallet.as_deref(), &flags);
+    let session_key = compute_session_key(&wasm_hash, &config.network, config.wallet.as_deref());
+
+    let _lock = DeploymentLock::acquire(&session_key)?;
+    let (mut checkpoint, resumed) = DeploymentCheckpointManager::load_or_create(
+        &session_key,
+        &wasm_hash,
+        &config.wasm_path,
+        &config.network,
+        config.wallet.as_deref(),
+        &config_hash,
+        config.fresh,
+    )?;
+
+    if resumed {
+        crate::utils::print::info(&format!(
+            "[checkpoint] Resuming deployment session '{}' (checkpoint schema v{}).",
+            &checkpoint.id[..8.min(checkpoint.id.len())],
+            checkpoint.schema_version
+        ));
+    }
+
+    // Idempotency check: if fully completed and not fresh run
+    if checkpoint.status == CheckpointStatus::Completed && !config.fresh {
+        if let Some(Ok(complete_result)) =
+            checkpoint.get_step_output::<CompleteAutomationResult>("complete_result")
+        {
+            crate::utils::print::success(
+                "[checkpoint] Deployment operation already fully completed and up to date.",
+            );
+            return Ok(complete_result);
+        }
+    }
+
+    let automation_id = checkpoint.id.clone();
     let timestamp = chrono::Utc::now().to_rfc3339();
     let mut overall_success = true;
     let mut summary_parts = Vec::new();
 
-    // Pre-deployment validation
+    // Step 1: Pre-deployment validation
     let pre_deployment_validation = if config.enable_pre_deployment_checks {
-        let validation = PreDeploymentValidator::validate(config)?;
-        if !validation.approved_for_deployment {
-            overall_success = false;
-            summary_parts.push("Pre-deployment validation failed".to_string());
+        let step_name = "pre_deployment_validation";
+        if checkpoint.is_step_completed(step_name) {
+            crate::utils::print::info("[checkpoint] Step 'pre_deployment_validation' already completed (reusing cached result).");
+            checkpoint
+                .get_step_output::<PreDeploymentValidationResult>(step_name)
+                .unwrap()
+                .ok()
         } else {
-            summary_parts.push("Pre-deployment validation passed".to_string());
-        }
-        Some(validation)
-    } else {
-        None
-    };
-
-    // Automated testing
-    let automated_testing = if config.enable_automated_testing {
-        let testing = AutomatedTestRunner::run_tests(&config.wasm_path)?;
-        if testing.overall_status != "pass" {
-            overall_success = false;
-            summary_parts.push("Automated testing failed".to_string());
-        } else {
-            summary_parts.push("Automated testing passed".to_string());
-        }
-        Some(testing)
-    } else {
-        None
-    };
-
-    // Deployment execution
-    let deployment_execution = if overall_success {
-        let execution = DeploymentExecutor::execute(config).await?;
-        if execution.status != "success" {
-            overall_success = false;
-            summary_parts.push("Deployment execution failed".to_string());
-        } else {
-            summary_parts.push("Deployment execution succeeded".to_string());
-        }
-        Some(execution)
-    } else {
-        None
-    };
-
-    // Post-deployment verification
-    let post_deployment_verification = if config.enable_post_deployment_verification {
-        if let Some(ref deployment) = deployment_execution {
-            if let Some(ref contract_id) = deployment.contract_id {
-                let verification = PostDeploymentVerifier::verify(contract_id)?;
-                if verification.overall_status != "pass" {
-                    overall_success = false;
-                    summary_parts.push("Post-deployment verification failed".to_string());
-                } else {
-                    summary_parts.push("Post-deployment verification passed".to_string());
+            match PreDeploymentValidator::validate(config) {
+                Ok(validation) => {
+                    if !validation.approved_for_deployment {
+                        overall_success = false;
+                        summary_parts.push("Pre-deployment validation failed".to_string());
+                    } else {
+                        summary_parts.push("Pre-deployment validation passed".to_string());
+                    }
+                    let _ = checkpoint.record_step_completion(step_name, &validation);
+                    let _ = DeploymentCheckpointManager::save(&checkpoint);
+                    Some(validation)
                 }
-                Some(verification)
+                Err(e) => {
+                    overall_success = false;
+                    summary_parts.push(format!("Pre-deployment validation error: {}", e));
+                    checkpoint.record_step_failure(step_name, &e.to_string());
+                    let _ = DeploymentCheckpointManager::save(&checkpoint);
+                    None
+                }
+            }
+        }
+    } else {
+        None
+    };
+
+    // Step 2: Automated testing
+    let automated_testing = if config.enable_automated_testing && overall_success {
+        let step_name = "automated_testing";
+        if checkpoint.is_step_completed(step_name) {
+            crate::utils::print::info(
+                "[checkpoint] Step 'automated_testing' already completed (reusing cached result).",
+            );
+            checkpoint
+                .get_step_output::<AutomatedTestingResult>(step_name)
+                .unwrap()
+                .ok()
+        } else {
+            match AutomatedTestRunner::run_tests(&config.wasm_path) {
+                Ok(testing) => {
+                    if testing.overall_status != "pass" {
+                        overall_success = false;
+                        summary_parts.push("Automated testing failed".to_string());
+                    } else {
+                        summary_parts.push("Automated testing passed".to_string());
+                    }
+                    let _ = checkpoint.record_step_completion(step_name, &testing);
+                    let _ = DeploymentCheckpointManager::save(&checkpoint);
+                    Some(testing)
+                }
+                Err(e) => {
+                    overall_success = false;
+                    summary_parts.push(format!("Automated testing error: {}", e));
+                    checkpoint.record_step_failure(step_name, &e.to_string());
+                    let _ = DeploymentCheckpointManager::save(&checkpoint);
+                    None
+                }
+            }
+        }
+    } else {
+        None
+    };
+
+    // Step 3: Deployment execution
+    let deployment_execution = if overall_success {
+        let step_name = "deployment_execution";
+        if checkpoint.is_step_completed(step_name) {
+            crate::utils::print::info("[checkpoint] Step 'deployment_execution' already completed (reusing cached result).");
+            checkpoint
+                .get_step_output::<DeploymentExecutionResult>(step_name)
+                .unwrap()
+                .ok()
+        } else {
+            match DeploymentExecutor::execute(config).await {
+                Ok(execution) => {
+                    if execution.status != "success" {
+                        overall_success = false;
+                        summary_parts.push("Deployment execution failed".to_string());
+                    } else {
+                        summary_parts.push("Deployment execution succeeded".to_string());
+                    }
+                    let _ = checkpoint.record_step_completion(step_name, &execution);
+                    let _ = DeploymentCheckpointManager::save(&checkpoint);
+                    Some(execution)
+                }
+                Err(e) => {
+                    overall_success = false;
+                    summary_parts.push(format!("Deployment execution error: {}", e));
+                    checkpoint.record_step_failure(step_name, &e.to_string());
+                    let _ = DeploymentCheckpointManager::save(&checkpoint);
+                    None
+                }
+            }
+        }
+    } else {
+        None
+    };
+
+    // Step 4: Post-deployment verification
+    let post_deployment_verification = if config.enable_post_deployment_verification
+        && overall_success
+    {
+        let step_name = "post_deployment_verification";
+        if checkpoint.is_step_completed(step_name) {
+            crate::utils::print::info("[checkpoint] Step 'post_deployment_verification' already completed (reusing cached result).");
+            checkpoint
+                .get_step_output::<PostDeploymentVerificationResult>(step_name)
+                .unwrap()
+                .ok()
+        } else if let Some(ref deployment) = deployment_execution {
+            if let Some(ref contract_id) = deployment.contract_id {
+                match PostDeploymentVerifier::verify(contract_id) {
+                    Ok(verification) => {
+                        if verification.overall_status != "pass" {
+                            overall_success = false;
+                            summary_parts.push("Post-deployment verification failed".to_string());
+                        } else {
+                            summary_parts.push("Post-deployment verification passed".to_string());
+                        }
+                        let _ = checkpoint.record_step_completion(step_name, &verification);
+                        let _ = DeploymentCheckpointManager::save(&checkpoint);
+                        Some(verification)
+                    }
+                    Err(e) => {
+                        overall_success = false;
+                        summary_parts.push(format!("Post-deployment verification error: {}", e));
+                        checkpoint.record_step_failure(step_name, &e.to_string());
+                        let _ = DeploymentCheckpointManager::save(&checkpoint);
+                        None
+                    }
+                }
             } else {
                 None
             }
@@ -663,11 +832,31 @@ pub async fn run_automation_pipeline(
         None
     };
 
-    // Monitoring setup
+    // Step 5: Monitoring setup
     let monitoring_setup = if config.enable_monitoring_setup && overall_success {
-        if let Some(ref deployment) = deployment_execution {
+        let step_name = "monitoring_setup";
+        if checkpoint.is_step_completed(step_name) {
+            crate::utils::print::info(
+                "[checkpoint] Step 'monitoring_setup' already completed (reusing cached result).",
+            );
+            checkpoint
+                .get_step_output::<MonitoringSetupResult>(step_name)
+                .unwrap()
+                .ok()
+        } else if let Some(ref deployment) = deployment_execution {
             if let Some(ref contract_id) = deployment.contract_id {
-                Some(MonitoringSetup::setup_monitoring(contract_id)?)
+                match MonitoringSetup::setup_monitoring(contract_id) {
+                    Ok(monitoring) => {
+                        let _ = checkpoint.record_step_completion(step_name, &monitoring);
+                        let _ = DeploymentCheckpointManager::save(&checkpoint);
+                        Some(monitoring)
+                    }
+                    Err(e) => {
+                        checkpoint.record_step_failure(step_name, &e.to_string());
+                        let _ = DeploymentCheckpointManager::save(&checkpoint);
+                        None
+                    }
+                }
             } else {
                 None
             }
@@ -678,7 +867,7 @@ pub async fn run_automation_pipeline(
         None
     };
 
-    Ok(CompleteAutomationResult {
+    let result = CompleteAutomationResult {
         automation_id,
         timestamp,
         automation_level: config.automation_level.to_string(),
@@ -690,7 +879,15 @@ pub async fn run_automation_pipeline(
         monitoring_setup,
         overall_success,
         summary: summary_parts.join("; "),
-    })
+    };
+
+    if overall_success {
+        checkpoint.mark_completed();
+        let _ = checkpoint.record_step_completion("complete_result", &result);
+        let _ = DeploymentCheckpointManager::save(&checkpoint);
+    }
+
+    Ok(result)
 }
 
 #[cfg(test)]

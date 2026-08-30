@@ -427,35 +427,34 @@ pub fn analyze_question(question: &str) -> QuestionAnalysis {
     let lower = question.to_lowercase();
     let tokens = tokenize(question);
 
-    let intent = if lower.starts_with("how")
-        || lower.starts_with("what do i")
-        || lower.contains("steps to")
-    {
-        QuestionIntent::HowTo
-    } else if lower.starts_with("what is")
-        || lower.starts_with("what are")
-        || lower.starts_with("what's")
-    {
-        QuestionIntent::WhatIs
-    } else if lower.contains("error")
-        || lower.contains("fail")
-        || lower.contains("not work")
-        || lower.contains("fix")
-        || lower.contains("problem")
-        || lower.contains("issue")
-    {
-        QuestionIntent::Troubleshooting
-    } else if lower.starts_with("why") || lower.contains("reason") {
-        QuestionIntent::Why
-    } else if lower.contains(" vs ")
-        || lower.contains("difference")
-        || lower.contains("compare")
-        || lower.contains("better")
-    {
-        QuestionIntent::Comparison
-    } else {
-        QuestionIntent::General
-    };
+    let intent =
+        if lower.starts_with("how") || lower.starts_with("what do i") || lower.contains("steps to")
+        {
+            QuestionIntent::HowTo
+        } else if lower.starts_with("what is")
+            || lower.starts_with("what are")
+            || lower.starts_with("what's")
+        {
+            QuestionIntent::WhatIs
+        } else if lower.contains("error")
+            || lower.contains("fail")
+            || lower.contains("not work")
+            || lower.contains("fix")
+            || lower.contains("problem")
+            || lower.contains("issue")
+        {
+            QuestionIntent::Troubleshooting
+        } else if lower.starts_with("why") || lower.contains("reason") {
+            QuestionIntent::Why
+        } else if lower.contains(" vs ")
+            || lower.contains("difference")
+            || lower.contains("compare")
+            || lower.contains("better")
+        {
+            QuestionIntent::Comparison
+        } else {
+            QuestionIntent::General
+        };
 
     let mut topics = Vec::new();
     for (domain, keywords) in TOPIC_INDEX {

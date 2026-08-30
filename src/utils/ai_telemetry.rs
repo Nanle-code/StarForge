@@ -80,9 +80,11 @@ fn price_per_1k_tokens(provider: &str, model: &str) -> Option<(f64, f64)> {
     let model = model.to_lowercase();
 
     // (input $/1K, output $/1K) — approximate published list prices.
+    // More specific model names must precede substrings of themselves (e.g.
+    // "gpt-4o-mini" before "gpt-4o") since lookup is first-match substring.
     let table: &[(&str, f64, f64)] = &[
-        ("gpt-4o", 0.0025, 0.010),
         ("gpt-4o-mini", 0.00015, 0.0006),
+        ("gpt-4o", 0.0025, 0.010),
         ("gpt-4-turbo", 0.010, 0.030),
         ("gpt-4", 0.030, 0.060),
         ("gpt-3.5-turbo", 0.0005, 0.0015),
@@ -104,12 +106,7 @@ fn price_per_1k_tokens(provider: &str, model: &str) -> Option<(f64, f64)> {
 }
 
 /// Estimate USD cost for a call given provider, model, and token counts.
-pub fn estimate_cost(
-    provider: &str,
-    model: &str,
-    tokens_in: u64,
-    tokens_out: u64,
-) -> Option<f64> {
+pub fn estimate_cost(provider: &str, model: &str, tokens_in: u64, tokens_out: u64) -> Option<f64> {
     estimate_cost_usd(provider, model, Some(tokens_in), Some(tokens_out))
 }
 
@@ -181,7 +178,7 @@ pub fn load_records(days: Option<u32>) -> Result<Vec<AiCallRecord>> {
     let records = content
         .lines()
         .filter_map(|line| serde_json::from_str::<AiCallRecord>(line).ok())
-        .filter(|r| cutoff.is_none_or(|c| r.timestamp >= c))
+        .filter(|r| cutoff.map_or(true, |c| r.timestamp >= c))
         .collect();
     Ok(records)
 }

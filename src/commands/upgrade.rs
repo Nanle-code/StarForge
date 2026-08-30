@@ -605,7 +605,7 @@ fn handle_list(args: ListArgs) -> Result<()> {
         .filter(|p| {
             args.contract_id
                 .as_deref()
-                .is_none_or(|id| p.contract_id == id)
+                .map_or(true, |id| p.contract_id == id)
         })
         .collect();
 
@@ -1146,18 +1146,18 @@ mod tests {
 
     #[test]
     fn wasm_hash_is_deterministic() {
-        let bytes = b"mock wasm content";
+        let bytes = b"\0asmmock wasm content";
         assert_eq!(wasm_hash(bytes), wasm_hash(bytes));
     }
 
     #[test]
     fn wasm_hash_differs_for_different_input() {
-        assert_ne!(wasm_hash(b"version1"), wasm_hash(b"version2"));
+        assert_ne!(wasm_hash(b"\0asmversion1"), wasm_hash(b"\0asmversion2"));
     }
 
     #[test]
     fn wasm_hash_is_64_hex_chars() {
-        let hash = wasm_hash(b"test");
+        let hash = wasm_hash(b"\0asmtest");
         assert_eq!(hash.len(), 64);
         assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
     }

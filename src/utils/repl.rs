@@ -1,3 +1,4 @@
+use crate::utils::history::redact_command;
 use anyhow::Result;
 use colored::*;
 use rustyline::completion::{Completer, Pair};
@@ -30,8 +31,7 @@ pub struct ReplOptions {
 
 impl Default for ReplOptions {
     fn default() -> Self {
-        let mut path = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-        path.push(".starforge");
+        let mut path = crate::utils::config::config_dir();
         path.push("history");
         Self {
             history_enabled: true,
@@ -120,9 +120,11 @@ where
                     self.show_history(&editor);
                 } else if let Some(term) = rest.strip_prefix("search ") {
                     self.search_history(&editor, term.trim());
+                } else if rest == "replay" {
+                    self.replay_history(&editor)?;
                 } else {
                     eprintln!(
-                        "  {} Usage: :history [list|search <term>]",
+                        "  {} Usage: :history [list|search <term>|replay]",
                         "✗".red().bold()
                     );
                 }
@@ -255,6 +257,7 @@ where
         println!("    :history           Show command history");
         println!("    :history list      Alias for :history");
         println!("    :history search <term>  Search history for <term>");
+        println!("    :history replay   Replay safe commands; confirm side effects");
         println!("    Ctrl+R             Reverse incremental search (built-in)");
         println!();
         println!("  {}", "State Inspection:".bold().underline());
@@ -320,6 +323,41 @@ where
         }
     }
 
+    fn replay_history(
+        &mut self,
+        editor: &Editor<StarForgeHelper, rustyline::history::DefaultHistory>,
+    ) -> Result<()> {
+        let entries: Vec<String> = editor
+            .history()
+            .iter()
+            .map(|entry| entry.to_string())
+            .collect();
+        for command in entries {
+            let command = command.trim();
+            if command.is_empty() || command.contains("[REDACTED]") || command.starts_with(':') {
+                continue;
+            }
+
+            if is_side_effecting_command(command) {
+                println!("  Replay side effect: {} [y/N]", command);
+                let mut answer = String::new();
+                std::io::stdin().read_line(&mut answer)?;
+                if !answer.trim().eq_ignore_ascii_case("y") {
+                    continue;
+                }
+            }
+
+            match parse_invocation(command) {
+                Ok((function, args)) => match self.runner.run_invocation(&function, &args) {
+                    Ok(output) => println!("{}", output),
+                    Err(error) => eprintln!("  {} {}", "✗".red().bold(), error),
+                },
+                Err(error) => eprintln!("  {} {}", "✗".red().bold(), error),
+            }
+        }
+        Ok(())
+    }
+
     fn load_history(
         &self,
         editor: &mut Editor<StarForgeHelper, rustyline::history::DefaultHistory>,
@@ -360,7 +398,7 @@ where
         if !self.options.history_enabled {
             return Ok(());
         }
-        editor.add_history_entry(line)?;
+        editor.add_history_entry(redact_command(line))?;
         Ok(())
     }
 }
@@ -378,6 +416,13 @@ fn trim_history_file(path: &PathBuf, max_lines: usize) -> Result<()> {
         lines.join("\n") + if lines.is_empty() { "" } else { "\n" },
     )?;
     Ok(())
+}
+
+fn is_side_effecting_command(command: &str) -> bool {
+    let function = command.split('(').next().unwrap_or(command).trim();
+    ["deploy", "invoke", "tx", "upgrade", "migrate"]
+        .iter()
+        .any(|name| function == *name || function.starts_with(&format!("{}.", name)))
 }
 
 #[derive(Clone, Debug)]

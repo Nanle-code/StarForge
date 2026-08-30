@@ -87,7 +87,7 @@ jobs:
 
       - name: Run tests with timing
         run: |
-          cargo test --locked -- -Z unstable-options --report-time 2>&1 | tee test_timing.txt
+          cargo test --locked 2>&1 | while IFS= read -r line; do echo "[$(date +%H:%M:%S)] $line"; done | tee test_timing.txt
 
       - name: Analyze test durations
         run: |

@@ -312,7 +312,7 @@ pub fn match_voice_command(input: &str) -> Option<VoiceCommandMatch> {
                         confidence,
                         matched_phrase: phrase.clone(),
                     };
-                    if best.as_ref().is_none_or(|(_, c)| confidence > *c) {
+                    if best.as_ref().map_or(true, |(_, c)| confidence > *c) {
                         best = Some((m, confidence));
                     }
                 }
@@ -451,10 +451,7 @@ pub fn screen_reader_format(text: &str, cfg: &AccessibilityConfig) -> String {
     let mut output = String::new();
 
     if cfg.verbose_descriptions {
-        output.push_str(&format!(
-            "Document with {} lines. ",
-            lines.len()
-        ));
+        output.push_str(&format!("Document with {} lines. ", lines.len()));
     }
 
     for (i, line) in lines.iter().enumerate() {
@@ -464,9 +461,17 @@ pub fn screen_reader_format(text: &str, cfg: &AccessibilityConfig) -> String {
         }
 
         if trimmed.starts_with("✓") || trimmed.starts_with("Success") {
-            output.push_str(&format!("Success notification, line {}: {}. ", i + 1, trimmed));
+            output.push_str(&format!(
+                "Success notification, line {}: {}. ",
+                i + 1,
+                trimmed
+            ));
         } else if trimmed.starts_with("✗") || trimmed.starts_with("Error") {
-            output.push_str(&format!("Error notification, line {}: {}. ", i + 1, trimmed));
+            output.push_str(&format!(
+                "Error notification, line {}: {}. ",
+                i + 1,
+                trimmed
+            ));
         } else if trimmed.starts_with("⚠") || trimmed.starts_with("Warning") {
             output.push_str(&format!("Warning, line {}: {}. ", i + 1, trimmed));
         } else if trimmed.starts_with("→") {
@@ -523,7 +528,11 @@ pub fn simplify_text_local(text: &str) -> String {
     let mut result = text.to_string();
     for (from, to) in replacements {
         result = result.replace(from, to);
-        let capitalized = format!("{}{}", from.chars().next().unwrap().to_uppercase(), &from[1..]);
+        let capitalized = format!(
+            "{}{}",
+            from.chars().next().unwrap().to_uppercase(),
+            &from[1..]
+        );
         let to_cap = format!("{}{}", to.chars().next().unwrap().to_uppercase(), &to[1..]);
         result = result.replace(&capitalized, &to_cap);
     }
@@ -626,7 +635,7 @@ pub fn check_wcag_compliance(text: &str, level: WcagLevel) -> WcagCheckResult {
     checks_passed += 1;
 
     // 2.4.2 Page Titled — has identifiable heading
-    if text.lines().next().is_none_or(|l| l.trim().is_empty()) {
+    if text.lines().next().map_or(true, |l| l.trim().is_empty()) {
         violations.push(WcagViolation {
             criterion: "2.4.2".into(),
             description: "Output lacks a descriptive heading".into(),
@@ -709,9 +718,7 @@ pub fn format_output(text: &str, cfg: &AccessibilityConfig) -> String {
 pub fn voice_commands_by_category() -> HashMap<String, Vec<VoiceCommand>> {
     let mut map: HashMap<String, Vec<VoiceCommand>> = HashMap::new();
     for cmd in voice_commands() {
-        map.entry(cmd.category.clone())
-            .or_default()
-            .push(cmd);
+        map.entry(cmd.category.clone()).or_default().push(cmd);
     }
     map
 }

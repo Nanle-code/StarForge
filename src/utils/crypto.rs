@@ -1,3 +1,4 @@
+use crate::utils::interactive;
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use anyhow::{anyhow, Result};
@@ -7,6 +8,16 @@ use colored::Colorize;
 use dialoguer::Password;
 use rand::RngCore;
 use zxcvbn::zxcvbn;
+
+/// Env var checked by [`prompt_passphrase`] / [`prompt_passphrase_with_inputs`]
+/// before prompting, so automated pipelines can supply a new passphrase
+/// headlessly (e.g. when creating a wallet or encrypting a backup in CI).
+pub const ENV_PASSPHRASE: &str = "STARFORGE_PASSPHRASE";
+
+/// Env var checked by [`prompt_password`] before prompting, so automated
+/// pipelines can supply an existing password/passphrase headlessly (e.g.
+/// when decrypting a wallet or backup in CI).
+pub const ENV_PASSWORD: &str = "STARFORGE_PASSWORD";
 
 // ── Passphrase strength ───────────────────────────────────────────────────────
 
@@ -180,6 +191,17 @@ pub fn prompt_passphrase_with_inputs(
     strict: bool,
     user_inputs: &[&str],
 ) -> Result<String> {
+    // Secure input alternative: let automated pipelines supply a fresh
+    // passphrase via env var instead of typing it at an interactive prompt.
+    if let Ok(pwd) = std::env::var(ENV_PASSPHRASE) {
+        return validate_new_passphrase(&pwd, strict, user_inputs);
+    }
+
+    interactive::ensure_interactive(
+        "a new passphrase",
+        &format!("Set {ENV_PASSPHRASE} to supply one headlessly."),
+    )?;
+
     loop {
         // Prompt without confirmation first so we can evaluate strength before
         // asking the user to type it a second time.
@@ -257,6 +279,31 @@ pub fn prompt_passphrase_with_inputs(
             }
         }
     }
+}
+
+/// Validate a passphrase supplied non-interactively (e.g. via
+/// [`ENV_PASSPHRASE`]) against the same rules the interactive prompt
+/// enforces. Unlike the prompt loop, an invalid value fails immediately
+/// instead of asking again — there's no one to ask.
+fn validate_new_passphrase(pwd: &str, strict: bool, user_inputs: &[&str]) -> Result<String> {
+    if pwd.is_empty() {
+        anyhow::bail!("Passphrase cannot be empty");
+    }
+
+    let report = check_passphrase_strength_with_inputs(pwd, user_inputs)?;
+
+    if strict && report.strength.score() < STRICT_MIN_SCORE {
+        anyhow::bail!(
+            "--strict mode requires a {} or better passphrase.",
+            PassphraseStrength::Strong.label()
+        );
+    }
+
+    if strict && report.reused_context {
+        anyhow::bail!("Passphrase must not reuse wallet or account details in --strict mode.");
+    }
+
+    Ok(pwd.to_string())
 }
 
 // ── Argon2 KDF tuning ─────────────────────────────────────────────────────────
@@ -359,6 +406,20 @@ fn parse_encrypted_bundle(bundle: &str) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, Op
 // ── Password prompt (for decryption / non-creation flows) ────────────────────
 
 pub fn prompt_password(prompt: &str, confirm: bool) -> Result<String> {
+    // Secure input alternative: let automated pipelines supply the existing
+    // password/passphrase via env var instead of typing it at a prompt.
+    if let Ok(pwd) = std::env::var(ENV_PASSWORD) {
+        if pwd.is_empty() {
+            anyhow::bail!("Password cannot be empty");
+        }
+        return Ok(pwd);
+    }
+
+    interactive::ensure_interactive(
+        "a password",
+        &format!("Set {ENV_PASSWORD} to supply one headlessly."),
+    )?;
+
     let builder = Password::new().with_prompt(prompt);
 
     let builder = if confirm {
@@ -572,5 +633,99 @@ mod tests {
 
         let decrypted = decrypt_secret(password, &encrypted).unwrap();
         assert_eq!(secret, decrypted);
+    }
+
+    // ── CI / non-interactive prompting ───────────────────────────────────────
+
+    fn clear_prompt_env() {
+        std::env::remove_var(ENV_PASSWORD);
+        std::env::remove_var(ENV_PASSPHRASE);
+        std::env::remove_var(interactive::ENV_NON_INTERACTIVE);
+        std::env::remove_var("CI");
+    }
+
+    #[test]
+    fn prompt_password_fails_fast_in_ci_without_fallback() {
+        let _guard = interactive::env_test_lock().lock().unwrap();
+        clear_prompt_env();
+        std::env::set_var("CI", "1");
+
+        let err = prompt_password("Enter password", false)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("STARFORGE_PASSWORD"), "got: {}", err);
+
+        clear_prompt_env();
+    }
+
+    #[test]
+    fn prompt_password_uses_env_fallback_in_ci() {
+        let _guard = interactive::env_test_lock().lock().unwrap();
+        clear_prompt_env();
+        std::env::set_var("CI", "1");
+        std::env::set_var(ENV_PASSWORD, "correct-horse-battery-staple");
+
+        let pwd = prompt_password("Enter password", false).unwrap();
+        assert_eq!(pwd, "correct-horse-battery-staple");
+
+        clear_prompt_env();
+    }
+
+    #[test]
+    fn prompt_password_env_fallback_rejects_empty_value() {
+        let _guard = interactive::env_test_lock().lock().unwrap();
+        clear_prompt_env();
+        std::env::set_var("CI", "1");
+        std::env::set_var(ENV_PASSWORD, "");
+
+        let err = prompt_password("Enter password", false)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("empty"), "got: {}", err);
+
+        clear_prompt_env();
+    }
+
+    #[test]
+    fn prompt_passphrase_fails_fast_in_ci_without_fallback() {
+        let _guard = interactive::env_test_lock().lock().unwrap();
+        clear_prompt_env();
+        std::env::set_var("CI", "1");
+
+        let err = prompt_passphrase("New passphrase", false)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("STARFORGE_PASSPHRASE"), "got: {}", err);
+
+        clear_prompt_env();
+    }
+
+    #[test]
+    fn prompt_passphrase_uses_env_fallback_in_ci() {
+        let _guard = interactive::env_test_lock().lock().unwrap();
+        clear_prompt_env();
+        std::env::set_var("CI", "1");
+        std::env::set_var(ENV_PASSPHRASE, "orchid-river-copper-harbor");
+
+        let pwd = prompt_passphrase("New passphrase", false).unwrap();
+        assert_eq!(pwd, "orchid-river-copper-harbor");
+
+        clear_prompt_env();
+    }
+
+    #[test]
+    fn prompt_passphrase_env_fallback_still_enforces_strict_strength() {
+        let _guard = interactive::env_test_lock().lock().unwrap();
+        clear_prompt_env();
+        std::env::set_var("CI", "1");
+        // Long enough to pass the length gate, but weak/guessable.
+        std::env::set_var(ENV_PASSPHRASE, "passwordpasswordpassword");
+
+        let err = prompt_passphrase("New passphrase", true)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("--strict"), "got: {}", err);
+
+        clear_prompt_env();
     }
 }

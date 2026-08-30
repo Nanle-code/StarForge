@@ -518,7 +518,7 @@ fn handle_property_list(args: PropertyListArgs) -> Result<()> {
     let props = load_properties()?;
     let filtered: Vec<_> = props
         .iter()
-        .filter(|p| args.contract.as_deref().is_none_or(|c| p.contract == c))
+        .filter(|p| args.contract.as_deref().map_or(true, |c| p.contract == c))
         .collect();
 
     if filtered.is_empty() {
@@ -748,7 +748,7 @@ fn handle_reports(args: ReportsArgs) -> Result<()> {
     let reports = load_reports()?;
     let filtered: Vec<_> = reports
         .iter()
-        .filter(|r| args.contract.as_deref().is_none_or(|c| r.contract == c))
+        .filter(|r| args.contract.as_deref().map_or(true, |c| r.contract == c))
         .collect();
 
     if filtered.is_empty() {

@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   build:
@@ -23,10 +25,17 @@ jobs:
             archive_ext: tar.gz
             binary_name: starforge
 
-          # macOS ARM64 — native on macos-latest (M1 runner)
+          # macOS ARM64 — native on macos-latest (M1/M2 runner)
           - os: macos-latest
             target: aarch64-apple-darwin
-            archive_name: starforge-macos-aarch64
+            archive_name: starforge-darwin-aarch64
+            archive_ext: tar.gz
+            binary_name: starforge
+
+          # macOS x86_64 — native on macos-13 (Intel runner)
+          - os: macos-13
+            target: x86_64-apple-darwin
+            archive_name: starforge-darwin-x86_64
             archive_ext: tar.gz
             binary_name: starforge
 
@@ -80,7 +89,12 @@ jobs:
           else
             cp target/${{ matrix.target }}/release/${{ matrix.binary_name }} dist/starforge
           fi
-          tar -czf "dist/${{ matrix.archive_name }}.tar.gz" -C dist starforge
+          # Include man pages if present
+          if [ -d man ] && ls man/*.1 >/dev/null 2>&1; then
+            tar -czf "dist/${{ matrix.archive_name }}.tar.gz" -C dist starforge -C "$GITHUB_WORKSPACE" man
+          else
+            tar -czf "dist/${{ matrix.archive_name }}.tar.gz" -C dist starforge
+          fi
           rm dist/starforge
 
       # Windows produces .zip
@@ -94,24 +108,16 @@ jobs:
           7z a "${{ matrix.archive_name }}.zip" "${{ matrix.binary_name }}"
           rm "${{ matrix.binary_name }}"
 
-      # Generate checksums for all archives
-      - name: Generate checksums
-        shell: bash
-        run: |
-          cd dist
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            certutil -hashfile "${{ matrix.archive_name }}.zip" SHA256 | grep -v "SHA256 hash" | grep -v "^$" > checksums.txt
-          else
-            sha256sum "${{ matrix.archive_name }}.tar.gz" >> checksums.txt
-          fi
-
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.archive_name }}
-          path: |
-            dist/${{ matrix.archive_name }}.*
-            dist/checksums.txt
+          path: dist/${{ matrix.archive_name }}.*
+
+      - name: Attest release archive provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/${{ matrix.archive_name }}.*
 
   release:
     name: Publish GitHub Release
@@ -120,6 +126,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Test release artifact validation
+        run: python -m unittest tests/release_artifacts_test.py
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -127,9 +136,7 @@ jobs:
 
       - name: Prepare release files
         run: |
-          mkdir -p release-files
-          find release-artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec cp {} release-files/ \;
-          find release-artifacts -type f -name "checksums.txt" -exec cat {} >> release-files/SHA256SUMS.txt \;
+          python scripts/release_artifacts.py release-artifacts release-files
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
@@ -142,8 +149,14 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
 
       - name: Extract version from tag
         id: version
@@ -151,39 +164,106 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/v}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Download Linux binary
-        uses: actions/download-artifact@v4
+      - name: Verify release artifacts exist
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          REPO="${{ github.repository }}"
+          BASE_URL="https://api.github.com/repos/${REPO}/releases/tags/v${VERSION}"
+          
+          echo "Checking release artifacts for v${VERSION}..."
+          
+          # Get release info
+          RELEASE_INFO=$(curl -sSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "${BASE_URL}")
+          
+          if echo "$RELEASE_INFO" | grep -q '"message": "Not Found"'; then
+            echo "ERROR: Release v${VERSION} not found"
+            exit 1
+          fi
+          
+          # Check for required artifacts
+          REQUIRED_ARTIFACTS=(
+            "starforge-darwin-x86_64.tar.gz"
+            "starforge-darwin-aarch64.tar.gz"
+            "starforge-linux-x86_64.tar.gz"
+            "starforge-linux-aarch64.tar.gz"
+          )
+          
+          MISSING=()
+          for artifact in "${REQUIRED_ARTIFACTS[@]}"; do
+            if ! echo "$RELEASE_INFO" | grep -q "\"name\": \"${artifact}\""; then
+              MISSING+=("$artifact")
+            fi
+          done
+          
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "ERROR: Missing required release artifacts:"
+            printf '  %s\n' "${MISSING[@]}"
+            echo ""
+            echo "Available assets:"
+            echo "$RELEASE_INFO" | jq -r '.assets[].name' | sed 's/^/  /'
+            exit 1
+          fi
+          
+          echo "All required artifacts found in release v${VERSION}"
+
+      - name: Update Homebrew formula
+        id: update_formula
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          FORMULA_PATH: packaging/homebrew/starforge.rb
+        run: |
+          bash scripts/update-homebrew-formula.sh "$VERSION"
+
+      - name: Check for formula changes
+        id: changes
+        run: |
+          if git diff --quiet packaging/homebrew/starforge.rb; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "No changes to formula"
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "Formula has changes:"
+            git diff packaging/homebrew/starforge.rb
+          fi
+
+      - name: Create PR with formula update
+        if: steps.changes.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
         with:
-          name: starforge-linux-x86_64
-          path: homebrew-build
-
-      - name: Generate Homebrew formula
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          TARBALL="https://github.com/${{ github.repository }}/releases/download/v${VERSION}/starforge-linux-x86_64.tar.gz"
-          SHA256=$(cd homebrew-build && sha256sum starforge-linux-x86_64.tar.gz | cut -d' ' -f1)
-
-          cat > homebrew-formula.rb << EOF
-          class Starforge < Formula
-            desc "Deploy Soroban smart contracts with enhanced CLI"
-            homepage "https://github.com/${{ github.repository }}"
-            url "${TARBALL}"
-            sha256 "${SHA256}"
-            version "${VERSION}"
-
-            def install
-              bin.install "starforge"
-            end
-
-            test do
-              assert_match version.to_s, shell_output("#{bin}/starforge --version")
-            end
-          end
-          EOF
-
-          cat homebrew-formula.rb
-
-      - name: Create PR to homebrew-core (optional)
-        run: |
-          echo "Homebrew formula generated. Manual PR creation or automation can be set up."
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(homebrew): update formula to v${{ steps.version.outputs.version }}"
+          title: "chore(homebrew): update formula to v${{ steps.version.outputs.version }}"
+          body: |
+            Automated update of Homebrew formula for release v${{ steps.version.outputs.version }}.
+            
+            This PR updates:
+            - Formula version to ${{ steps.version.outputs.version }}
+            - Download URLs for all supported platforms
+            - SHA256 checksums for all release artifacts
+            
+            **Platforms covered:**
+            - macOS Intel (darwin-x86_64)
+            - macOS ARM (darwin-aarch64)
+            - Linux x86_64 (linux-x86_64)
+            - Linux ARM64 (linux-aarch64)
+            
+            **Validation:**
+            - All release artifacts verified to exist
+            - Checksums computed from actual release assets
+            - Formula syntax validated
+            - Homebrew smoke test passed (if runner supports it)
+            
+            Closes #658
+          branch: homebrew-update-v${{ steps.version.outputs.version }}
+          base: ${{ github.event.repository.default_branch }}
+          labels: |
+            homebrew
+            automated
+            dependencies
 

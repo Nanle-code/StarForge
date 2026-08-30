@@ -208,6 +208,9 @@ cargo clippy --locked -- -D warnings
 
 # 5. Verify smoke tests
 cargo test --test cli_smoke --locked
+
+# 6. Verify CLI JSON output stability contracts
+cargo test --test json_contract_stability --locked
 ```
 
 Or run all at once (simulates CI):
@@ -217,8 +220,14 @@ cargo fmt --all --check && \
   cargo build --locked && \
   cargo test --locked && \
   cargo clippy --locked -- -D warnings && \
-  cargo test --test cli_smoke --locked
+  cargo test --test cli_smoke --locked && \
+  cargo test --test json_contract_stability --locked
 ```
+
+The JSON contract stability check prevents stable `--json` fields listed in
+`tests/fixtures/json_contracts/stable-fields-baseline.json` from disappearing
+from `docs/contracts/cli-json-fields.json` unless they are first marked
+`deprecated`.
 
 ---
 

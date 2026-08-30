@@ -1,6 +1,6 @@
 //! A simple counter contract for testing AI documentation generation.
 
-#![no_std]
+// #![no_std]
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol};
 
 const COUNTER: Symbol = symbol_short!("COUNTER");

@@ -290,6 +290,8 @@ proptest! {
         let account = MockAddress::account(1);
         env.auth.auto_approve(account.clone());
         env.auth.require_auth(&account, &MockAddress::contract(1), "test_fn");
+        env.auth.auto_approve(MockAddress::account(1));
+        env.auth.require_auth(&MockAddress::account(1), &MockAddress::contract(1), "test");
 
         prop_assert!(!env.storage.is_empty());
         prop_assert!(!env.events.is_empty());

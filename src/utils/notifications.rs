@@ -88,8 +88,7 @@ pub struct AlertRule {
 }
 
 fn notifications_dir() -> Result<PathBuf> {
-    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
-    let dir = home.join(".starforge").join("notifications");
+    let dir = crate::utils::config::config_dir().join("notifications");
     if !dir.exists() {
         fs::create_dir_all(&dir)?;
     }

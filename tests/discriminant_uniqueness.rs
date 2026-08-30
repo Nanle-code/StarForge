@@ -59,8 +59,8 @@ fn pairwise_distinct_payloads_across_all_data_key_variants() {
         for j in (i + 1)..DATA_KEY_VARIANTS.len() {
             let (name_a, key_a) = &DATA_KEY_VARIANTS[i];
             let (name_b, key_b) = &DATA_KEY_VARIANTS[j];
-            let val_a: Val = key_a.clone().into_val(&env);
-            let val_b: Val = key_b.clone().into_val(&env);
+            let val_a: Val = key_a.into_val(&env);
+            let val_b: Val = key_b.into_val(&env);
             assert_ne!(
                 val_a.get_payload(),
                 val_b.get_payload(),
@@ -78,7 +78,7 @@ fn instance_storage_under_data_key_admin_does_not_alias_data_key_count() {
     // storage slots collapsing into one. We drive the contract end-to-end so
     // that any — present or future — wire-format collision surfaces here.
     let env = Env::default();
-    let contract_id = env.register_contract(None, ai_docs_counter::Counter);
+    let contract_id = env.register(ai_docs_counter::Counter, ());
 
     env.as_contract(&contract_id, || {
         env.storage().instance().set(&DataKey::Admin, &42u32);

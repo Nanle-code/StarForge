@@ -22,10 +22,10 @@ Security and auditability are critical in blockchain tooling where users interac
 
 1. **Be logged** - Operations that affect security state must be recorded
 2. **Be traceable** - Include enough context to understand what happened
-3. **Be sanitized** - Remove sensitive data from logs
+3. **Be sanitized** - Remove sensitive data from logs automatically via centralized secret redaction
 4. **Be useful** - Provide actionable information for debugging and auditing
 
-StarForge uses **structured logging** (JSON format available) with the `tracing` crate to ensure logs are machine-parseable and can be aggregated for analysis.
+StarForge uses **structured logging** (JSON format available) with the `tracing` crate to ensure logs are machine-parseable and can be aggregated for analysis. All tracing log streams and CLI error streams pass through a centralized secret redaction engine (`crate::utils::redaction::redact_secrets`) that automatically sanitizes keys, mnemonics, tokens, signed transactions, and URL credentials.
 
 ---
 

@@ -1,7 +1,10 @@
 use anyhow::Result;
+use std::io::{self, Write};
 use tracing::Level;
 use tracing_appender::rolling;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+
+use crate::utils::redaction::redact_secrets;
 
 /// Output format for log messages.
 #[derive(Debug, Clone, PartialEq)]
@@ -35,6 +38,57 @@ impl Default for LogConfig {
     }
 }
 
+/// A custom writer wrapper that automatically redacts secrets from tracing log streams.
+pub struct RedactingWriter<W: Write> {
+    inner: W,
+    buffer: Vec<u8>,
+}
+
+impl<W: Write> RedactingWriter<W> {
+    pub fn new(inner: W) -> Self {
+        Self {
+            inner,
+            buffer: Vec::new(),
+        }
+    }
+}
+
+impl<W: Write> Write for RedactingWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.buffer.extend_from_slice(buf);
+
+        while let Some(pos) = self.buffer.iter().position(|&b| b == b'\n') {
+            let line_bytes: Vec<u8> = self.buffer.drain(..=pos).collect();
+            if let Ok(line_str) = std::str::from_utf8(&line_bytes) {
+                let redacted = redact_secrets(line_str);
+                self.inner.write_all(redacted.as_bytes())?;
+            } else {
+                self.inner.write_all(&line_bytes)?;
+            }
+        }
+
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        if !self.buffer.is_empty() {
+            let remaining: Vec<u8> = self.buffer.drain(..).collect();
+            if let Ok(line_str) = std::str::from_utf8(&remaining) {
+                let redacted = redact_secrets(line_str);
+                self.inner.write_all(redacted.as_bytes())?;
+            } else {
+                self.inner.write_all(&remaining)?;
+            }
+        }
+        self.inner.flush()
+    }
+}
+
+/// Helper constructor to wrap a writer target in a redacting writer.
+pub fn redacting_writer<W: Write>(writer: W) -> RedactingWriter<W> {
+    RedactingWriter::new(writer)
+}
+
 /// Initialise the global tracing subscriber.
 ///
 /// Call this once at the start of `main()` before any commands run.
@@ -56,18 +110,19 @@ pub fn init(config: LogConfig) -> Result<()> {
             let file_appender = rolling::daily(&dir, &config.file_prefix);
             let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
+            let non_blocking_clone = non_blocking.clone();
             let file_layer = fmt::layer()
                 .json()
                 .with_current_span(true)
                 .with_span_list(true)
-                .with_writer(non_blocking)
+                .with_writer(move || redacting_writer(non_blocking_clone.clone()))
                 .with_filter(env_filter.clone());
 
             let stderr_layer = fmt::layer()
                 .json()
                 .with_current_span(true)
                 .with_span_list(true)
-                .with_writer(std::io::stderr)
+                .with_writer(|| redacting_writer(std::io::stderr()))
                 .with_filter(env_filter);
 
             tracing_subscriber::registry()
@@ -83,7 +138,7 @@ pub fn init(config: LogConfig) -> Result<()> {
                 .json()
                 .with_current_span(true)
                 .with_span_list(true)
-                .with_writer(std::io::stderr)
+                .with_writer(|| redacting_writer(std::io::stderr()))
                 .with_filter(env_filter);
 
             tracing_subscriber::registry()
@@ -97,13 +152,14 @@ pub fn init(config: LogConfig) -> Result<()> {
             let file_appender = rolling::daily(&dir, &config.file_prefix);
             let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
+            let non_blocking_clone = non_blocking.clone();
             let file_layer = fmt::layer()
                 .with_ansi(false)
-                .with_writer(non_blocking)
+                .with_writer(move || redacting_writer(non_blocking_clone.clone()))
                 .with_filter(env_filter.clone());
 
             let stderr_layer = fmt::layer()
-                .with_writer(std::io::stderr)
+                .with_writer(|| redacting_writer(std::io::stderr()))
                 .with_filter(env_filter);
 
             tracing_subscriber::registry()
@@ -116,7 +172,7 @@ pub fn init(config: LogConfig) -> Result<()> {
         // ── Human, stderr only (default) ──────────────────────────────────
         (LogFormat::Human, None) => {
             let layer = fmt::layer()
-                .with_writer(std::io::stderr)
+                .with_writer(|| redacting_writer(std::io::stderr()))
                 .with_filter(env_filter);
 
             tracing_subscriber::registry()
@@ -150,16 +206,16 @@ pub fn redact_public_key(public_key: &str, level: Level) -> String {
 ///
 /// Secret keys and passphrases should never appear in info-level or debug-level
 /// logs.
-pub fn redact_secret_value(_value: &str) -> &'static str {
-    "[REDACTED]"
+pub fn redact_secret_value(_value: &str) -> String {
+    "[REDACTED]".to_string()
 }
 
 /// Always redact signed XDR payloads when they are written to logs.
 ///
 /// XDR envelopes containing signatures are secret and must not be emitted at
 /// info level.
-pub fn redact_signed_xdr(_xdr: &str) -> &'static str {
-    "[REDACTED]"
+pub fn redact_signed_xdr(_xdr: &str) -> String {
+    "[REDACTED]".to_string()
 }
 
 /// Build a `LogConfig` from CLI flags / environment.
@@ -211,5 +267,20 @@ mod tests {
     #[test]
     fn redact_signed_xdr_always_redacts() {
         assert_eq!(redact_signed_xdr("signed-xdr-payload"), "[REDACTED]");
+    }
+
+    #[test]
+    fn redacting_writer_redacts_stream() {
+        let mut buf = Vec::new();
+        {
+            let mut writer = RedactingWriter::new(&mut buf);
+            writer
+                .write_all(b"Authorization: Bearer mytoken123\n")
+                .unwrap();
+            writer.flush().unwrap();
+        }
+        let output = String::from_utf8(buf).unwrap();
+        assert!(!output.contains("mytoken123"));
+        assert!(output.contains("Bearer [REDACTED]"));
     }
 }

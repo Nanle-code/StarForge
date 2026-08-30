@@ -146,7 +146,13 @@ target/debug/incremental/
 .rustfmt.toml.local
 
 # Cargo
-.cargo/
+# Ignore local cargo state, but keep the committed resolver config:
+# .cargo/config.toml pins MSRV-aware dependency resolution so that a
+# future `cargo update` cannot silently break the Rust 1.80 CI job.
+# (Uses `.cargo/*` rather than `.cargo/`: git cannot re-include a file
+# whose parent directory is itself excluded.)
+.cargo/*
+!.cargo/config.toml
 Cargo.toml.local
 
 # GitHub Actions

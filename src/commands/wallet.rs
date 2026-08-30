@@ -180,6 +180,17 @@ pub enum WalletCommands {
         /// Reject passphrases that score below "Strong" or reuse wallet details
         #[arg(long, default_value = "false")]
         strict: bool,
+        /// Split the backup into N recovery shares (Shamir's Secret Sharing).
+        /// Requires --threshold. Each share is written to a separate file.
+        #[arg(long, requires = "threshold")]
+        shares: Option<usize>,
+        /// Minimum number of shares required to reconstruct (M in M-of-N).
+        /// Requires --shares.
+        #[arg(long, requires = "shares")]
+        threshold: Option<usize>,
+        /// Output directory for share files (default: same directory as --output)
+        #[arg(long, requires = "shares")]
+        shares_dir: Option<PathBuf>,
     },
     /// Import a wallet from a JSON backup, BIP39 recovery phrase, or raw Stellar secret key
     Import {
@@ -213,6 +224,15 @@ pub enum WalletCommands {
         /// HD derivation path when importing from hardware
         #[arg(long, default_value = hardware_wallet::STELLAR_HD_PATH)]
         hd_path: String,
+    },
+    /// Reconstruct a wallet backup from recovery shares
+    ImportShares {
+        /// Path to a share JSON file (provide at least --threshold of them)
+        #[arg(long, num_args = 1..)]
+        shares: Vec<PathBuf>,
+        /// Output file path for the reconstructed backup JSON
+        #[arg(long)]
+        output: PathBuf,
     },
 
     /// Connect to a hardware wallet (Ledger/Trezor) and show device info
@@ -393,7 +413,10 @@ pub async fn handle(cmd: WalletCommands) -> Result<()> {
             all,
             output,
             strict,
-        } => export_wallet(name, all, output, strict),
+            shares,
+            threshold,
+            shares_dir,
+        } => export_wallet(name, all, output, strict, shares, threshold, shares_dir),
         WalletCommands::Import {
             name,
             file,
@@ -417,6 +440,7 @@ pub async fn handle(cmd: WalletCommands) -> Result<()> {
             hardware,
             hd_path,
         ),
+        WalletCommands::ImportShares { shares, output } => import_shares(shares, output),
         WalletCommands::Connect { device, timeout } => connect_hardware(device, &timeout),
         WalletCommands::HwAddress { device, path } => hw_address(device, &path),
         WalletCommands::HwStatus { device } => hw_status(device),
@@ -1204,11 +1228,17 @@ async fn rotate_wallet(
     // ── Step 1: optional pre-rotation backup snapshot ────────────────────────
     if let Some(ref backup_path) = backup {
         p::step(1, steps, "Writing pre-rotation backup snapshot...");
-        let snapshot = WalletBackup {
+        let mut snapshot = WalletBackup {
             version: WALLET_BACKUP_VERSION.to_string(),
             exported_at: Utc::now().to_rfc3339(),
             wallets: vec![backup_entry_from(&cfg.wallets[wallet_index])],
+            recovery_shares: None,
+            integrity_tag: None,
         };
+        let snap_tag =
+            wallet_import::compute_integrity_tag(&snapshot, wallet_import::BACKUP_HMAC_KEY)
+                .context("Failed to compute integrity tag for backup snapshot")?;
+        snapshot.integrity_tag = Some(snap_tag);
         let json = serde_json::to_string_pretty(&snapshot)
             .context("Failed to serialize backup snapshot")?;
         if let Some(parent) = backup_path.parent() {
@@ -1393,7 +1423,15 @@ fn wallet_history(name: String, reveal: bool) -> Result<()> {
     Ok(())
 }
 
-fn export_wallet(name_opt: Option<String>, all: bool, output: PathBuf, strict: bool) -> Result<()> {
+fn export_wallet(
+    name_opt: Option<String>,
+    all: bool,
+    output: PathBuf,
+    strict: bool,
+    shares: Option<usize>,
+    threshold: Option<usize>,
+    shares_dir: Option<PathBuf>,
+) -> Result<()> {
     let cfg = config::load()?;
     let wallets_to_export: Vec<WalletBackupEntry> = if all {
         cfg.wallets.iter().map(backup_entry_from).collect()
@@ -1420,11 +1458,16 @@ fn export_wallet(name_opt: Option<String>, all: bool, output: PathBuf, strict: b
         }
     }
 
-    let backup = WalletBackup {
+    let mut backup = WalletBackup {
         version: WALLET_BACKUP_VERSION.to_string(),
-        exported_at: Utc::now().to_rfc3339(), // This was missing a comma
+        exported_at: Utc::now().to_rfc3339(),
         wallets: wallets_to_export.clone(),
+        recovery_shares: None,
+        integrity_tag: None,
     };
+    let export_tag = wallet_import::compute_integrity_tag(&backup, wallet_import::BACKUP_HMAC_KEY)
+        .context("Failed to compute integrity tag for wallet backup")?;
+    backup.integrity_tag = Some(export_tag);
 
     let context: Vec<&str> = backup
         .wallets
@@ -1440,23 +1483,121 @@ fn export_wallet(name_opt: Option<String>, all: bool, output: PathBuf, strict: b
 
     let json = serde_json::to_string_pretty(&backup)
         .with_context(|| "Failed to serialize wallet backup")?;
-    let passphrase = crypto::prompt_passphrase_with_inputs(
-        "Enter passphrase to encrypt backup",
-        strict,
-        &context,
-    )?;
-    let encrypted = crypto::encrypt_secret(&passphrase, &json, None)?;
-    fs::write(&output, encrypted)
-        .with_context(|| format!("Failed to write {}", output.display()))?;
 
-    let name_display = if all {
-        "all wallets".to_string()
+    if let (Some(num_shares), Some(thresh)) = (shares, threshold) {
+        // ── Recovery shares mode ──────────────────────────────────────────
+        if num_shares < 2 {
+            anyhow::bail!("--shares must be at least 2");
+        }
+        if thresh < 2 {
+            anyhow::bail!("--threshold must be at least 2");
+        }
+        if thresh > num_shares {
+            anyhow::bail!(
+                "--threshold ({}) cannot exceed --shares ({})",
+                thresh,
+                num_shares
+            );
+        }
+
+        p::header("Exporting with recovery shares");
+        p::kv(
+            "Scheme",
+            &format!("{}-of-{} Shamir's Secret Sharing", thresh, num_shares),
+        );
+        println!();
+
+        let encrypted = crypto::encrypt_secret("", &json, None)?;
+        let recovery_shares = crate::utils::shamir::split(encrypted.as_bytes(), thresh, num_shares)
+            .map_err(|e| anyhow::anyhow!("Failed to split backup into shares: {}", e))?;
+
+        // Determine output directory for share files.
+        let dir = shares_dir.unwrap_or_else(|| {
+            output
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new("."))
+                .to_path_buf()
+        });
+        fs::create_dir_all(&dir)
+            .with_context(|| format!("Failed to create shares directory: {}", dir.display()))?;
+
+        // Build a descriptive stem from the output filename.
+        let stem = output
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("backup");
+
+        // Write individual share files.
+        let mut share_paths = Vec::new();
+        for share in &recovery_shares {
+            let share_filename = format!("{}.share-{}.json", stem, share.index);
+            let share_path = dir.join(&share_filename);
+            let share_json = serde_json::to_string_pretty(share)
+                .with_context(|| "Failed to serialize recovery share")?;
+            fs::write(&share_path, &share_json).with_context(|| {
+                format!(
+                    "Failed to write share {}: {}",
+                    share.index,
+                    share_path.display()
+                )
+            })?;
+            share_paths.push(share_path.clone());
+            p::kv(
+                &format!("Share {}", share.index),
+                &share_path.display().to_string(),
+            );
+        }
+
+        // Also write the backup file itself (encrypted, without shares embedded).
+        let encrypted_backup = crypto::encrypt_secret("", &json, None)?;
+        fs::write(&output, &encrypted_backup)
+            .with_context(|| format!("Failed to write {}", output.display()))?;
+
+        // Write a manifest listing all share files.
+        let manifest_path = dir.join(format!("{}.shares-manifest.json", stem));
+        let manifest = serde_json::json!({
+            "scheme": format!("{}-of-{}", thresh, num_shares),
+            "threshold": thresh,
+            "total_shares": num_shares,
+            "share_files": share_paths.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+            "encrypted_backup": output.display().to_string(),
+            "secret_hash": recovery_shares[0].secret_hash,
+        });
+        fs::write(&manifest_path, serde_json::to_string_pretty(&manifest)?)
+            .with_context(|| format!("Failed to write manifest: {}", manifest_path.display()))?;
+
+        println!();
+        p::success(&format!(
+            "Wallet(s) exported with {}-of-{} recovery shares",
+            thresh, num_shares
+        ));
+        p::kv("Manifest", &manifest_path.display().to_string());
+        p::kv("Encrypted backup", &output.display().to_string());
+        println!();
+        p::warn("Distribute each share to a separate custodian.");
+        p::warn("Any threshold of shares can reconstruct the backup.");
+        p::warn("Losing more than (total - threshold) shares means the backup is unrecoverable.");
     } else {
-        name_opt.clone().unwrap()
-    };
-    p::success(&format!("Wallet(s) {} exported", name_display));
-    p::kv("Backup file", &output.display().to_string());
-    p::info("Secrets are only stored in the backup file; they are not printed to stdout.");
+        // ── Standard passphrase mode ─────────────────────────────────────────
+        let passphrase = crypto::prompt_passphrase_with_inputs(
+            "Enter passphrase to encrypt backup",
+            strict,
+            &context,
+        )?;
+        let encrypted = crypto::encrypt_secret(&passphrase, &json, None)?;
+        fs::write(&output, encrypted)
+            .with_context(|| format!("Failed to write {}", output.display()))?;
+
+        let name_display = if all {
+            "all wallets".to_string()
+        } else {
+            name_opt.clone().unwrap()
+        };
+        p::success(&format!("Wallet(s) {} exported", name_display));
+        p::kv("Backup file", &output.display().to_string());
+        p::info("Secrets are only stored in the backup file; they are not printed to stdout.");
+    }
+
     Ok(())
 }
 
@@ -1711,6 +1852,96 @@ fn import_wallets(file: PathBuf) -> Result<()> {
         imported,
         file.display()
     ));
+    Ok(())
+}
+
+fn import_shares(share_paths: Vec<PathBuf>, output: PathBuf) -> Result<()> {
+    p::header("Reconstructing backup from recovery shares");
+
+    if share_paths.is_empty() {
+        anyhow::bail!("Provide at least one share file via --shares");
+    }
+
+    // Read and parse all share files.
+    let mut shares = Vec::new();
+    for path in &share_paths {
+        config::validate_file_path(path, Some("json"))?;
+        let contents = fs::read_to_string(path)
+            .with_context(|| format!("Failed to read share file: {}", path.display()))?;
+        let share: crate::utils::shamir::RecoveryShare = serde_json::from_str(&contents)
+            .map_err(|e| anyhow::anyhow!("Failed to parse share file {}: {}", path.display(), e))?;
+        p::step(
+            shares.len() + 1,
+            share_paths.len(),
+            &format!("Loaded share {} from {}", share.index, path.display()),
+        );
+        shares.push(share);
+    }
+
+    // Validate shares.
+    wallet_import::validate_recovery_shares(&shares)
+        .map_err(|e| anyhow::anyhow!("Share validation failed: {}", e))?;
+
+    let threshold = shares[0].threshold;
+    let total = shares[0].total_shares;
+    println!();
+    p::kv("Scheme", &format!("{}-of-{}", threshold, total));
+    p::kv("Shares provided", &shares.len().to_string());
+
+    if (shares.len() as u8) < threshold {
+        anyhow::bail!(
+            "Need at least {} shares for reconstruction, but only {} were provided",
+            threshold,
+            shares.len()
+        );
+    }
+
+    // Reconstruct the encrypted bundle.
+    let encrypted = wallet_import::reconstruct_from_shares(&shares)
+        .map_err(|e| anyhow::anyhow!("Reconstruction failed: {}", e))?;
+
+    p::success("Shares reconstructed successfully");
+    println!();
+
+    // The reconstructed data is an encrypted backup bundle.
+    // In share mode, the backup is encrypted with an empty passphrase.
+    let contents = match wallet_import::classify_payload(&encrypted) {
+        wallet_import::PayloadKind::Encrypted => {
+            wallet_import::parse_encrypted_envelope(&encrypted).map_err(|e| {
+                anyhow::anyhow!("Reconstructed data is not a valid encrypted bundle: {}", e)
+            })?;
+            let passphrase = crypto::prompt_password("Enter passphrase to decrypt backup", false)?;
+            crypto::decrypt_secret(&passphrase, &encrypted)?
+        }
+        wallet_import::PayloadKind::Plaintext => encrypted,
+    };
+
+    // Parse the reconstructed backup.
+    let parsed = wallet_import::parse_wallet_backup(&contents)
+        .map_err(|e| anyhow::anyhow!("Reconstructed backup is invalid: {}", e))?;
+    for warning in &parsed.warnings {
+        p::warn(warning);
+    }
+
+    // Write the reconstructed backup to the output file.
+    if let Some(parent) = output.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create {}", parent.display()))?;
+        }
+    }
+
+    let pretty = serde_json::to_string_pretty(&parsed.backup)
+        .with_context(|| "Failed to serialize reconstructed backup")?;
+    fs::write(&output, &pretty).with_context(|| format!("Failed to write {}", output.display()))?;
+
+    println!();
+    p::success(&format!(
+        "Backup reconstructed with {} wallet(s)",
+        parsed.backup.wallets.len()
+    ));
+    p::kv("Output file", &output.display().to_string());
+    p::info("You can now import with: starforge wallet import --file <output>");
     Ok(())
 }
 

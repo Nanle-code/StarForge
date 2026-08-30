@@ -721,14 +721,22 @@ starforge contract inspect CCPYZFKEAXHHS5VVW5J45TOU7S2EODJ7TZNJIA5LKDVL3PESCES6F
 ```
 
 **JSON schema (`--json`):**
-- `contract_id` (string)
-- `executable` (string)
-- `wasm_hash` (string|null)
-- `storage_durability` (string)
-- `latest_ledger` (number)
-- `last_modified_ledger_seq` (number|null)
-- `live_until_ledger_seq` (number|null)
-- `instance_storage` (array of objects): `{ "key": string, "value": string }`
+This command is the reference implementation for the CLI JSON stability
+contract. See [`docs/CLI_JSON_STABILITY.md`](docs/CLI_JSON_STABILITY.md) and
+[`docs/contracts/cli-json-fields.json`](docs/contracts/cli-json-fields.json).
+
+| Field | Type | Stability | Notes |
+| --- | --- | --- | --- |
+| `contract_id` | string | stable | Inspected contract ID |
+| `executable` | string | stable | Contract executable type |
+| `wasm_hash` | string\|null | stable | WASM hash when available |
+| `storage_durability` | string | stable | Storage durability class |
+| `latest_ledger` | number | stable | Latest observed ledger |
+| `last_modified_ledger_seq` | number\|null | stable | Last modified ledger when available |
+| `live_until_ledger_seq` | number\|null | stable | Expiration ledger when available |
+| `instance_storage` | array of objects | stable | Instance storage entries |
+| `instance_storage[].key` | string | stable | Decoded storage key |
+| `instance_storage[].value` | string | stable | Decoded storage value |
 
 ---
 

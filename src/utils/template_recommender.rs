@@ -512,13 +512,13 @@ mod tests {
             maintenance: MaintenanceStatus::Active,
             license: Some("MIT".to_string()),
             repository: None,
+            repository_url: None,
             homepage: None,
             documentation: None,
-            security_review: None,
-            changelog: None,
-            repository_url: None,
             categories: vec![],
             featured: false,
+            security_review: None,
+            changelog: None,
         }
     }
 

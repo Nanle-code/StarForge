@@ -29,6 +29,10 @@ on:
   # Allow manual trigger for ad-hoc budget checks.
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   latency-budget:
     name: Latency Budget Check
@@ -51,6 +55,12 @@ jobs:
       # while still exercising cold-start and command-dispatch paths.
       - name: Run latency benchmarks
         run: |
+          mkdir -p target/criterion
+          # Criterion's harness takes a SINGLE positional filter, which it
+          # treats as a regex. Passing the three group names as separate
+          # arguments made it exit 2 with
+          # "unexpected argument 'cli_command_latency' found", so this step
+          # failed before any budget was ever measured. Use one alternation.
           cargo bench --locked -- \
             'cli_cold_start|cli_command_latency|latency_budget' \
             2>&1 | tee target/criterion/latency-bench-output.txt
@@ -63,17 +73,24 @@ jobs:
         id: budget-check
         run: |
           chmod +x scripts/check-latency-budgets.sh
+          # Capture stdout only. The script writes its JSON report to stdout and
+          # progress notes to stderr; folding stderr in with 2>&1 made `jq` fail
+          # with "Invalid numeric literal". Because the result was then compared
+          # only against the literal "false", an unparseable report silently
+          # counted as a pass -- this gate could not fail. Let stderr flow to the
+          # job log instead.
           REPORT=$(bash scripts/check-latency-budgets.sh \
             --input target/criterion/latency-bench-output.txt \
-            --report-path target/criterion/latency-budget-report.json \
-            2>&1) || EXIT_CODE=$?
+            --report-path target/criterion/latency-budget-report.json) || EXIT_CODE=$?
           echo "::group::Latency Budget Report"
           echo "$REPORT"
           echo "::endgroup::"
-          ALL_PASS=$(echo "$REPORT" | jq -r '.all_pass')
+          ALL_PASS=$(printf '%s' "$REPORT" | jq -r '.all_pass' 2>/dev/null || echo "unparseable")
           echo "all_pass=$ALL_PASS" >> "$GITHUB_OUTPUT"
-          if [ "$ALL_PASS" = "false" ]; then
-            echo "❌ Latency budget violations detected!"
+          # Fail closed: only an explicit `true` is a pass. A missing or
+          # unparseable report is a failure, not a free pass.
+          if [ "$ALL_PASS" != "true" ]; then
+            echo "❌ Latency budget check did not pass (all_pass=$ALL_PASS)"
             echo "failures=true" >> "$GITHUB_OUTPUT"
             exit 1
           fi
@@ -92,8 +109,14 @@ jobs:
             target/criterion/latency-budget-report.json
 
       # Post a PR comment with the budget check summary when run on a PR.
+      # Posting the summary is a courtesy, not the gate: the budget check step
+      # above is what fails the job. A `pull_request` from a fork gets a
+      # read-only GITHUB_TOKEN, so createComment returns 403
+      # ("Resource not accessible by integration"). That used to fail this job
+      # even when every budget passed.
       - name: Comment PR with budget summary
         if: github.event_name == 'pull_request' && always()
+        continue-on-error: true
         uses: actions/github-script@v7
         with:
           script: |
@@ -126,4 +149,11 @@ jobs:
               // Fork PRs get a read-only GITHUB_TOKEN and can't post comments;
               // don't fail the whole job just because the summary couldn't be posted.
               core.warning(`Could not post latency budget comment: ${err.message}`);
+            } catch (error) {
+              core.warning(
+                `Could not post the latency budget comment (this is expected ` +
+                `for pull requests from forks, which get a read-only token): ` +
+                `${error.message}`
+              );
+              core.summary.addRaw(summary).write();
             }

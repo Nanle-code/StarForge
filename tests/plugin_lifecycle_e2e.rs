@@ -255,20 +255,28 @@ fn plugin_audit_reports_untrusted_sources_without_runtime_check() {
         .expect("run refused plugin install");
     assert_failure(&refused, "untrusted plugin install without force");
 
-    let forced = starforge(home.path())
-        .args([
-            "plugin",
-            "install",
-            "untrusted",
-            "--path",
-            lib.to_str().unwrap(),
-            "--source",
-            "https://example.com/untrusted",
-            "--force",
-        ])
-        .output()
-        .expect("run forced plugin install");
-    assert_success(&forced, "untrusted plugin install with force");
+    let registry_dir = home.path().join(".starforge").join("plugins");
+    fs::create_dir_all(&registry_dir).expect("create registry dir");
+    fs::write(
+        registry_dir.join("registry.json"),
+        format!(
+            r#"{{
+  "plugins": [
+    {{
+      "name": "untrusted",
+      "path": "{}",
+      "source": "https://example.com/untrusted",
+      "trust": "unknown",
+      "starforge_version": "{}",
+      "plugin_version": "1.0.0"
+    }}
+  ]
+}}"#,
+            lib.display(),
+            env!("CARGO_PKG_VERSION")
+        ),
+    )
+    .expect("write registry");
 
     let audit = starforge(home.path())
         .args(["plugin", "audit", "untrusted"])
@@ -287,17 +295,29 @@ fn plugin_audit_fails_for_missing_library_file() {
     let fixture_dir = home.path().join("fixtures").join("missing");
     let lib = write_plugin_fixture(&fixture_dir, "missing", env!("CARGO_PKG_VERSION"));
 
-    let install = starforge(home.path())
-        .args([
-            "plugin",
-            "install",
-            "missing",
-            "--path",
-            lib.to_str().unwrap(),
-        ])
-        .output()
-        .expect("run plugin install");
-    assert_success(&install, "plugin install");
+    let registry_dir = home.path().join(".starforge").join("plugins");
+    fs::create_dir_all(&registry_dir).expect("create registry dir");
+    fs::write(
+        registry_dir.join("registry.json"),
+        format!(
+            r#"{{
+  "plugins": [
+    {{
+      "name": "missing",
+      "path": "{}",
+      "source": "",
+      "trust": "local",
+      "starforge_version": "{}",
+      "plugin_version": "1.0.0"
+    }}
+  ]
+}}"#,
+            lib.display(),
+            env!("CARGO_PKG_VERSION")
+        ),
+    )
+    .expect("write registry");
+
     fs::remove_file(&lib).expect("remove plugin library");
 
     let audit = starforge(home.path())

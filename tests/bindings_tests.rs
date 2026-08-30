@@ -51,6 +51,7 @@ fn test_generate_typescript_bindings() {
     let result = bindings::generate_bindings(temp_file.path(), BindingLanguage::TypeScript);
     if result.is_ok() {
         let generated = result.unwrap();
+    if let Ok(generated) = result {
         assert!(
             generated.contains("export class ContractClient"),
             "Missing ContractClient class"
@@ -68,6 +69,7 @@ fn test_generate_python_bindings() {
     let result = bindings::generate_bindings(temp_file.path(), BindingLanguage::Python);
     if result.is_ok() {
         let generated = result.unwrap();
+    if let Ok(generated) = result {
         assert!(
             generated.contains("class ContractClient"),
             "Missing ContractClient class"
@@ -88,6 +90,7 @@ fn test_generate_go_bindings() {
     let result = bindings::generate_bindings(temp_file.path(), BindingLanguage::Go);
     if result.is_ok() {
         let generated = result.unwrap();
+    if let Ok(generated) = result {
         assert!(
             generated.contains("type ContractClient struct"),
             "Missing ContractClient struct"

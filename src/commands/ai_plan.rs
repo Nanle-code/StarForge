@@ -172,7 +172,11 @@ fn handle_architecture(args: ArchitectureArgs) -> Result<()> {
     let archs = planner::suggest_architectures(&args.description);
     output_or_print(&archs, args.json, "Architecture Suggestions", |archs| {
         for arch in archs {
-            let marker = if arch.recommended { " ★ recommended" } else { "" };
+            let marker = if arch.recommended {
+                " ★ recommended"
+            } else {
+                ""
+            };
             println!();
             println!("  {}{}", arch.name, marker);
             println!("  {}", arch.description);
@@ -225,7 +229,10 @@ fn handle_timeline(args: TimelineArgs) -> Result<()> {
         p::kv("Total days", &t.total_days.to_string());
         p::kv("Buffer days", &t.buffer_days.to_string());
         p::kv("Start", &t.start_date.format("%Y-%m-%d").to_string());
-        p::kv("Target completion", &t.target_completion.format("%Y-%m-%d").to_string());
+        p::kv(
+            "Target completion",
+            &t.target_completion.format("%Y-%m-%d").to_string(),
+        );
         println!();
         p::info("Milestones:");
         for m in &t.milestones {
@@ -379,7 +386,10 @@ fn handle_show(args: ShowArgs) -> Result<()> {
 }
 
 fn print_plan_summary(plan: &planner::ProjectPlan) {
-    p::kv("Generated", &plan.generated_at.format("%Y-%m-%d %H:%M UTC").to_string());
+    p::kv(
+        "Generated",
+        &plan.generated_at.format("%Y-%m-%d %H:%M UTC").to_string(),
+    );
     p::kv("Tasks", &plan.tasks.len().to_string());
     p::kv("Phases", &plan.phases.len().to_string());
     p::kv("Risks", &plan.risks.len().to_string());

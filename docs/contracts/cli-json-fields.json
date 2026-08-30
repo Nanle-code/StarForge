@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "commands": {
+    "contract inspect": {
+      "description": "JSON output emitted by `starforge contract inspect <CONTRACT_ID> --json`.",
+      "fields": [
+        {
+          "path": "contract_id",
+          "type": "string",
+          "stability": "stable",
+          "description": "Inspected contract ID."
+        },
+        {
+          "path": "executable",
+          "type": "string",
+          "stability": "stable",
+          "description": "Executable type reported by contract instance metadata."
+        },
+        {
+          "path": "wasm_hash",
+          "type": "string|null",
+          "stability": "stable",
+          "description": "WASM hash for WASM-backed contracts, or null when unavailable."
+        },
+        {
+          "path": "storage_durability",
+          "type": "string",
+          "stability": "stable",
+          "description": "Durability class of the inspected storage."
+        },
+        {
+          "path": "latest_ledger",
+          "type": "number",
+          "stability": "stable",
+          "description": "Latest ledger observed while inspecting the contract."
+        },
+        {
+          "path": "last_modified_ledger_seq",
+          "type": "number|null",
+          "stability": "stable",
+          "description": "Ledger sequence where the instance entry was last modified, or null when unavailable."
+        },
+        {
+          "path": "live_until_ledger_seq",
+          "type": "number|null",
+          "stability": "stable",
+          "description": "Ledger sequence through which the instance entry remains live, or null when unavailable."
+        },
+        {
+          "path": "instance_storage",
+          "type": "array<object>",
+          "stability": "stable",
+          "description": "Decoded instance storage entries."
+        },
+        {
+          "path": "instance_storage[].key",
+          "type": "string",
+          "stability": "stable",
+          "description": "Decoded storage key."
+        },
+        {
+          "path": "instance_storage[].value",
+          "type": "string",
+          "stability": "stable",
+          "description": "Decoded storage value."
+        }
+      ]
+    }
+  }
+}
+

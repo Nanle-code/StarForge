@@ -293,8 +293,8 @@ pub fn list_requests(
     let requests = load_requests_raw()?;
     Ok(requests
         .into_iter()
-        .filter(|r| status_filter.as_ref().is_none_or(|s| r.status == *s))
-        .filter(|r| network_filter.is_none_or(|n| r.network == n))
+        .filter(|r| status_filter.as_ref().map_or(true, |s| r.status == *s))
+        .filter(|r| network_filter.map_or(true, |n| r.network == n))
         .collect())
 }
 

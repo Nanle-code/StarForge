@@ -29,9 +29,7 @@ pub struct TutorialStatus {
 }
 
 fn status_path() -> Result<PathBuf> {
-    let base =
-        dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Unable to resolve home directory"))?;
-    Ok(base.join(".starforge").join("tutorial_status.json"))
+    Ok(crate::utils::config::config_dir().join("tutorial_status.json"))
 }
 
 pub fn load_status() -> Result<TutorialStatus> {

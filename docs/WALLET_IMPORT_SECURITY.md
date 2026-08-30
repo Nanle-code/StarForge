@@ -27,8 +27,10 @@ inside the JSON parser.
 
 - Must be a JSON object with `version`, `exported_at`, and a non-empty
   `wallets` array.
-- `version` must be exactly `"1"`. A newer version is refused with a message
-  naming both versions rather than being partially read.
+- `version` `"1"` is accepted with a warning (re-export to gain tamper
+  detection). `version` `"2"` is the current format; its HMAC-SHA256 integrity
+  tag is verified on import. Any other version is refused with a message naming
+  both versions rather than being partially read.
 - Wallet names must be unique within the file.
 - Each entry's `public_key` must be a 56-character `G…` StrKey; a
   `secret_key`, when present, must be a 56-character `S…` StrKey or a
@@ -78,6 +80,33 @@ like Latin `a`):
 
 A rejection quotes the wallet name and the reason, never the key material —
 error text lands in terminals, CI logs, and bug reports.
+
+---
+
+## Backup format versions
+
+| Version | Integrity tag | Accepted | Migration note |
+|---|---|---|---|
+| 1 | None | Yes, with warning | Re-export to get tamper detection |
+| 2 | HMAC-SHA256 | Yes | Tag verified on import; failure means tampering |
+
+The tag is HMAC-SHA256 over the canonical JSON of the backup document (with the
+`integrity_tag` field set to `null`), encoded as lowercase hex. The key is the
+well-known constant `starforge-wallet-backup-v2`; the MAC provides integrity,
+not confidentiality.
+
+## Compatibility
+
+v1 backups written by older CLI versions remain importable. `starforge wallet import`
+accepts them with the warning:
+
+```
+⚠ backup is version 1 (no integrity tag); re-export to get tamper detection
+```
+
+v2 is written by all new exports, including the pre-rotation snapshot created
+by `starforge wallet rotate --backup <file>`. If you have critical backups made
+by a v1 CLI, re-export them now to gain tamper detection.
 
 ---
 

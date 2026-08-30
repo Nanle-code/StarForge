@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "steps": [
+    {
+      "contract_id": "CABC",
+      "function": "ping",
+      "args": [],
+      "assertions": [
+        {"type": "return_equals", "value": "pong"}
+      ]
+    }
+  ]
+}

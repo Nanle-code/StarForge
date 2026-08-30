@@ -1,0 +1,15 @@
+# MSRV-aware dependency resolution.
+#
+# The crate declares `rust-version = "1.80"` and CI enforces it via the
+# `MSRV (Rust 1.80)` job (`cargo check --locked --workspace` on 1.80.0).
+# Without this setting, `cargo update` happily resolves to dependency
+# versions that require a newer compiler (e.g. crates that switched to
+# edition 2024, which needs Rust 1.85), which breaks that job even though
+# nothing in our own source changed.
+#
+# `fallback` tells the resolver to prefer the newest dependency version
+# whose own `rust-version` is compatible with ours, and only consider
+# incompatible ones when there is no other choice.
+# Stabilized in Cargo 1.84.
+[resolver]
+incompatible-rust-versions = "fallback"

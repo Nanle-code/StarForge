@@ -1,0 +1,12 @@
+version: 1
+env:
+  CONTRACT: C...
+steps:
+  - name: read
+    contract_id: ${CONTRACT}
+    function: get
+    wallet: ci
+    network: testnet
+    args: []
+    assertions:
+      - contains: ok

@@ -308,7 +308,8 @@ pub fn suggest_architectures(description: &str) -> Vec<ArchitectureSuggestion> {
     {
         architectures.push(ArchitectureSuggestion {
             name: "Modular Multi-Contract".into(),
-            description: "Separate contracts for distinct domains with cross-contract calls.".into(),
+            description: "Separate contracts for distinct domains with cross-contract calls."
+                .into(),
             contract_modules: vec![
                 ContractModule {
                     name: "core".into(),
@@ -359,7 +360,10 @@ pub fn breakdown_tasks(description: &str, phases: &[DevelopmentPhase]) -> Vec<Ta
         phases.iter().map(|p| p.name.clone()).collect()
     };
 
-    let scaffold_phase = phase_names.first().cloned().unwrap_or_else(|| "Setup".into());
+    let scaffold_phase = phase_names
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "Setup".into());
 
     tasks.push(TaskItem {
         id: format!("T-{id:03}"),
@@ -379,15 +383,15 @@ pub fn breakdown_tasks(description: &str, phases: &[DevelopmentPhase]) -> Vec<Ta
             id: format!("T-{id:03}"),
             title: format!("Implement: {}", req),
             description: format!("Build and test functionality for: {}", req),
-            phase: phase_names.get(1).cloned().unwrap_or_else(|| "Development".into()),
+            phase: phase_names
+                .get(1)
+                .cloned()
+                .unwrap_or_else(|| "Development".into()),
             priority: TaskPriority::High,
             effort_points: 5,
             assignee_role: "Developer".into(),
             dependencies: vec!["T-001".into()],
-            acceptance_criteria: vec![
-                "Unit tests pass".into(),
-                "Function documented".into(),
-            ],
+            acceptance_criteria: vec!["Unit tests pass".into(), "Function documented".into()],
         });
         id += 1;
     }
@@ -396,7 +400,10 @@ pub fn breakdown_tasks(description: &str, phases: &[DevelopmentPhase]) -> Vec<Ta
         id: format!("T-{id:03}"),
         title: "Write integration tests".into(),
         description: "End-to-end tests on local/testnet environment".into(),
-        phase: phase_names.get(2).cloned().unwrap_or_else(|| "Testing".into()),
+        phase: phase_names
+            .get(2)
+            .cloned()
+            .unwrap_or_else(|| "Testing".into()),
         priority: TaskPriority::High,
         effort_points: 5,
         assignee_role: "QA Engineer".into(),
@@ -410,12 +417,18 @@ pub fn breakdown_tasks(description: &str, phases: &[DevelopmentPhase]) -> Vec<Ta
         id: format!("T-{id:03}"),
         title: "Security audit".into(),
         description: "Run starforge ai audit and resolve findings".into(),
-        phase: phase_names.get(2).cloned().unwrap_or_else(|| "Testing".into()),
+        phase: phase_names
+            .get(2)
+            .cloned()
+            .unwrap_or_else(|| "Testing".into()),
         priority: TaskPriority::Critical,
         effort_points: 3,
         assignee_role: "Security Reviewer".into(),
         dependencies: vec![audit_deps],
-        acceptance_criteria: vec!["No critical findings".into(), "High findings mitigated".into()],
+        acceptance_criteria: vec![
+            "No critical findings".into(),
+            "High findings mitigated".into(),
+        ],
     });
     id += 1;
 
@@ -424,7 +437,10 @@ pub fn breakdown_tasks(description: &str, phases: &[DevelopmentPhase]) -> Vec<Ta
         id: format!("T-{id:03}"),
         title: "Testnet deployment".into(),
         description: "Deploy to Stellar testnet and validate".into(),
-        phase: phase_names.last().cloned().unwrap_or_else(|| "Deployment".into()),
+        phase: phase_names
+            .last()
+            .cloned()
+            .unwrap_or_else(|| "Deployment".into()),
         priority: TaskPriority::High,
         effort_points: 3,
         assignee_role: "DevOps".into(),
@@ -607,7 +623,8 @@ pub fn identify_risks(description: &str) -> Vec<ProjectRisk> {
             category: RiskCategory::Technical,
             severity: RiskSeverity::High,
             likelihood: RiskLikelihood::Possible,
-            mitigation: "Profile with starforge ai profile; optimize storage access patterns".into(),
+            mitigation: "Profile with starforge ai profile; optimize storage access patterns"
+                .into(),
             contingency: "Refactor hot paths and redeploy".into(),
         },
         ProjectRisk {
@@ -691,7 +708,8 @@ pub fn default_deployment_plan() -> DeploymentPlan {
             "Initialize contract state".into(),
             "Verify on-chain deployment".into(),
         ],
-        rollback_procedure: "Keep previous contract ID; redirect clients; migrate state if upgradeable".into(),
+        rollback_procedure:
+            "Keep previous contract ID; redirect clients; migrate state if upgradeable".into(),
         monitoring_setup: vec![
             "Contract event monitoring".into(),
             "Gas usage alerts".into(),

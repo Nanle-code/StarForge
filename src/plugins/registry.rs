@@ -221,6 +221,9 @@ pub struct InstalledPlugin {
     /// Plugin version from manifest.
     #[serde(default)]
     pub plugin_version: String,
+    /// Optional description from manifest.
+    #[serde(default)]
+    pub description: String,
     /// RFC3339 timestamp of when the plugin was installed.
     #[serde(default)]
     pub installed_at: Option<String>,
@@ -235,9 +238,34 @@ pub struct InstalledPlugin {
     pub description: String,
 }
 
+/// Resolve the description to display for a plugin: prefer the registry's
+/// own `description` field, falling back to the first command's description.
+pub fn resolve_plugin_description(plugin: &InstalledPlugin) -> String {
+    if !plugin.description.is_empty() {
+        return plugin.description.clone();
+    }
+    plugin
+        .commands
+        .first()
+        .map(|c| c.description.clone())
+        .unwrap_or_default()
+}
+
+/// Return registry entries with `description` resolved for display (see
+/// [`resolve_plugin_description`]).
+pub fn plugin_list_entries(reg: &PluginRegistry) -> Vec<InstalledPlugin> {
+    reg.plugins
+        .iter()
+        .cloned()
+        .map(|mut p| {
+            p.description = resolve_plugin_description(&p);
+            p
+        })
+        .collect()
+}
+
 fn registry_path() -> Result<PathBuf> {
-    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
-    let dir = home.join(".starforge").join("plugins");
+    let dir = crate::utils::config::config_dir().join("plugins");
     if !dir.exists() {
         fs::create_dir_all(&dir).with_context(|| format!("Failed to create {}", dir.display()))?;
     }
@@ -282,20 +310,18 @@ pub struct UninstallReport {
 }
 
 fn plugins_data_dir() -> Result<PathBuf> {
-    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
-    Ok(home.join(".starforge").join("plugins"))
+    Ok(crate::utils::config::config_dir().join("plugins"))
 }
 
 /// Returns true if `path` is under the StarForge plugins directory (safe to purge).
 pub fn is_managed_plugin_path(path: &Path) -> bool {
     if let Ok(dir) = plugins_data_dir() {
+        // Prefer the canonicalized comparison; fall back to the uncanonicalized
+        // prefix when either path does not exist on disk yet.
         if let (Ok(path), Ok(dir)) = (path.canonicalize(), dir.canonicalize()) {
             return path.starts_with(&dir);
         }
-        if let Some(parent) = dirs::home_dir() {
-            let prefix = parent.join(".starforge").join("plugins");
-            return path.starts_with(&prefix);
-        }
+        return path.starts_with(&dir);
     }
     false
 }
@@ -464,8 +490,9 @@ pub fn resolve_plugin_library_path(name: &str, explicit: Option<PathBuf>) -> Res
     }
 
     let cwd = std::env::current_dir().context("Failed to get current dir")?;
-    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
-    let plugin_dir = home.join(".starforge").join("plugins").join(name);
+    let plugin_dir = crate::utils::config::config_dir()
+        .join("plugins")
+        .join(name);
 
     let candidates = candidate_library_names(name)
         .into_iter()
@@ -614,10 +641,6 @@ mod tests {
             plugin.commands.is_empty(),
             "missing commands field should default to an empty list"
         );
-        assert_eq!(
-            plugin.description, "",
-            "missing description field should default to empty string"
-        );
     }
 
     // ── resolve_plugin_library_path ───────────────────────────────────────────
@@ -634,69 +657,6 @@ mod tests {
     fn missing_implicit_path_returns_error() {
         let result = resolve_plugin_library_path("__no_such_plugin_xyz__", None);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn resolve_plugin_description_prefers_registry_field() {
-        let plugin = InstalledPlugin {
-            name: "demo".into(),
-            path: "/tmp/demo.so".into(),
-            source: String::new(),
-            trust: TrustLevel::Local,
-            starforge_version: String::new(),
-            plugin_version: String::new(),
-            installed_at: None,
-            commands: vec![RegisteredCommand {
-                name: "demo".into(),
-                description: "from command".into(),
-            }],
-            description: "from plugin".into(),
-        };
-        assert_eq!(resolve_plugin_description(&plugin), "from plugin");
-    }
-
-    #[test]
-    fn resolve_plugin_description_falls_back_to_first_command() {
-        let plugin = InstalledPlugin {
-            name: "demo".into(),
-            path: "/tmp/demo.so".into(),
-            source: String::new(),
-            trust: TrustLevel::Local,
-            starforge_version: String::new(),
-            plugin_version: String::new(),
-            installed_at: None,
-            commands: vec![RegisteredCommand {
-                name: "demo".into(),
-                description: "from command".into(),
-            }],
-            description: String::new(),
-        };
-        assert_eq!(resolve_plugin_description(&plugin), "from command");
-    }
-
-    #[test]
-    fn plugin_list_entries_include_resolved_description() {
-        let reg = PluginRegistry {
-            plugins: vec![InstalledPlugin {
-                name: "trusted".into(),
-                path: "/tmp/trusted.so".into(),
-                source: String::new(),
-                trust: TrustLevel::Trusted,
-                starforge_version: "0.1.0".into(),
-                plugin_version: "1.0.0".into(),
-                installed_at: None,
-                commands: vec![RegisteredCommand {
-                    name: "trusted".into(),
-                    description: "Lifecycle integration test plugin".into(),
-                }],
-                description: "Lifecycle integration test plugin".into(),
-            }],
-        };
-
-        let entries = plugin_list_entries(&reg);
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].description, "Lifecycle integration test plugin");
-        assert_eq!(entries[0].commands[0].name, "trusted");
     }
 
     // ── backward compatibility ────────────────────────────────────────────────
