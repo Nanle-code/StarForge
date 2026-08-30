@@ -201,6 +201,37 @@ Templates can be marked as `verified: true` by maintainers. Verified templates:
 
 Verified templates appear first in search results with a ✓ badge.
 
+## Determinism Guarantees
+
+Scaffolding output is **deterministic**: identical inputs always produce
+identical files, regardless of platform or filesystem.
+
+- **Sorted file processing** — directory entries are sorted alphabetically
+  before copying, so files are always created in the same order.
+- **Stable placeholder replacement** — `{{PROJECT_NAME}}`,
+  `{{PROJECT_NAME_SNAKE}}`, and `{{PROJECT_NAME_PASCAL}}` are pure string
+  substitutions with no randomness or timestamps.
+- **No timestamps in output** — scaffolded files do not embed generation
+  timestamps. The only time-dependent field is `created_at` / `updated_at`
+  in the template registry metadata (not in the generated project).
+- **Deterministic documentation rendering** — the doc template engine uses
+  `BTreeMap` for sections, ensuring consistent placeholder expansion order.
+
+This means you can verify reproducibility by scaffolding the same template
+twice and diffing the results — the output will be byte-identical.
+
+### Compatibility notes
+
+- The determinism fix sorts `fs::read_dir` entries alphabetically. On
+  case-insensitive filesystems (macOS default, Windows), `A` and `a` may
+  sort differently than on case-sensitive Linux. If you need byte-identical
+  output across platforms, ensure the template source filenames are
+  lowercased.
+- The `BTreeMap` change to `TemplateContext::sections` is a minor API
+  change: callers that previously used `HashMap` must now use `BTreeMap`.
+  The `Default` implementation is unchanged, so `..Default::default()`
+  continues to work.
+
 ## Example Workflow
 
 ### For Template Users
@@ -340,6 +371,7 @@ When using templates from the marketplace:
 3. **Use Verified** - Prefer verified templates when available
 4. **Test Thoroughly** - Test templates in a safe environment first
 5. **Update Dependencies** - Keep template dependencies up to date
+6. **Checksum Verification** - Downloaded template archives are checked against expected SHA-256 checksums when provided by the registry before any files reach disk. Downloads from registries that do not send a checksum are accepted without verification for backward compatibility.
 
 ## Contributing
 

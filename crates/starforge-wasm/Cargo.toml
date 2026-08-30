@@ -2,6 +2,7 @@
 name = "starforge-wasm"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.80"
 description = "WebAssembly API surface for StarForge — browser-based Stellar wallet management"
 license = "MIT"
 repository = "https://github.com/Josetic224/StarForge"
