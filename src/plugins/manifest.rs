@@ -35,14 +35,13 @@ impl SupportedVersionPolicy {
 
     /// Evaluates compatibility of a plugin manifest against this supported-version policy.
     pub fn evaluate(&self, manifest: &PluginManifest) -> Result<()> {
-        let (plugin_major, _, _) =
-            parse_version_parts(&manifest.starforge_version).ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Invalid 'starforge_version' format in manifest for '{}': '{}'",
-                    manifest.name,
-                    manifest.starforge_version
-                )
-            })?;
+        let (plugin_major, _, _) = parse_version_parts(&manifest.starforge_version).ok_or_else(|| {
+            anyhow::anyhow!(
+                "Invalid 'starforge_version' format in manifest for '{}': '{}'",
+                manifest.name,
+                manifest.starforge_version
+            )
+        })?;
 
         if plugin_major != self.supported_major {
             anyhow::bail!(
