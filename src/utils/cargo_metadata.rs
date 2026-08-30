@@ -38,14 +38,26 @@ pub enum CargoMetadataError {
 impl fmt::Display for CargoMetadataError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::MissingCargoToml(path) => write!(f, "Cargo.toml not found at path: {}", path.display()),
+            Self::MissingCargoToml(path) => {
+                write!(f, "Cargo.toml not found at path: {}", path.display())
+            }
             Self::IoError(err) => write!(f, "I/O error during Cargo.toml operation: {err}"),
             Self::TomlParseError(err) => write!(f, "Failed to parse Cargo.toml: {err}"),
             Self::InvalidUrl(url) => write!(f, "Invalid HTTP/HTTPS URL format: '{url}'"),
-            Self::IncompleteUrlPattern(url) => write!(f, "Incomplete or placeholder URL detected: '{url}'"),
-            Self::UndeterminedRepositoryUrl(path) => write!(f, "Repository URL could not be determined for: {}", path.display()),
-            Self::LicenseFileNotFound(path) => write!(f, "License file not found at path: {}", path.display()),
-            Self::InvalidPackageName(name) => write!(f, "Invalid crate package name format: '{name}'"),
+            Self::IncompleteUrlPattern(url) => {
+                write!(f, "Incomplete or placeholder URL detected: '{url}'")
+            }
+            Self::UndeterminedRepositoryUrl(path) => write!(
+                f,
+                "Repository URL could not be determined for: {}",
+                path.display()
+            ),
+            Self::LicenseFileNotFound(path) => {
+                write!(f, "License file not found at path: {}", path.display())
+            }
+            Self::InvalidPackageName(name) => {
+                write!(f, "Invalid crate package name format: '{name}'")
+            }
         }
     }
 }
@@ -89,7 +101,7 @@ impl CargoMetadataFixer {
         }
 
         let lower = trimmed.to_lowercase();
-        
+
         // Placeholder domain / path patterns
         let placeholder_patterns = [
             "github.com/todo",
@@ -129,7 +141,9 @@ impl CargoMetadataFixer {
         let trimmed = url.trim();
 
         if Self::is_placeholder_url(trimmed) {
-            return Err(CargoMetadataError::IncompleteUrlPattern(trimmed.to_string()));
+            return Err(CargoMetadataError::IncompleteUrlPattern(
+                trimmed.to_string(),
+            ));
         }
 
         if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") {
@@ -159,7 +173,9 @@ impl CargoMetadataFixer {
         Self::validate_url_format(default_repo_url)?;
 
         if !root_path.exists() {
-            return Err(CargoMetadataError::MissingCargoToml(root_path.to_path_buf()));
+            return Err(CargoMetadataError::MissingCargoToml(
+                root_path.to_path_buf(),
+            ));
         }
 
         let cargo_tomls = find_cargo_toml_files(root_path)?;
@@ -167,7 +183,9 @@ impl CargoMetadataFixer {
             if root_path.file_name().and_then(|n| n.to_str()) == Some("Cargo.toml") {
                 // Single file target
             } else {
-                return Err(CargoMetadataError::MissingCargoToml(root_path.to_path_buf()));
+                return Err(CargoMetadataError::MissingCargoToml(
+                    root_path.to_path_buf(),
+                ));
             }
         }
 
@@ -367,9 +385,13 @@ pub struct CargoMetadataValidator;
 
 impl CargoMetadataValidator {
     /// Parses package metadata from a `Cargo.toml` file.
-    pub fn parse_metadata(cargo_toml_path: &Path) -> Result<CargoPackageMetadata, CargoMetadataError> {
+    pub fn parse_metadata(
+        cargo_toml_path: &Path,
+    ) -> Result<CargoPackageMetadata, CargoMetadataError> {
         if !cargo_toml_path.exists() {
-            return Err(CargoMetadataError::MissingCargoToml(cargo_toml_path.to_path_buf()));
+            return Err(CargoMetadataError::MissingCargoToml(
+                cargo_toml_path.to_path_buf(),
+            ));
         }
 
         let content = fs::read_to_string(cargo_toml_path)
@@ -406,18 +428,20 @@ impl CargoMetadataValidator {
         }
 
         if meta.name.is_empty() {
-            return Err(CargoMetadataError::TomlParseError("Missing package name in [package] section".to_string()));
+            return Err(CargoMetadataError::TomlParseError(
+                "Missing package name in [package] section".to_string(),
+            ));
         }
 
         Ok(meta)
     }
 
     /// Validates package metadata fields and package links for a `Cargo.toml` file.
-    pub fn validate_package_links(cargo_toml_path: &Path) -> Result<ValidationReport, CargoMetadataError> {
+    pub fn validate_package_links(
+        cargo_toml_path: &Path,
+    ) -> Result<ValidationReport, CargoMetadataError> {
         let meta = Self::parse_metadata(cargo_toml_path)?;
-        let repo_root = cargo_toml_path
-            .parent()
-            .unwrap_or_else(|| Path::new("."));
+        let repo_root = cargo_toml_path.parent().unwrap_or_else(|| Path::new("."));
 
         let mut report = ValidationReport {
             path: cargo_toml_path.to_path_buf(),
@@ -435,7 +459,9 @@ impl CargoMetadataValidator {
         // Package name format validation
         if !is_valid_crate_name(&meta.name) {
             report.is_valid = false;
-            report.errors.push(CargoMetadataError::InvalidPackageName(meta.name.clone()));
+            report
+                .errors
+                .push(CargoMetadataError::InvalidPackageName(meta.name.clone()));
         }
 
         // Repository URL check
@@ -450,7 +476,9 @@ impl CargoMetadataValidator {
             None => {
                 report.repository_valid = false;
                 if !report.is_private {
-                    report.warnings.push("Missing 'repository' field in published crate".to_string());
+                    report
+                        .warnings
+                        .push("Missing 'repository' field in published crate".to_string());
                 }
             }
         }
@@ -479,12 +507,16 @@ impl CargoMetadataValidator {
             if !lic_path.exists() {
                 report.license_valid = false;
                 report.is_valid = false;
-                report.errors.push(CargoMetadataError::LicenseFileNotFound(lic_path));
+                report
+                    .errors
+                    .push(CargoMetadataError::LicenseFileNotFound(lic_path));
             }
         } else if meta.license.is_none() {
             report.license_valid = false;
             if !report.is_private {
-                report.warnings.push("No license or license-file specified".to_string());
+                report
+                    .warnings
+                    .push("No license or license-file specified".to_string());
             }
         }
 
@@ -501,7 +533,8 @@ fn is_valid_crate_name(name: &str) -> bool {
     if !first.is_ascii_alphabetic() {
         return false;
     }
-    name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    name.chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 /// Recursively finds all `Cargo.toml` files, excluding target, .git, node_modules, etc.
@@ -523,7 +556,11 @@ fn find_cargo_toml_files(dir: &Path) -> Result<Vec<PathBuf>, CargoMetadataError>
         let path = entry.path();
         let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-        if file_name.starts_with('.') || file_name == "target" || file_name == "node_modules" || file_name == "vendor" {
+        if file_name.starts_with('.')
+            || file_name == "target"
+            || file_name == "node_modules"
+            || file_name == "vendor"
+        {
             continue;
         }
 

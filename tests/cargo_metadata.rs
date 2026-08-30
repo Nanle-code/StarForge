@@ -1,8 +1,8 @@
 use starforge::utils::cargo_metadata::{
     CargoMetadataError, CargoMetadataFixer, CargoMetadataValidator,
 };
-use tempfile::tempdir;
 use std::fs;
+use tempfile::tempdir;
 
 #[test]
 fn test_primary_flow_replace_placeholder_repository_url() {
