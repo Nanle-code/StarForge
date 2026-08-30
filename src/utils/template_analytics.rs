@@ -36,8 +36,7 @@ use std::str::FromStr;
 // ─── Storage paths ──────────────────────────────────────────────────────────
 
 fn analytics_dir() -> Result<PathBuf> {
-    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
-    let dir = home.join(".starforge").join("analytics");
+    let dir = crate::utils::config::config_dir().join("analytics");
     if !dir.exists() {
         fs::create_dir_all(&dir).with_context(|| format!("Failed to create {}", dir.display()))?;
     }
@@ -601,8 +600,15 @@ fn build_issue_detection(entries: &[TemplateEntry], feedback: &[FeedbackEntry]) 
         }
         if let Some(sr) = &e.security_review {
             if let Some(findings) = &sr.findings {
-                if findings.len() > 0 {
-                    reasons.push(format!("{} unresolved security finding(s)", findings));
+                if let Ok(count) = findings.parse::<i32>() {
+                    if count > 0 {
+                        reasons.push(format!("{} unresolved security finding(s)", findings));
+                    }
+                } else if findings != "0"
+                    && !findings.eq_ignore_ascii_case("none")
+                    && !findings.is_empty()
+                {
+                    reasons.push(format!("Unresolved security findings: {}", findings));
                 }
             }
         }
@@ -921,14 +927,14 @@ mod tests {
             documented: false,
             maintenance: MaintenanceStatus::Unknown,
             license: None,
-            repository_url: None,
             repository: None,
+            repository_url: None,
             homepage: None,
             documentation: None,
+            categories: vec![],
+            featured: false,
             security_review: None,
             changelog: None,
-            categories: Vec::new(),
-            featured: false,
         }
     }
 

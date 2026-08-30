@@ -1,0 +1,17 @@
+version: 1
+steps:
+  - name: prepare
+    contract_id: ${STARFORGE_CONTRACT_ID}
+    function: set_value
+    args:
+      - type: string
+        value: ${STARFORGE_VALUE}
+    assertions:
+      - type: return_contains
+        value: ok
+  - name: verify
+    contract_id: ${STARFORGE_CONTRACT_ID}
+    function: get_value
+    assertions:
+      - type: return_equals
+        value: ${STARFORGE_VALUE}

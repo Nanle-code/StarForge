@@ -1159,7 +1159,7 @@ fn handle_history(args: HistoryArgs) -> Result<()> {
         .filter(|r| {
             args.contract_id
                 .as_deref()
-                .is_none_or(|id| r.contract_id == id)
+                .map_or(true, |id| r.contract_id == id)
         })
         .collect();
 

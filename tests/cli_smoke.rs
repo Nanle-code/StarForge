@@ -11,6 +11,13 @@ fn starforge(home: &std::path::Path) -> Command {
     cmd.arg("-q");
     cmd.env("HOME", home);
     cmd.env("USERPROFILE", home);
+    // HOME / USERPROFILE alone do not isolate the CLI on Windows, where
+    // `dirs::home_dir()` resolves through SHGetKnownFolderPath(FOLDERID_Profile)
+    // and ignores both. Without this, every test in this file shares the one
+    // real config directory, and the tests that mutate networks concurrently
+    // clobber each other. Set explicitly rather than inherited so a
+    // STARFORGE_CONFIG_DIR already in the environment cannot deisolate the run.
+    cmd.env("STARFORGE_CONFIG_DIR", home.join(".starforge"));
     cmd
 }
 
@@ -531,7 +538,13 @@ fn multisig_create_and_sign_workflow() {
     let created_path = entries[0].path();
 
     let sign_alice = starforge(home.path())
-        .args(["multisig", "sign", created_path.to_str().unwrap(), "alice"])
+        .args([
+            "multisig",
+            "sign",
+            "--wallet",
+            "alice",
+            created_path.to_str().unwrap(),
+        ])
         .output()
         .expect("spawn multisig sign alice");
     assert_success(&sign_alice, "starforge multisig sign alice");
@@ -546,7 +559,13 @@ fn multisig_create_and_sign_workflow() {
     assert!(status_out.contains("50%"));
 
     let sign_bob = starforge(home.path())
-        .args(["multisig", "sign", created_path.to_str().unwrap(), "bob"])
+        .args([
+            "multisig",
+            "sign",
+            "--wallet",
+            "bob",
+            created_path.to_str().unwrap(),
+        ])
         .output()
         .expect("spawn multisig sign bob");
     assert_success(&sign_bob, "starforge multisig sign bob");
@@ -563,8 +582,9 @@ fn multisig_create_and_sign_workflow() {
         .args([
             "multisig",
             "export",
-            created_path.to_str().unwrap(),
+            "--output",
             export_path.to_str().unwrap(),
+            created_path.to_str().unwrap(),
         ])
         .output()
         .expect("spawn multisig export");
@@ -575,8 +595,9 @@ fn multisig_create_and_sign_workflow() {
         .args([
             "multisig",
             "import",
-            export_path.to_str().unwrap(),
+            "--output",
             import_path.to_str().unwrap(),
+            export_path.to_str().unwrap(),
         ])
         .output()
         .expect("spawn multisig import");
@@ -618,8 +639,9 @@ fn multisig_from_template_creates_proposal() {
         .args([
             "multisig",
             "from-template",
-            "escrow",
+            "--output",
             output_path.to_str().unwrap(),
+            "escrow",
         ])
         .output()
         .expect("spawn multisig from-template");

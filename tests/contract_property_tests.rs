@@ -33,7 +33,7 @@ proptest! {
 
     /// Any byte sequence with a valid 4-byte magic header but < 8 bytes is rejected.
     #[test]
-    fn prop_magic_header_short_rejected(data in prop::collection::vec(any::<u8>(), 4..8)) {
+    fn prop_magic_header_short_rejected(data in prop::collection::vec(any::<u8>(), 0..4)) {
         let mut input = b"\0asm".to_vec();
         input.extend(data);
         let result = validate_wasm(&input);
@@ -288,6 +288,7 @@ proptest! {
             serde_json::json!({"data": 1}),
         );
         env.auth.auto_approve(MockAddress::account(1));
+        env.auth.require_auth(&MockAddress::account(1), &MockAddress::contract(1), "test");
 
         prop_assert!(!env.storage.is_empty());
         prop_assert!(!env.events.is_empty());

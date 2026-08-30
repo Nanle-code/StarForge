@@ -16,9 +16,10 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use proptest::prelude::*;
 use starforge::utils::wallet_import::{
-    classify_payload, parse_encrypted_envelope, parse_wallet_backup, PayloadKind,
-    WalletImportError, GCM_TAG_LEN, MAX_BACKUP_BYTES, MAX_WALLETS_PER_BACKUP, MAX_WALLET_NAME_LEN,
-    NONCE_LEN, SALT_LEN,
+    classify_payload, compute_integrity_tag, parse_encrypted_envelope, parse_wallet_backup,
+    verify_integrity_tag, PayloadKind, WalletBackup, WalletImportError, BACKUP_HMAC_KEY,
+    GCM_TAG_LEN, MAX_BACKUP_BYTES, MAX_WALLETS_PER_BACKUP, MAX_WALLET_NAME_LEN, NONCE_LEN,
+    SALT_LEN,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -44,7 +45,16 @@ fn wallet_name() -> impl Strategy<Value = String> {
     "[A-Za-z0-9_-]{1,32}"
 }
 
+/// Build a v2 backup document (current default version).
 fn backup_document(entries: &[String]) -> String {
+    format!(
+        r#"{{"version":"2","exported_at":"2026-07-29T00:00:00Z","wallets":[{}]}}"#,
+        entries.join(",")
+    )
+}
+
+/// Build a v1 backup document (no integrity tag) for migration tests.
+fn backup_document_v1(entries: &[String]) -> String {
     format!(
         r#"{{"version":"1","exported_at":"2026-07-29T00:00:00Z","wallets":[{}]}}"#,
         entries.join(",")
@@ -106,7 +116,15 @@ proptest! {
             prop_assert_eq!(&wallet.public_key, key);
             prop_assert_eq!(&wallet.secret_key, secret);
         }
-        prop_assert!(parsed.warnings.is_empty());
+        // v2 backups without an integrity tag produce a "no integrity tag" warning —
+        // that is expected and tested separately. We only check for unexpected
+        // non-integrity-tag warnings here.
+        let unexpected: Vec<_> = parsed
+            .warnings
+            .iter()
+            .filter(|w| !w.contains("integrity tag"))
+            .collect();
+        prop_assert!(unexpected.is_empty(), "unexpected warnings: {:?}", unexpected);
     }
 
     /// Any structurally valid envelope parses back to the exact field lengths.
@@ -318,4 +336,71 @@ fn failure_too_many_wallets_is_rejected() {
         parse_wallet_backup(&backup_document(&entries)),
         Err(WalletImportError::TooManyWallets { .. })
     ));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Integrity-tag property tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+proptest! {
+    /// Any mutation of the wallet name or public key in a v2 backup must cause
+    /// verify_integrity_tag to return false, demonstrating the tag binds the
+    /// content of the document.
+    #[test]
+    fn tampered_v2_body_always_fails_tag_verification(
+        name in wallet_name(),
+        key in public_key(),
+        tampered_name in wallet_name(),
+    ) {
+        // Only interesting when the tampered name differs from the original.
+        prop_assume!(name != tampered_name);
+
+        // Build a valid v2 backup and compute its tag.
+        let entry = entry_json(&name, &key, None, "testnet");
+        let backup: WalletBackup =
+            serde_json::from_str(&backup_document(&[entry])).unwrap();
+        let tag = compute_integrity_tag(&backup, BACKUP_HMAC_KEY)
+            .expect("compute_integrity_tag must not fail");
+
+        // Build a tampered backup (different wallet name) and verify the
+        // original tag is no longer valid.
+        let tampered_entry = entry_json(&tampered_name, &key, None, "testnet");
+        let tampered: WalletBackup =
+            serde_json::from_str(&backup_document(&[tampered_entry])).unwrap();
+
+        prop_assert!(
+            !verify_integrity_tag(&tampered, &tag, BACKUP_HMAC_KEY),
+            "tag must not verify against a tampered backup"
+        );
+    }
+
+    /// A v1 backup — however its wallet entries vary — must always parse as Ok
+    /// and include at least one warning mentioning "version 1".
+    #[test]
+    fn v1_backup_always_parses_with_version_warning(
+        entries in proptest::collection::vec(
+            (wallet_name(), public_key()),
+            1..4,
+        )
+    ) {
+        // Deduplicate names so the backup is structurally valid.
+        let mut seen = std::collections::HashSet::new();
+        let entries: Vec<_> = entries
+            .into_iter()
+            .filter(|(name, _)| seen.insert(name.clone()))
+            .collect();
+        prop_assume!(!entries.is_empty());
+
+        let entry_strings: Vec<String> = entries
+            .iter()
+            .map(|(name, key)| entry_json(name, key, None, "testnet"))
+            .collect();
+        let doc = backup_document_v1(&entry_strings);
+
+        let parsed = parse_wallet_backup(&doc).expect("v1 backup must parse");
+        prop_assert!(
+            parsed.warnings.iter().any(|w| w.contains("version 1")),
+            "v1 backup must warn about version 1, got: {:?}", parsed.warnings
+        );
+    }
 }

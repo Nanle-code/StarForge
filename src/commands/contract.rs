@@ -1,3 +1,4 @@
+use crate::commands::invoke_script;
 use crate::utils::hardware_wallet::HardwareWalletKind;
 use crate::utils::{bindings, call_graph, config, print as p, soroban, wallet_signer};
 use anyhow::Result;
@@ -9,6 +10,8 @@ use std::path::PathBuf;
 pub enum ContractCommands {
     /// Invoke a deployed Soroban contract function
     Invoke(InvokeArgs),
+    /// Run an ordered YAML or JSON invocation script
+    InvokeScript(invoke_script::InvokeScriptArgs),
     /// Inspect a deployed Soroban contract instance
     Inspect(InspectArgs),
     /// Upload a WASM binary to the Stellar network (upload-only step)
@@ -270,6 +273,7 @@ pub struct GenerateBindingsArgs {
 pub async fn handle(cmd: ContractCommands) -> Result<()> {
     match cmd {
         ContractCommands::Invoke(args) => handle_invoke(args).await,
+        ContractCommands::InvokeScript(args) => invoke_script::handle(args).await,
         ContractCommands::Inspect(args) => handle_inspect(args).await,
         ContractCommands::Upload(args) => handle_upload(args),
         ContractCommands::GenerateBindings(args) => handle_generate_bindings(args),

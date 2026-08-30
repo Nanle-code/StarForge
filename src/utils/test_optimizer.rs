@@ -172,14 +172,18 @@ pub struct FailurePatternReport {
 // ── Test Optimizer ──────────────────────────────────────────────────────────
 
 pub struct TestOptimizer {
-    config_dir: PathBuf,
+    pub config_dir: PathBuf,
     pub history: HashMap<String, TestHistory>,
-    cache: HashMap<String, TestCacheEntry>,
+    pub cache: HashMap<String, TestCacheEntry>,
 }
 
 impl TestOptimizer {
     pub fn new() -> Result<Self> {
         let config_dir = crate::utils::config::config_dir().join("test_optimizer");
+        Self::with_config_dir(config_dir)
+    }
+
+    pub fn with_config_dir(config_dir: PathBuf) -> Result<Self> {
         if !config_dir.exists() {
             fs::create_dir_all(&config_dir)
                 .with_context(|| format!("Failed to create {}", config_dir.display()))?;
@@ -311,6 +315,8 @@ impl TestOptimizer {
             TestCategory::Performance
         } else if lower.contains("prop") || lower.contains("property") || lower.contains("fuzz") {
             TestCategory::Property
+        } else if lower.contains("general") {
+            TestCategory::General
         } else if lower.contains("unit") || lower.contains("test_") {
             TestCategory::Unit
         } else {
@@ -324,17 +330,14 @@ impl TestOptimizer {
     ) -> Vec<Vec<OptimizedTestCase>> {
         let mut batches: Vec<Vec<OptimizedTestCase>> = Vec::new();
 
-        let (io_bound, _other): (Vec<OptimizedTestCase>, Vec<OptimizedTestCase>) = tests
+        let (io_bound, other): (Vec<OptimizedTestCase>, Vec<OptimizedTestCase>) = tests
             .iter()
             .cloned()
             .partition(|t| t.resource_profile.io_intensity > 0.6);
-        let cpu_bound: Vec<OptimizedTestCase> = vec![];
-        let memory_bound: Vec<OptimizedTestCase> = vec![];
-        let general: Vec<OptimizedTestCase> = vec![];
-        let (cpu_only, general): (Vec<_>, Vec<_>) = general
+        let (cpu_only, other): (Vec<_>, Vec<_>) = other
             .into_iter()
             .partition(|t| t.resource_profile.cpu_intensity > 0.6);
-        let (mem_only, general): (Vec<_>, Vec<_>) = general
+        let (mem_only, general): (Vec<_>, Vec<_>) = other
             .into_iter()
             .partition(|t| t.resource_profile.memory_mb > 256);
 
@@ -1162,11 +1165,8 @@ mod tests {
     use super::*;
 
     fn create_test_optimizer() -> TestOptimizer {
-        TestOptimizer {
-            config_dir: PathBuf::from("/tmp/test_optimizer"),
-            history: HashMap::new(),
-            cache: HashMap::new(),
-        }
+        let dir = tempfile::tempdir().expect("tempdir");
+        TestOptimizer::with_config_dir(dir.keep()).unwrap()
     }
 
     #[test]

@@ -2,12 +2,12 @@ name: Registry API CI/CD
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, master, develop]
     paths:
       - "registry-api/**"
       - ".github/workflows/registry-api.yml"
   pull_request:
-    branches: [main, develop]
+    branches: [main, master, develop]
     paths:
       - "registry-api/**"
 
@@ -19,7 +19,7 @@ jobs:
       mongodb:
         image: mongo:6.0
         options: >-
-          --health-cmd "mongosh --eval 'db.adminCommand(\"ping\")'&quot;
+          --health-cmd "mongosh --eval 'db.adminCommand(\"ping\")'"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5

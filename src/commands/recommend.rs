@@ -1,7 +1,7 @@
 //! `starforge template recommend` — AI-powered template recommendation engine.
 //!
 //! Usage examples:
-//! ```
+//! ```bash
 //! # Ask for a DeFi recommendation
 //! starforge template recommend "decentralized exchange"
 //!

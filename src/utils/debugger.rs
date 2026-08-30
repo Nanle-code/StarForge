@@ -181,7 +181,7 @@ impl Debugger {
             let contract_matches = self.session.breakpoints[i]
                 .contract_id
                 .as_ref()
-                .is_none_or(|cid| cid == contract_id);
+                .map_or(true, |cid| cid == contract_id);
             if contract_matches && self.session.breakpoints[i].function == function {
                 if let Some(ref condition) = self.session.breakpoints[i].condition {
                     if !evaluate_condition(condition) {

@@ -719,50 +719,240 @@ impl Default for Config {
     }
 }
 
-const CURRENT_CONFIG_VERSION: &str = "1";
+/// The current (highest supported) config schema version.
+pub const CURRENT_CONFIG_VERSION: &str = "1";
 
-pub fn migrate_config(mut config: Config) -> Result<Config> {
-    let config_version = config.version.as_str();
+// ── Schema migration types ────────────────────────────────────────────────────
 
-    if config_version == CURRENT_CONFIG_VERSION {
-        return Ok(config);
-    }
-
-    // Create backup before migration
-    backup_config(&config)?;
-
-    // Apply migrations in sequence
-    match config_version {
-        "" | "0" => {
-            // Migration from v0 to v1: Add version field
-            config.version = "1".to_string();
-        }
-        _ => {
-            anyhow::bail!(
-                "Unknown config version '{}'. Current version is '{}'.",
-                config_version,
-                CURRENT_CONFIG_VERSION
-            );
-        }
-    }
-
-    Ok(config)
+/// A structured error produced during config schema migration.
+///
+/// Separate from the generic `anyhow::Error` so callers can branch on the
+/// reason and present user-friendly guidance.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConfigMigrationError {
+    /// The config declares a version that is newer than this binary supports.
+    FromFuture { found: String, latest: &'static str },
+    /// The config declares a version not in the migration registry.
+    UnknownVersion { found: String },
+    /// A migration step failed.
+    StepFailed {
+        from: String,
+        to: String,
+        reason: String,
+    },
+    /// Creating the pre-migration backup failed.
+    BackupFailed { version: String, reason: String },
 }
 
-fn backup_config(config: &Config) -> Result<()> {
-    let backup_path = config_dir().join(format!(
+impl std::fmt::Display for ConfigMigrationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::FromFuture { found, latest } => write!(
+                f,
+                "Config schema version '{found}' is newer than this binary supports (max \
+                 '{latest}'). Please upgrade starforge: \
+                 https://github.com/Nanle-code/StarForge/releases"
+            ),
+            Self::UnknownVersion { found } => write!(
+                f,
+                "Unrecognised config schema version '{found}'. Check that the config file has \
+                 not been manually edited."
+            ),
+            Self::StepFailed { from, to, reason } => {
+                write!(f, "Migration from config v{from} to v{to} failed: {reason}")
+            }
+            Self::BackupFailed { version, reason } => write!(
+                f,
+                "Failed to create backup of config v{version} before migration: {reason}. \
+                 Migration aborted — your original config is unchanged."
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ConfigMigrationError {}
+
+/// Summary returned by `run_config_migrations`, useful for tests and logging.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MigrationReport {
+    /// Version of the config before any migration was applied.
+    pub from_version: String,
+    /// Version of the config after all applicable steps ran.
+    pub to_version: String,
+    /// Ordered list of `(from, to)` step pairs that were applied.
+    pub steps_applied: Vec<(String, String)>,
+    /// Path to the pre-migration backup file, if one was written.
+    pub backup_path: Option<std::path::PathBuf>,
+}
+
+impl MigrationReport {
+    /// True when no migration steps were needed.
+    pub fn is_no_op(&self) -> bool {
+        self.steps_applied.is_empty()
+    }
+}
+
+// ── Internal migration step registry ─────────────────────────────────────────
+//
+// To add a new schema version:
+//   1. Bump `CURRENT_CONFIG_VERSION`.
+//   2. Add a `fn migrate_vN_to_vM(config: &mut Config)` function below.
+//   3. Push a `ConfigMigrationStep` into `MIGRATION_STEPS` in ascending order.
+
+struct ConfigMigrationStep {
+    from_version: &'static str,
+    to_version: &'static str,
+    apply: fn(&mut Config),
+}
+
+/// v0 → v1: populate the `version` field absent in early releases.
+///
+/// Pre-v1 configs were written without a `version` key; `serde(default)` fills
+/// it with `""` on deserialization.
+fn migrate_v0_to_v1(config: &mut Config) {
+    config.version = "1".to_string();
+}
+
+const MIGRATION_STEPS: &[ConfigMigrationStep] = &[
+    ConfigMigrationStep {
+        from_version: "0",
+        to_version: "1",
+        apply: migrate_v0_to_v1,
+    },
+    // Future steps go here:
+    // ConfigMigrationStep { from_version: "1", to_version: "2", apply: migrate_v1_to_v2 },
+];
+
+// ── Public migration entry point ──────────────────────────────────────────────
+
+/// Migrate `config` from its declared version to [`CURRENT_CONFIG_VERSION`].
+///
+/// - Already-current configs are returned immediately (no backup, no I/O).
+/// - A timestamped backup is written *before* the first step runs.
+/// - Steps execute in ascending version order so multi-version gaps are handled.
+///
+/// # Errors
+///
+/// Returns a [`ConfigMigrationError`] (wrapped in `anyhow::Error`) when:
+/// - The declared version is newer than `CURRENT_CONFIG_VERSION`.
+/// - The declared version is not in the step registry.
+/// - The backup write fails.
+pub fn run_config_migrations(mut config: Config) -> Result<(Config, MigrationReport)> {
+    let raw_version = if config.version.is_empty() {
+        "0".to_string()
+    } else {
+        config.version.clone()
+    };
+
+    let report_from = raw_version.clone();
+
+    if raw_version == CURRENT_CONFIG_VERSION {
+        let report = MigrationReport {
+            from_version: report_from.clone(),
+            to_version: report_from,
+            steps_applied: vec![],
+            backup_path: None,
+        };
+        return Ok((config, report));
+    }
+
+    if is_version_newer(&raw_version, CURRENT_CONFIG_VERSION) {
+        return Err(ConfigMigrationError::FromFuture {
+            found: raw_version,
+            latest: CURRENT_CONFIG_VERSION,
+        }
+        .into());
+    }
+
+    let first_step_idx = MIGRATION_STEPS
+        .iter()
+        .position(|s| s.from_version == raw_version.as_str())
+        .ok_or_else(|| ConfigMigrationError::UnknownVersion {
+            found: raw_version.clone(),
+        })?;
+
+    let backup_path =
+        write_config_backup(&config).map_err(|e| ConfigMigrationError::BackupFailed {
+            version: raw_version.clone(),
+            reason: e.to_string(),
+        })?;
+
+    let mut steps_applied: Vec<(String, String)> = Vec::new();
+    let mut current_version = raw_version.clone();
+
+    for step in &MIGRATION_STEPS[first_step_idx..] {
+        if current_version != step.from_version {
+            break;
+        }
+        (step.apply)(&mut config);
+        steps_applied.push((step.from_version.to_string(), step.to_version.to_string()));
+        current_version = step.to_version.to_string();
+        if current_version == CURRENT_CONFIG_VERSION {
+            break;
+        }
+    }
+
+    let report = MigrationReport {
+        from_version: report_from,
+        to_version: current_version,
+        steps_applied,
+        backup_path: Some(backup_path),
+    };
+
+    Ok((config, report))
+}
+
+/// Convenience wrapper that drops the [`MigrationReport`].
+///
+/// This preserves the signature expected by existing `load()` callers.
+pub fn migrate_config(config: Config) -> Result<Config> {
+    let (migrated, _report) = run_config_migrations(config)?;
+    Ok(migrated)
+}
+
+/// Returns `true` when version string `a` is strictly greater than `b`.
+///
+/// Versions are compared component-by-component after splitting on `'.'`.
+/// Non-numeric components are treated as `0`.
+fn is_version_newer(a: &str, b: &str) -> bool {
+    let parse = |s: &str| -> Vec<u64> { s.split('.').map(|c| c.parse().unwrap_or(0)).collect() };
+    let a_parts = parse(a);
+    let b_parts = parse(b);
+    let max_len = a_parts.len().max(b_parts.len());
+    for i in 0..max_len {
+        let av = a_parts.get(i).copied().unwrap_or(0);
+        let bv = b_parts.get(i).copied().unwrap_or(0);
+        if av > bv {
+            return true;
+        }
+        if av < bv {
+            return false;
+        }
+    }
+    false
+}
+
+fn write_config_backup(config: &Config) -> Result<std::path::PathBuf> {
+    let dir = config_dir();
+    if !dir.exists() {
+        fs::create_dir_all(&dir)
+            .with_context(|| format!("Failed to create config directory {:?}", dir))?;
+    }
+    let backup_path = dir.join(format!(
         "config.backup.v{}.{}.toml",
         config.version,
-        chrono::Utc::now().timestamp()
+        chrono::Utc::now().timestamp(),
     ));
-
     let contents =
         toml::to_string_pretty(config).with_context(|| "Failed to serialize config for backup")?;
-
     fs::write(&backup_path, contents)
         .with_context(|| format!("Failed to write backup to {:?}", backup_path))?;
+    Ok(backup_path)
+}
 
-    Ok(())
+// Keep the old name so `rollback_config` still compiles.
+fn backup_config(config: &Config) -> Result<()> {
+    write_config_backup(config).map(|_| ())
 }
 
 #[allow(dead_code)]
@@ -796,7 +986,38 @@ pub fn rollback_config(version: &str) -> Result<()> {
     Ok(())
 }
 
+thread_local! {
+    static TEST_CONFIG_DIR_OVERRIDE: std::cell::RefCell<Option<PathBuf>> = std::cell::RefCell::new(None);
+}
+
+pub fn set_test_config_dir(path: PathBuf) {
+    TEST_CONFIG_DIR_OVERRIDE.with(|p| {
+        *p.borrow_mut() = Some(path);
+    });
+}
+
+/// Environment variable that relocates the StarForge config directory.
+///
+/// `set_test_config_dir` only affects the calling thread, so it cannot isolate
+/// a `starforge` binary spawned as a subprocess. Integration tests that shell
+/// out need an out-of-process handle, and so do users who keep StarForge state
+/// somewhere other than `~/.starforge`.
+///
+/// This matters most on Windows: `dirs::home_dir()` there resolves through
+/// `SHGetKnownFolderPath(FOLDERID_Profile)` and deliberately ignores `HOME`
+/// and `USERPROFILE`, so tests that set those env vars still share one real
+/// config directory (and one SQLite database) across concurrent processes.
+pub const CONFIG_DIR_ENV: &str = "STARFORGE_CONFIG_DIR";
+
 pub fn config_dir() -> PathBuf {
+    if let Some(path) = TEST_CONFIG_DIR_OVERRIDE.with(|p| p.borrow().clone()) {
+        return path;
+    }
+    if let Some(dir) = std::env::var_os(CONFIG_DIR_ENV) {
+        if !dir.is_empty() {
+            return PathBuf::from(dir);
+        }
+    }
     let home = dirs::home_dir().expect("Could not find home directory");
     home.join(".starforge")
 }

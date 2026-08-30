@@ -9,7 +9,7 @@ use std::path::PathBuf;
 // Severity / Status helpers
 // ────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ComplianceSeverity {
     Info,
     Warning,
@@ -1279,8 +1279,12 @@ pub fn perform_risk_assessment(
     let max_possible = 5u32 * 100; // 5 factors, max 100 each
     let overall_score = ((total_score as f64 / max_possible as f64) * 100.0).round() as u8;
 
-    // Determine risk level
-    let overall_level = if overall_score >= 70 {
+    // Determine risk level. A blocking policy violation is a hard stop
+    // regardless of the averaged score, consistent with `approved_for_deployment`
+    // below also refusing deployment whenever one is present.
+    let overall_level = if failed_blocking > 0 {
+        RiskLevel::Critical
+    } else if overall_score >= 70 {
         RiskLevel::Critical
     } else if overall_score >= 50 {
         RiskLevel::High

@@ -35,9 +35,16 @@
 use serde::{Deserialize, Serialize};
 
 use crate::utils::config;
+use crate::utils::shamir;
 
 /// Backup schema version this build writes and accepts.
-pub const WALLET_BACKUP_VERSION: &str = "1";
+pub const WALLET_BACKUP_VERSION: &str = "2";
+
+/// Well-known HMAC key used for the v2 integrity tag.
+/// This key is not secret — it binds the tag to this application and
+/// version, not to a per-user secret. Tamper detection comes from the
+/// HMAC construction, not from key secrecy.
+pub const BACKUP_HMAC_KEY: &[u8] = b"starforge-wallet-backup-v2";
 
 /// Largest backup document accepted, in bytes.
 pub const MAX_BACKUP_BYTES: usize = 4 * 1024 * 1024;
@@ -88,6 +95,12 @@ pub enum WalletImportError {
     DeceptiveWalletName { wallet: String, reason: String },
     /// The encrypted bundle did not have 3, 5, or 6 colon-separated parts.
     MalformedEnvelope { parts: usize },
+    /// Recovery shares are present but invalid.
+    InvalidRecoveryShares(String),
+    /// Not enough shares provided for reconstruction.
+    InsufficientShares { provided: usize, required: usize },
+    /// Reconstructed data failed integrity check (corrupted shares).
+    CorruptedShares,
     /// A base64 field of the bundle did not decode.
     InvalidBase64 { field: &'static str },
     /// A bundle field had the wrong decoded length.
@@ -100,6 +113,8 @@ pub enum WalletImportError {
     TruncatedCiphertext { len: usize, minimum: usize },
     /// A KDF parameter was absent, non-numeric, or zero.
     InvalidKdfParameter { field: &'static str, reason: String },
+    /// The HMAC-SHA256 integrity tag did not match the backup body.
+    IntegrityCheckFailed,
 }
 
 impl std::fmt::Display for WalletImportError {
@@ -160,6 +175,25 @@ impl std::fmt::Display for WalletImportError {
             Self::InvalidKdfParameter { field, reason } => {
                 write!(f, "KDF parameter `{}` is invalid: {}", field, reason)
             }
+            Self::InvalidRecoveryShares(msg) => {
+                write!(f, "invalid recovery shares: {}", msg)
+            }
+            Self::InsufficientShares { provided, required } => {
+                write!(
+                    f,
+                    "need at least {} recovery shares for reconstruction, but only {} were provided",
+                    required, provided
+                )
+            }
+            Self::CorruptedShares => {
+                write!(f, "recovery shares failed integrity check — data may be corrupted or from different split operations")
+            }
+            Self::IntegrityCheckFailed => {
+                write!(
+                    f,
+                    "backup integrity check failed: file may have been modified or corrupted"
+                )
+            }
         }
     }
 }
@@ -178,6 +212,13 @@ pub struct WalletBackup {
     pub version: String,
     pub exported_at: String,
     pub wallets: Vec<WalletBackupEntry>,
+    /// Optional Shamir recovery shares. When present, the backup can be
+    /// reconstructed from `threshold` of `total_shares` share files instead
+    /// of a single passphrase.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub recovery_shares: Option<Vec<shamir::RecoveryShare>>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub integrity_tag: Option<String>,
 }
 
 /// One wallet inside a backup document.
@@ -352,6 +393,55 @@ fn parse_kdf_param(value: &str, field: &'static str) -> Result<u32> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Integrity tag helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Serialise the backup body used as the HMAC input.
+///
+/// The tag is computed over the canonical JSON of the backup with
+/// `integrity_tag` forced to `None`, so the computation is stable
+/// regardless of whether a tag is already present in the struct.
+fn backup_body_for_hmac(backup: &WalletBackup) -> std::result::Result<Vec<u8>, serde_json::Error> {
+    let mut canonical = backup.clone();
+    canonical.integrity_tag = None;
+    serde_json::to_vec(&canonical)
+}
+
+/// Compute an HMAC-SHA256 integrity tag for a backup document.
+///
+/// The tag is the lowercase hex encoding of HMAC-SHA256 keyed with `key`
+/// over the canonical JSON of the backup (with `integrity_tag` set to `None`).
+///
+/// # Errors
+/// Returns an error if the backup cannot be serialised to JSON.
+pub fn compute_integrity_tag(
+    backup: &WalletBackup,
+    key: &[u8],
+) -> std::result::Result<String, serde_json::Error> {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+
+    let body = backup_body_for_hmac(backup)?;
+    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(key).expect("HMAC accepts any key length");
+    mac.update(&body);
+    let digest = mac.finalize().into_bytes();
+    Ok(hex::encode(digest))
+}
+
+/// Verify an integrity tag against a backup document.
+///
+/// Recomputes the expected tag and compares it to `tag`. Returns `false` if
+/// the backup cannot be serialised or if the tags differ. Because both values
+/// are fixed-length lowercase hex strings, the comparison does not exit early
+/// on a mismatch in the common-length case.
+pub fn verify_integrity_tag(backup: &WalletBackup, tag: &str, key: &[u8]) -> bool {
+    match compute_integrity_tag(backup, key) {
+        Ok(expected) => expected == tag,
+        Err(_) => false,
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Backup parsing
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -370,12 +460,36 @@ pub fn parse_wallet_backup(contents: &str) -> Result<ParsedBackup> {
     let backup: WalletBackup = serde_json::from_str(contents)
         .map_err(|e| WalletImportError::MalformedJson(e.to_string()))?;
 
-    if backup.version != WALLET_BACKUP_VERSION {
-        return Err(WalletImportError::UnsupportedVersion {
-            found: backup.version.clone(),
-            expected: WALLET_BACKUP_VERSION.to_string(),
-        });
+    let mut warnings = Vec::new();
+
+    match backup.version.as_str() {
+        "1" => {
+            // v1 backups carry no integrity tag. Accept them with a warning
+            // so users know they should re-export.
+            warnings.push(
+                "backup is version 1 (no integrity tag); \
+                 re-export to get tamper detection"
+                    .to_string(),
+            );
+        }
+        "2" => match &backup.integrity_tag {
+            Some(tag) => {
+                if !verify_integrity_tag(&backup, tag, BACKUP_HMAC_KEY) {
+                    return Err(WalletImportError::IntegrityCheckFailed);
+                }
+            }
+            None => {
+                warnings.push("backup is version 2 but carries no integrity tag".to_string());
+            }
+        },
+        _ => {
+            return Err(WalletImportError::UnsupportedVersion {
+                found: backup.version.clone(),
+                expected: WALLET_BACKUP_VERSION.to_string(),
+            });
+        }
     }
+
     if backup.wallets.is_empty() {
         return Err(WalletImportError::NoWallets);
     }
@@ -386,7 +500,6 @@ pub fn parse_wallet_backup(contents: &str) -> Result<ParsedBackup> {
         });
     }
 
-    let mut warnings = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
     for entry in &backup.wallets {
@@ -480,6 +593,78 @@ pub fn validate_entry(entry: &WalletBackupEntry) -> Result<()> {
     Ok(())
 }
 
+/// Validate a set of recovery shares for reconstruction.
+///
+/// Returns the shares sorted by index, or an error describing what is wrong.
+pub fn validate_recovery_shares(shares: &[shamir::RecoveryShare]) -> Result<()> {
+    if shares.is_empty() {
+        return Err(WalletImportError::InvalidRecoveryShares(
+            "no shares provided".to_string(),
+        ));
+    }
+
+    let threshold = shares[0].threshold as usize;
+    let total = shares[0].total_shares as usize;
+    let secret_hash = &shares[0].secret_hash;
+
+    for (i, share) in shares.iter().enumerate() {
+        if share.threshold as usize != threshold {
+            return Err(WalletImportError::InvalidRecoveryShares(format!(
+                "share {} has threshold {}, expected {}",
+                i, share.threshold, threshold
+            )));
+        }
+        if share.total_shares as usize != total {
+            return Err(WalletImportError::InvalidRecoveryShares(format!(
+                "share {} has total_shares {}, expected {}",
+                i, share.total_shares, total
+            )));
+        }
+        if &share.secret_hash != secret_hash {
+            return Err(WalletImportError::InvalidRecoveryShares(format!(
+                "share {} has a different secret hash — shares may be from different split operations",
+                i
+            )));
+        }
+    }
+
+    // Check for duplicate indices.
+    let mut seen = std::collections::HashSet::new();
+    for share in shares {
+        if !seen.insert(share.index) {
+            return Err(WalletImportError::InvalidRecoveryShares(format!(
+                "duplicate share index {}",
+                share.index
+            )));
+        }
+    }
+
+    if shares.len() < threshold {
+        return Err(WalletImportError::InsufficientShares {
+            provided: shares.len(),
+            required: threshold,
+        });
+    }
+
+    Ok(())
+}
+
+/// Reconstruct an encrypted bundle from recovery shares.
+///
+/// This is a convenience wrapper around [`shamir::reconstruct`] that
+/// returns wallet-import-specific errors.
+pub fn reconstruct_from_shares(shares: &[shamir::RecoveryShare]) -> Result<String> {
+    validate_recovery_shares(shares)?;
+    let secret = shamir::reconstruct(shares)
+        .map_err(|e| WalletImportError::InvalidRecoveryShares(e.to_string()))?;
+    String::from_utf8(secret).map_err(|e| {
+        WalletImportError::InvalidRecoveryShares(format!(
+            "reconstructed data is not valid UTF-8: {}",
+            e
+        ))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -492,9 +677,19 @@ mod tests {
         format!("S{}", "B".repeat(55))
     }
 
+    /// Build a v1 backup document (no integrity tag). Used by migration tests.
     fn backup_json(wallets: &str) -> String {
         format!(
             r#"{{"version":"1","exported_at":"2026-07-29T00:00:00Z","wallets":[{}]}}"#,
+            wallets
+        )
+    }
+
+    /// Build a v2 backup document without an integrity tag.
+    /// Use this for the no-tag warning path and as a base for tag tests.
+    fn backup_json_v2(wallets: &str) -> String {
+        format!(
+            r#"{{"version":"2","exported_at":"2026-07-29T00:00:00Z","wallets":[{}]}}"#,
             wallets
         )
     }
@@ -522,12 +717,16 @@ mod tests {
 
     #[test]
     fn parses_a_well_formed_backup() {
-        let parsed = parse_wallet_backup(&backup_json(&wallet_json("alice"))).unwrap();
+        // Use a v2 document (the current default version).
+        let doc = backup_json_v2(&wallet_json("alice"));
+        let parsed = parse_wallet_backup(&doc).unwrap();
 
-        assert_eq!(parsed.backup.version, "1");
+        assert_eq!(parsed.backup.version, "2");
         assert_eq!(parsed.backup.wallets.len(), 1);
         assert_eq!(parsed.backup.wallets[0].name, "alice");
-        assert!(parsed.warnings.is_empty());
+        // v2 with no tag produces exactly one warning
+        assert_eq!(parsed.warnings.len(), 1);
+        assert!(parsed.warnings[0].contains("no integrity tag"));
     }
 
     #[test]
@@ -667,12 +866,12 @@ mod tests {
     #[test]
     fn an_unsupported_version_is_rejected() {
         let doc =
-            backup_json(&wallet_json("alice")).replace("\"version\":\"1\"", "\"version\":\"9\"");
+            backup_json_v2(&wallet_json("alice")).replace("\"version\":\"2\"", "\"version\":\"9\"");
         assert_eq!(
             parse_wallet_backup(&doc).unwrap_err(),
             WalletImportError::UnsupportedVersion {
                 found: "9".to_string(),
-                expected: "1".to_string(),
+                expected: "2".to_string(),
             }
         );
     }
@@ -750,8 +949,13 @@ mod tests {
     #[test]
     fn a_non_ascii_name_is_accepted_but_warned_about() {
         // Cyrillic 'а' renders like Latin 'a'.
-        let doc = backup_json(&wallet_json("\u{0430}lice"));
-        let parsed = parse_wallet_backup(&doc).unwrap();
+        let entry_str = wallet_json("\u{0430}lice");
+        let mut backup: WalletBackup = serde_json::from_str(&backup_json_v2(&entry_str)).unwrap();
+        let tag = compute_integrity_tag(&backup, BACKUP_HMAC_KEY)
+            .expect("compute_integrity_tag must succeed");
+        backup.integrity_tag = Some(tag);
+        let json = serde_json::to_string(&backup).unwrap();
+        let parsed = parse_wallet_backup(&json).unwrap();
 
         assert_eq!(parsed.warnings.len(), 1);
         assert!(parsed.warnings[0].contains("non-ASCII"));
@@ -824,5 +1028,82 @@ mod tests {
             let _ = parse_encrypted_envelope(input);
             let _ = classify_payload(input);
         }
+    }
+
+    // ── Versioned backup / integrity tag tests ───────────────────────────────
+
+    #[test]
+    fn v1_backup_is_accepted_with_migration_warning() {
+        let doc = backup_json(&wallet_json("alice"));
+        let parsed = parse_wallet_backup(&doc).expect("v1 backup must parse");
+
+        assert!(
+            parsed.warnings.iter().any(|w| w.contains("version 1")),
+            "expected a 'version 1' warning, got: {:?}",
+            parsed.warnings
+        );
+    }
+
+    #[test]
+    fn v2_backup_with_valid_tag_is_accepted() {
+        // Build a v2 struct, compute the tag, embed it in JSON, then parse.
+        let entry_str = wallet_json("alice");
+        let mut backup: WalletBackup = serde_json::from_str(&backup_json_v2(&entry_str)).unwrap();
+        let tag = compute_integrity_tag(&backup, BACKUP_HMAC_KEY)
+            .expect("compute_integrity_tag must succeed");
+        backup.integrity_tag = Some(tag);
+
+        let json = serde_json::to_string(&backup).unwrap();
+        let parsed = parse_wallet_backup(&json).expect("v2 backup with valid tag must parse");
+
+        assert!(
+            parsed.warnings.is_empty(),
+            "expected no warnings, got: {:?}",
+            parsed.warnings
+        );
+        assert_eq!(parsed.backup.wallets[0].name, "alice");
+    }
+
+    #[test]
+    fn v2_backup_with_wrong_tag_is_rejected() {
+        let entry_str = wallet_json("alice");
+        let mut backup: WalletBackup = serde_json::from_str(&backup_json_v2(&entry_str)).unwrap();
+        // Embed a tag that is the right format but wrong value.
+        backup.integrity_tag =
+            Some("0000000000000000000000000000000000000000000000000000000000000000".to_string());
+
+        let json = serde_json::to_string(&backup).unwrap();
+        assert_eq!(
+            parse_wallet_backup(&json).unwrap_err(),
+            WalletImportError::IntegrityCheckFailed,
+        );
+    }
+
+    #[test]
+    fn v2_backup_with_no_tag_is_accepted_with_warning() {
+        let doc = backup_json_v2(&wallet_json("alice"));
+        let parsed = parse_wallet_backup(&doc).expect("v2 backup without tag must parse");
+
+        assert!(
+            parsed
+                .warnings
+                .iter()
+                .any(|w| w.contains("no integrity tag")),
+            "expected a 'no integrity tag' warning, got: {:?}",
+            parsed.warnings
+        );
+    }
+
+    #[test]
+    fn unsupported_version_is_still_rejected() {
+        let doc = backup_json_v2(&wallet_json("alice"))
+            .replace("\"version\":\"2\"", "\"version\":\"99\"");
+        assert!(
+            matches!(
+                parse_wallet_backup(&doc).unwrap_err(),
+                WalletImportError::UnsupportedVersion { found, .. } if found == "99"
+            ),
+            "version 99 must be rejected with UnsupportedVersion"
+        );
     }
 }

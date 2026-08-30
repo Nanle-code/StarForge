@@ -7,7 +7,8 @@
 # JSON report to stdout (or a file via --report-path).
 #
 # Usage:
-#   cargo bench -- cli_cold_start cli_command_latency 2>&1 \
+#   # Criterion takes a single positional filter, treated as a regex:
+#   cargo bench -- 'cli_cold_start|cli_command_latency' 2>&1 \
 #     | tee target/criterion/latency-raw.txt
 #   bash scripts/check-latency-budgets.sh \
 #     --input target/criterion/latency-raw.txt \

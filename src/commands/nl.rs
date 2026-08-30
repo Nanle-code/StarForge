@@ -215,7 +215,9 @@ static PATTERNS: Lazy<Vec<Pattern>> = Lazy::new(|| {
                 "Shows the currently active network (testnet/mainnet) and its configuration.",
         },
         Pattern {
-            keywords: &["switch", "network"],
+            // "network" itself is rarely said in this phrasing ("switch to
+            // mainnet"), so only require the distinctive verb.
+            keywords: &["switch"],
             intent_factory: |e| Intent::SwitchNetwork {
                 network: e.network.clone().unwrap_or_default(),
             },
@@ -230,7 +232,9 @@ static PATTERNS: Lazy<Vec<Pattern>> = Lazy::new(|| {
             explanation: "Starts a local Soroban devnet via Docker for testing.",
         },
         Pattern {
-            keywords: &["stop", "node"],
+            // Accepts synonyms like "devnet" for the local node, so only
+            // require the distinctive verb.
+            keywords: &["stop"],
             intent_factory: |_| Intent::StopNode,
             confidence: 0.9,
             explanation: "Stops the running local devnet.",
@@ -293,14 +297,15 @@ const STOP_WORDS: &[&str] = &[
     "after", "above", "below", "between", "out", "off", "over", "under", "again", "further",
     "then", "once", "and", "but", "or", "nor", "not", "so", "very", "just", "than", "too", "also",
     "here", "there", "when", "where", "why", "how", "all", "each", "every", "both", "few", "more",
-    "most", "other", "some", "such", "no", "only", "own", "same", "now", "if", "please", "show",
-    "me", "want",
+    "most", "other", "some", "such", "no", "only", "own", "same", "now", "if", "please", "me",
+    "want",
 ];
 
 /// Extracts entities from the natural language input.
 fn extract_entities(input: &str) -> ExtractedEntities {
     let input_lower = input.to_lowercase();
     let words: Vec<&str> = input_lower.split_whitespace().collect();
+    let words_orig: Vec<&str> = input.split_whitespace().collect();
 
     let mut entities = ExtractedEntities::default();
 
@@ -336,11 +341,12 @@ fn extract_entities(input: &str) -> ExtractedEntities {
         }
     }
 
-    // Extract contract ID (starts with C and is 56 chars)
-    for word in &words {
+    // Extract contract ID (starts with C and is 56 chars). Uses the
+    // original-case words since StrKey contract IDs are case-sensitive.
+    for word in &words_orig {
         let cleaned: String = word.chars().filter(|c| c.is_alphanumeric()).collect();
-        if cleaned.starts_with('C') && cleaned.len() == 56 {
-            entities.contract_id = Some(cleaned);
+        if (cleaned.starts_with('c') || cleaned.starts_with('C')) && cleaned.len() == 56 {
+            entities.contract_id = Some(cleaned.to_uppercase());
             break;
         }
     }
@@ -380,14 +386,18 @@ fn extract_entities(input: &str) -> ExtractedEntities {
         }
     }
 
-    // Extract function name (after "call", "run", "execute")
+    // Extract function name (after "call", "run", "execute"). Later triggers
+    // win over earlier ones so e.g. "invoke contract call transfer" resolves
+    // to "transfer" rather than the "contract" that follows "invoke".
     for i in 0..words.len() {
         if matches!(words[i], "call" | "run" | "execute" | "invoke") {
             if i + 1 < words.len() {
                 let func = words[i + 1].trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+                if func == "contract" {
+                    continue;
+                }
                 if !func.is_empty() {
                     entities.function_name = Some(func.to_string());
-                    break;
                 }
             }
         }
@@ -438,7 +448,7 @@ fn recognize_intent(entities: &ExtractedEntities) -> (Intent, f64) {
         let match_ratio = match_count as f64 / pattern.keywords.len() as f64;
         let adjusted_confidence = pattern.confidence * match_ratio;
 
-        if match_ratio > 0.5
+        if match_ratio >= 0.5
             && best_match
                 .as_ref()
                 .map(|(_, c)| adjusted_confidence > *c)
@@ -932,7 +942,7 @@ mod tests {
     #[test]
     fn extract_contract_id() {
         let e = extract_entities(
-            "invoke contract CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2SDH",
+            "invoke contract CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2SDH",
         );
         assert!(e.contract_id.is_some());
     }

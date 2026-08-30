@@ -1,0 +1,48 @@
+name: Installer Tests
+
+on:
+  push:
+    paths:
+      - "install.sh"
+      - "tests/installer/**"
+      - ".github/workflows/installer-tests.yml"
+  pull_request:
+    paths:
+      - "install.sh"
+      - "tests/installer/**"
+      - ".github/workflows/installer-tests.yml"
+  workflow_call:
+
+jobs:
+  installer-linux:
+    name: Installer Tests (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run installer test suite
+        run: bash tests/installer/test_install.sh
+
+  installer-macos:
+    name: Installer Tests (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run installer test suite
+        run: bash tests/installer/test_install.sh
+
+  installer-shellcheck:
+    name: ShellCheck (install.sh)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Lint install.sh
+        run: shellcheck -S warning install.sh
+
+      - name: Lint installer tests
+        run: shellcheck -S warning tests/installer/test_install.sh

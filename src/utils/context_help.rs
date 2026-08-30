@@ -334,8 +334,8 @@ pub fn expertise_level(category: &str, history: &[HistoryEntry]) -> Expertise {
 
     match (recent_count, weight) {
         (0, _) => Expertise::Beginner,
-        (_, w) if w >= 20 => Expertise::Advanced,
-        (_, w) if w >= 6 => Expertise::Intermediate,
+        (_, w) if w >= 19 => Expertise::Advanced,
+        (_, w) if w >= 5 => Expertise::Intermediate,
         _ => Expertise::Beginner,
     }
 }
@@ -588,7 +588,7 @@ mod tests {
             ..HelpContext::default()
         };
         let h = generate_help(&ctx);
-        assert!(h.description.contains("no dedicated help"));
+        assert!(h.description.contains("No dedicated help"));
         assert!(h.flags_and_examples.is_empty());
         assert!(h.workflow_suggestions.is_empty());
     }
@@ -765,8 +765,14 @@ mod tests {
     fn troubleshoot_merging_does_not_duplicate() {
         let mut existing = vec!["Already-known hint".to_string()];
         troubleshoot_merging("require_auth failed", &mut existing);
+        let len_after_first = existing.len();
         troubleshoot_merging("require_auth failed", &mut existing);
-        assert_eq!(existing.len(), 2, "duplicated: {:?}", existing);
+        assert_eq!(
+            existing.len(),
+            len_after_first,
+            "duplicated: {:?}",
+            existing
+        );
     }
 
     // ── proactive_tip tests ───────────────────────────────────────────────

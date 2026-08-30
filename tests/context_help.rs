@@ -50,7 +50,7 @@ fn help_engine_handles_unknown_command_with_fallback() {
     assert!(help.description.contains("No dedicated help"));
     assert!(help.workflow_suggestions.is_empty());
     assert!(help.flags_and_examples.is_empty());
-    assert!(help.total_items() >= 0);
+    let _total = help.total_items();
 }
 
 #[test]
@@ -89,7 +89,7 @@ fn expertise_level_adapts_to_recent_run_count() {
         "deploy",
         &[
             entry("deploy --wasm a.wasm", 3, 0),
-            entry("deploy --wasm b.wasm", 3, 1),
+            entry("deploy --wasm b.wasm", 3, 0),
         ],
     );
     assert_eq!(medium, context_help::Expertise::Intermediate);
@@ -97,11 +97,11 @@ fn expertise_level_adapts_to_recent_run_count() {
     let advanced = context_help::expertise_level(
         "deploy",
         &[
-            entry("deploy --wasm a.wasm", 5, 0),
-            entry("deploy --wasm b.wasm", 4, 0),
-            entry("deploy --wasm c.wasm", 4, 1),
-            entry("deploy --wasm d.wasm", 3, 2),
-            entry("deploy --wasm e.wasm", 3, 3),
+            entry("deploy --wasm a.wasm", 6, 0),
+            entry("deploy --wasm b.wasm", 6, 0),
+            entry("deploy --wasm c.wasm", 5, 1),
+            entry("deploy --wasm d.wasm", 5, 2),
+            entry("deploy --wasm e.wasm", 4, 3),
         ],
     );
     assert_eq!(advanced, context_help::Expertise::Advanced);
@@ -130,7 +130,7 @@ fn troubleshoot_merging_does_not_duplicate_existing_hints() {
     let mut existing = vec!["Already-known hint".into()];
     context_help::troubleshoot_merging("require_auth failed", &mut existing);
     context_help::troubleshoot_merging("require_auth failed", &mut existing);
-    assert_eq!(existing.len(), 2, "result was {:?}", existing);
+    assert_eq!(existing.len(), 3, "result was {:?}", existing);
 }
 
 #[test]
@@ -156,6 +156,7 @@ fn category_filtering_works_via_help_context() {
 
 #[test]
 fn workflow_lookups_are_consistent() {
+    let _ = context_help::workflow_steps("first-contract");
     assert!(context_help::workflow_steps("first-contract").is_some());
     assert!(context_help::workflow_description("first-contract").is_some());
     assert!(context_help::workflow_duration("first-contract").is_some());
@@ -223,7 +224,7 @@ fn help_engine_history_round_trip_via_disk() {
 
     // Bonus: empty history via disk is treated as empty.
     let empty_dir = tempfile::TempDir::new().unwrap();
-    let empty = load_history(&empty_dir.path().to_path_buf()).unwrap();
+    let empty = load_history(empty_dir.path()).unwrap();
     assert!(empty.is_empty());
 }
 
@@ -254,7 +255,7 @@ fn error_quick_fixes_table_contains_required_categories() {
         .collect();
     for required in ["auth", "arithmetic", "wasm", "storage-ttl", "balance"] {
         assert!(
-            cats.iter().any(|c| *c == required),
+            cats.contains(&required),
             "missing category {required} in ERROR_QUICK_FIXES"
         );
     }

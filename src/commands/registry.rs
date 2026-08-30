@@ -1,8 +1,92 @@
-use crate::utils::{print as p, registry, templates};
+use crate::utils::{interactive, print as p, registry, templates};
 use anyhow::Result;
 use base64::Engine as _;
 use clap::Subcommand;
 use std::path::PathBuf;
+
+/// Env var checked before prompting for a registry email, so CI can log in
+/// or sign up headlessly. `--email` takes precedence when both are set.
+const ENV_REGISTRY_EMAIL: &str = "STARFORGE_REGISTRY_EMAIL";
+/// Env var checked before prompting for a registry username during signup.
+const ENV_REGISTRY_USERNAME: &str = "STARFORGE_REGISTRY_USERNAME";
+/// Env var checked before prompting for a registry password (login/signup).
+const ENV_REGISTRY_PASSWORD: &str = "STARFORGE_REGISTRY_PASSWORD";
+
+/// Resolve a text field from an explicit CLI value, then an env var, then
+/// (only when interactive) a prompt — failing clearly instead of blocking
+/// when none of those are available in a non-interactive environment.
+fn resolve_text_input(
+    explicit: Option<String>,
+    env_var: &str,
+    prompt_label: &str,
+    what: &str,
+    alternative: &str,
+) -> Result<String> {
+    if let Some(value) = explicit {
+        return Ok(value);
+    }
+    if let Ok(value) = std::env::var(env_var) {
+        if !value.trim().is_empty() {
+            return Ok(value);
+        }
+    }
+
+    interactive::ensure_interactive(what, alternative)?;
+
+    dialoguer::Input::new()
+        .with_prompt(prompt_label)
+        .interact()
+        .map_err(|e| anyhow::anyhow!("Failed to read {}: {}", prompt_label.to_lowercase(), e))
+}
+
+/// Resolve an existing password (login) from [`ENV_REGISTRY_PASSWORD`] or a
+/// prompt, failing clearly when neither is available non-interactively.
+fn resolve_login_password() -> Result<String> {
+    if let Ok(pwd) = std::env::var(ENV_REGISTRY_PASSWORD) {
+        return Ok(pwd);
+    }
+
+    interactive::ensure_interactive(
+        "a registry password",
+        &format!("Set {ENV_REGISTRY_PASSWORD} to supply one headlessly."),
+    )?;
+
+    Ok(dialoguer::Password::new()
+        .with_prompt("Password")
+        .interact()?)
+}
+
+/// Resolve a new password (signup) from [`ENV_REGISTRY_PASSWORD`] or a pair
+/// of prompts, enforcing the same length rule either way.
+fn resolve_new_password() -> Result<String> {
+    if let Ok(pwd) = std::env::var(ENV_REGISTRY_PASSWORD) {
+        if pwd.len() < 8 {
+            anyhow::bail!("Password must be at least 8 characters");
+        }
+        return Ok(pwd);
+    }
+
+    interactive::ensure_interactive(
+        "a new registry password",
+        &format!("Set {ENV_REGISTRY_PASSWORD} to supply one headlessly."),
+    )?;
+
+    let password = dialoguer::Password::new()
+        .with_prompt("Password")
+        .interact()?;
+    let password_confirm = dialoguer::Password::new()
+        .with_prompt("Confirm password")
+        .interact()?;
+
+    if password != password_confirm {
+        anyhow::bail!("Passwords do not match");
+    }
+    if password.len() < 8 {
+        anyhow::bail!("Password must be at least 8 characters");
+    }
+
+    Ok(password)
+}
 
 #[derive(Subcommand)]
 pub enum RegistryCommands {
@@ -266,20 +350,19 @@ async fn info(name: String, version: Option<String>) -> Result<()> {
 }
 
 async fn login(email: Option<String>) -> Result<()> {
-    let email = email.unwrap_or_else(|| {
-        dialoguer::Input::new()
-            .with_prompt("Email")
-            .interact()
-            .unwrap_or_default()
-    });
+    let email = resolve_text_input(
+        email,
+        ENV_REGISTRY_EMAIL,
+        "Email",
+        "a registry email",
+        &format!("Pass --email or set {ENV_REGISTRY_EMAIL}."),
+    )?;
 
     if email.is_empty() {
         anyhow::bail!("Email is required");
     }
 
-    let password = dialoguer::Password::new()
-        .with_prompt("Password")
-        .interact()?;
+    let password = resolve_login_password()?;
 
     p::info("Authenticating with remote registry...");
 
@@ -312,35 +395,23 @@ async fn login(email: Option<String>) -> Result<()> {
 }
 
 async fn signup(email: Option<String>, username: Option<String>) -> Result<()> {
-    let email = email.unwrap_or_else(|| {
-        dialoguer::Input::new()
-            .with_prompt("Email")
-            .interact()
-            .unwrap_or_default()
-    });
+    let email = resolve_text_input(
+        email,
+        ENV_REGISTRY_EMAIL,
+        "Email",
+        "a registry email",
+        &format!("Pass --email or set {ENV_REGISTRY_EMAIL}."),
+    )?;
 
-    let username = username.unwrap_or_else(|| {
-        dialoguer::Input::new()
-            .with_prompt("Username")
-            .interact()
-            .unwrap_or_default()
-    });
+    let username = resolve_text_input(
+        username,
+        ENV_REGISTRY_USERNAME,
+        "Username",
+        "a registry username",
+        &format!("Pass --username or set {ENV_REGISTRY_USERNAME}."),
+    )?;
 
-    let password = dialoguer::Password::new()
-        .with_prompt("Password")
-        .interact()?;
-
-    let password_confirm = dialoguer::Password::new()
-        .with_prompt("Confirm password")
-        .interact()?;
-
-    if password != password_confirm {
-        anyhow::bail!("Passwords do not match");
-    }
-
-    if password.len() < 8 {
-        anyhow::bail!("Password must be at least 8 characters");
-    }
+    let password = resolve_new_password()?;
 
     p::info("Creating account...");
 
@@ -484,7 +555,9 @@ async fn install(name: String, version: Option<String>) -> Result<()> {
     let tpl = client.get_template(&name, version.as_deref()).await?;
 
     // Download archive
-    let archive_bytes = client.download_template(&tpl.download_url).await?;
+    let archive_bytes = client
+        .download_template(&tpl.download_url, tpl.expected_sha256.as_deref())
+        .await?;
 
     // Save to temp and extract
     let temp_dir = std::env::temp_dir().join(format!("starforge-dl-{}", uuid::Uuid::new_v4()));
@@ -638,4 +711,115 @@ fn collect_files(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod ci_prompt_tests {
+    use super::*;
+
+    fn clear_env() {
+        std::env::remove_var(ENV_REGISTRY_EMAIL);
+        std::env::remove_var(ENV_REGISTRY_USERNAME);
+        std::env::remove_var(ENV_REGISTRY_PASSWORD);
+        std::env::remove_var(interactive::ENV_NON_INTERACTIVE);
+        std::env::remove_var("CI");
+    }
+
+    #[test]
+    fn resolve_text_input_prefers_explicit_value_over_env_in_ci() {
+        let _guard = interactive::env_test_lock().lock().unwrap();
+        clear_env();
+        std::env::set_var("CI", "1");
+        std::env::set_var(ENV_REGISTRY_EMAIL, "env@example.com");
+
+        let email = resolve_text_input(
+            Some("flag@example.com".to_string()),
+            ENV_REGISTRY_EMAIL,
+            "Email",
+            "a registry email",
+            "Pass --email.",
+        )
+        .unwrap();
+        assert_eq!(email, "flag@example.com");
+
+        clear_env();
+    }
+
+    #[test]
+    fn resolve_text_input_falls_back_to_env_var_in_ci() {
+        let _guard = interactive::env_test_lock().lock().unwrap();
+        clear_env();
+        std::env::set_var("CI", "1");
+        std::env::set_var(ENV_REGISTRY_EMAIL, "env@example.com");
+
+        let email = resolve_text_input(
+            None,
+            ENV_REGISTRY_EMAIL,
+            "Email",
+            "a registry email",
+            "Pass --email.",
+        )
+        .unwrap();
+        assert_eq!(email, "env@example.com");
+
+        clear_env();
+    }
+
+    #[test]
+    fn resolve_text_input_fails_fast_in_ci_without_fallback() {
+        let _guard = interactive::env_test_lock().lock().unwrap();
+        clear_env();
+        std::env::set_var("CI", "1");
+
+        let err = resolve_text_input(
+            None,
+            ENV_REGISTRY_EMAIL,
+            "Email",
+            "a registry email",
+            &format!("Pass --email or set {ENV_REGISTRY_EMAIL}."),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains(ENV_REGISTRY_EMAIL), "got: {}", err);
+
+        clear_env();
+    }
+
+    #[test]
+    fn resolve_login_password_uses_env_fallback_in_ci() {
+        let _guard = interactive::env_test_lock().lock().unwrap();
+        clear_env();
+        std::env::set_var("CI", "1");
+        std::env::set_var(ENV_REGISTRY_PASSWORD, "hunter2-but-longer");
+
+        let pwd = resolve_login_password().unwrap();
+        assert_eq!(pwd, "hunter2-but-longer");
+
+        clear_env();
+    }
+
+    #[test]
+    fn resolve_login_password_fails_fast_in_ci_without_fallback() {
+        let _guard = interactive::env_test_lock().lock().unwrap();
+        clear_env();
+        std::env::set_var("CI", "1");
+
+        let err = resolve_login_password().unwrap_err().to_string();
+        assert!(err.contains(ENV_REGISTRY_PASSWORD), "got: {}", err);
+
+        clear_env();
+    }
+
+    #[test]
+    fn resolve_new_password_env_fallback_still_enforces_min_length() {
+        let _guard = interactive::env_test_lock().lock().unwrap();
+        clear_env();
+        std::env::set_var("CI", "1");
+        std::env::set_var(ENV_REGISTRY_PASSWORD, "short");
+
+        let err = resolve_new_password().unwrap_err().to_string();
+        assert!(err.contains("8 characters"), "got: {}", err);
+
+        clear_env();
+    }
 }

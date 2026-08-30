@@ -1,4 +1,4 @@
-use crate::plugins::interface::{is_core_version_compatible, CORE_VERSION};
+use crate::plugins::interface::CORE_VERSION;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -6,6 +6,93 @@ use std::path::{Path, PathBuf};
 
 /// Filename searched beside the plugin library or in the plugin install directory.
 pub const MANIFEST_FILENAME: &str = "starforge-plugin.toml";
+
+/// Formally defines StarForge's supported-version policy rules for plugins.
+#[derive(Debug, Clone)]
+pub struct SupportedVersionPolicy {
+    /// Running StarForge CLI version.
+    pub running_core_version: String,
+    /// Extracted running major version component.
+    pub supported_major: u64,
+}
+
+impl Default for SupportedVersionPolicy {
+    fn default() -> Self {
+        Self::new(CORE_VERSION)
+    }
+}
+
+impl SupportedVersionPolicy {
+    pub fn new(running_core_version: &str) -> Self {
+        let supported_major = parse_version_parts(running_core_version)
+            .map(|(m, _, _)| m)
+            .unwrap_or(0);
+        Self {
+            running_core_version: running_core_version.to_string(),
+            supported_major,
+        }
+    }
+
+    /// Evaluates compatibility of a plugin manifest against this supported-version policy.
+    pub fn evaluate(&self, manifest: &PluginManifest) -> Result<()> {
+        let (plugin_major, _, _) =
+            parse_version_parts(&manifest.starforge_version).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Invalid 'starforge_version' format in manifest for '{}': '{}'",
+                    manifest.name,
+                    manifest.starforge_version
+                )
+            })?;
+
+        if plugin_major != self.supported_major {
+            anyhow::bail!(
+                "Plugin '{}' targets StarForge major version {}, which is incompatible with running StarForge major version {}.\n\n  \
+                 Supported-Version Policy: Major versions must match exactly to guarantee ABI safety.\n  \
+                 Rebuild the plugin targeting StarForge {} or update your StarForge CLI.",
+                manifest.name,
+                plugin_major,
+                self.supported_major,
+                self.running_core_version,
+            );
+        }
+
+        if let Some(ref min) = manifest.starforge_version_min {
+            if !version_at_least(&self.running_core_version, min) {
+                anyhow::bail!(
+                    "Plugin '{}' policy failure: requires StarForge >= {} (running {})",
+                    manifest.name,
+                    min,
+                    self.running_core_version
+                );
+            }
+        }
+
+        if let Some(ref max) = manifest.starforge_version_max {
+            if !version_at_most(&self.running_core_version, max) {
+                anyhow::bail!(
+                    "Plugin '{}' policy failure: requires StarForge <= {} (running {})",
+                    manifest.name,
+                    max,
+                    self.running_core_version
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Returns policy guidance text summarizing supported CLI version constraints.
+    pub fn policy_summary(&self) -> String {
+        format!(
+            "StarForge Supported-Version Policy:\n  \
+             - Current CLI Version: {}\n  \
+             - Target Major Version: {}\n  \
+             - Major Version Match: Required (ABI stability enforcement)\n  \
+             - Range Constraints: Enforced via `starforge_version_min` / `starforge_version_max`",
+            self.running_core_version, self.supported_major
+        )
+    }
+}
 
 /// Plugin manifest schema — required for distribution; enforces CLI compatibility.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,6 +120,11 @@ pub struct PluginManifest {
 impl PluginManifest {
     /// Validate manifest fields and CLI compatibility with the running StarForge.
     pub fn validate(&self) -> Result<()> {
+        self.validate_for_core(CORE_VERSION)
+    }
+
+    /// Validate manifest fields against a specific target StarForge core version.
+    pub fn validate_for_core(&self, core_version: &str) -> Result<()> {
         if self.name.trim().is_empty() {
             anyhow::bail!("Plugin manifest: 'name' is required");
         }
@@ -45,40 +137,8 @@ impl PluginManifest {
             );
         }
 
-        if !is_core_version_compatible(&self.starforge_version) {
-            anyhow::bail!(
-                "Plugin '{}' is incompatible with this StarForge CLI.\n  \
-                 Plugin targets StarForge {}\n  \
-                 Running StarForge {}\n\n  \
-                 The major version must match. Rebuild the plugin for StarForge {} \
-                 or install a compatible StarForge version.",
-                self.name,
-                self.starforge_version,
-                CORE_VERSION,
-                CORE_VERSION,
-            );
-        }
-
-        if let Some(ref min) = self.starforge_version_min {
-            if !version_at_least(CORE_VERSION, min) {
-                anyhow::bail!(
-                    "Plugin '{}' requires StarForge >= {} (running {})",
-                    self.name,
-                    min,
-                    CORE_VERSION
-                );
-            }
-        }
-        if let Some(ref max) = self.starforge_version_max {
-            if !version_at_most(CORE_VERSION, max) {
-                anyhow::bail!(
-                    "Plugin '{}' requires StarForge <= {} (running {})",
-                    self.name,
-                    max,
-                    CORE_VERSION
-                );
-            }
-        }
+        let policy = SupportedVersionPolicy::new(core_version);
+        policy.evaluate(self)?;
 
         Ok(())
     }
@@ -160,15 +220,19 @@ pub fn format_binary_incompatibility(plugin_core: &str, path: &str) -> String {
     )
 }
 
-fn parse_version_parts(v: &str) -> Option<(u64, u64, u64)> {
-    let mut parts = v.split('.');
-    let major = parts.next()?.parse().ok()?;
-    let minor = parts.next().unwrap_or("0").parse().ok()?;
-    let patch = parts.next().unwrap_or("0").parse().ok()?;
-    Some((major, minor, patch))
+pub fn parse_version_parts(v: &str) -> Option<(u64, u64, u64)> {
+    let clean = v.trim().trim_start_matches('v');
+    let mut parts = clean.split('.');
+    let major_str = parts.next()?;
+    let major_num = major_str.split('-').next()?.parse().ok()?;
+    let minor_str = parts.next().unwrap_or("0");
+    let minor_num = minor_str.split('-').next()?.parse().ok()?;
+    let patch_str = parts.next().unwrap_or("0");
+    let patch_num = patch_str.split('-').next()?.parse().ok()?;
+    Some((major_num, minor_num, patch_num))
 }
 
-fn version_at_least(running: &str, required_min: &str) -> bool {
+pub fn version_at_least(running: &str, required_min: &str) -> bool {
     match (
         parse_version_parts(running),
         parse_version_parts(required_min),
@@ -178,7 +242,7 @@ fn version_at_least(running: &str, required_min: &str) -> bool {
     }
 }
 
-fn version_at_most(running: &str, required_max: &str) -> bool {
+pub fn version_at_most(running: &str, required_max: &str) -> bool {
     match (
         parse_version_parts(running),
         parse_version_parts(required_max),
@@ -202,7 +266,7 @@ mod tests {
             description: String::new(),
             starforge_version_min: None,
             starforge_version_max: None,
-            required_capabilities: Vec::new(),
+            required_capabilities: vec![],
         };
         assert!(manifest.validate().is_ok());
     }
@@ -223,7 +287,7 @@ mod tests {
             description: String::new(),
             starforge_version_min: None,
             starforge_version_max: None,
-            required_capabilities: Vec::new(),
+            required_capabilities: vec![],
         };
         assert!(manifest.validate().is_err());
     }

@@ -211,23 +211,71 @@ pub fn list_states() -> Result<Vec<DeploymentState>> {
 }
 
 /// Simulate deployment execution (dry-run). Marks steps as deployed with mock addresses.
+/// Resumes from the last uncompleted step if previous steps were already deployed.
 pub fn execute_plan(state: &mut DeploymentState, dry_run: bool) -> Result<()> {
+    let _lock = crate::utils::deployment_checkpoint::DeploymentLock::acquire(&format!(
+        "orchestrate_{}",
+        state.id
+    ))?;
+
+    // Idempotency check: if all steps are already Deployed
+    let all_deployed = !state.steps.is_empty()
+        && state
+            .steps
+            .iter()
+            .all(|s| s.status == DeployStepStatus::Deployed);
+    if all_deployed {
+        crate::utils::print::info(&format!(
+            "[checkpoint] All contracts in deployment plan '{}' are already deployed.",
+            state.id
+        ));
+        state.status = if dry_run {
+            "simulated-complete".into()
+        } else {
+            "complete".into()
+        };
+        state.updated_at = Utc::now().to_rfc3339();
+        save_state(state)?;
+        return Ok(());
+    }
+
     state.status = if dry_run {
         "simulated".into()
     } else {
         "executing".into()
     };
     state.updated_at = Utc::now().to_rfc3339();
+    save_state(state)?;
 
-    for step in state.steps.iter_mut() {
-        step.status = DeployStepStatus::Running;
-        if dry_run {
-            step.deployed_address = Some(format!("C_SIMULATED_{}", &step.wasm_hash[..8]));
-            step.status = DeployStepStatus::Deployed;
-        } else {
-            step.deployed_address = Some(format!("C_LIVE_{}", &step.wasm_hash[..8]));
-            step.status = DeployStepStatus::Deployed;
+    for i in 0..state.steps.len() {
+        if state.steps[i].status == DeployStepStatus::Deployed {
+            crate::utils::print::info(&format!(
+                "[checkpoint] Contract '{}' already deployed ({}), skipping.",
+                state.steps[i].contract_id,
+                state.steps[i]
+                    .deployed_address
+                    .as_deref()
+                    .unwrap_or("active")
+            ));
+            continue;
         }
+
+        state.steps[i].status = DeployStepStatus::Running;
+        save_state(state)?;
+
+        let wasm_hash = state.steps[i].wasm_hash.clone();
+        let prefix_len = 8.min(wasm_hash.len());
+        let hash_prefix = &wasm_hash[..prefix_len];
+
+        if dry_run {
+            state.steps[i].deployed_address = Some(format!("C_SIMULATED_{}", hash_prefix));
+            state.steps[i].status = DeployStepStatus::Deployed;
+        } else {
+            state.steps[i].deployed_address = Some(format!("C_LIVE_{}", hash_prefix));
+            state.steps[i].status = DeployStepStatus::Deployed;
+        }
+        state.updated_at = Utc::now().to_rfc3339();
+        save_state(state)?;
     }
 
     state.status = if dry_run {

@@ -1272,7 +1272,7 @@ fn handle_reports(args: ReportsArgs) -> Result<()> {
     let reports = load_reports_store()?;
     let filtered: Vec<_> = reports
         .iter()
-        .filter(|r| args.contract.as_deref().is_none_or(|c| r.contract == c))
+        .filter(|r| args.contract.as_deref().map_or(true, |c| r.contract == c))
         .collect();
 
     if filtered.is_empty() {

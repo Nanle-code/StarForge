@@ -270,7 +270,7 @@ fn extract_module_name(prefix: &str) -> Option<String> {
         .chars()
         .rev()
         .collect();
-    if last_alpha.is_empty() || last_alpha.chars().next().is_none_or(|c| c.is_lowercase()) {
+    if last_alpha.is_empty() || last_alpha.chars().next().map_or(true, |c| c.is_lowercase()) {
         None
     } else {
         Some(last_alpha)

@@ -499,9 +499,9 @@ pub fn list_proposals(
 
     Ok(proposals
         .into_iter()
-        .filter(|p| network.is_none_or(|n| p.network == n))
-        .filter(|p| contract_id.is_none_or(|c| p.contract_id == c))
-        .filter(|p| status.is_none_or(|s| p.status.to_string() == s))
+        .filter(|p| network.map_or(true, |n| p.network == n))
+        .filter(|p| contract_id.map_or(true, |c| p.contract_id == c))
+        .filter(|p| status.map_or(true, |s| p.status.to_string() == s))
         .collect())
 }
 

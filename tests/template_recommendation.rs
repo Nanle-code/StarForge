@@ -44,10 +44,13 @@ fn make_entry(name: &str, tags: &[&str], downloads: u32, verified: bool) -> Temp
         maintenance: MaintenanceStatus::Active,
         license: Some("MIT".to_string()),
         repository: None,
+        repository_url: None,
         homepage: None,
         documentation: None,
+        categories: vec![],
+        featured: false,
         security_review: None,
-        changelog: vec![],
+        changelog: None,
     }
 }
 
@@ -121,7 +124,7 @@ fn skill_level_default_is_intermediate() {
 fn explanation_contains_all_fields() {
     let rec = make_rec(
         "my-token",
-        85.5,
+        85.0,
         vec!["Verified template", "Has documentation"],
         false,
     );
@@ -237,7 +240,7 @@ fn verified_documented_audited_entry_scores_high() {
         status: "audited".to_string(),
         audited_at: Some("2025-06-01T00:00:00Z".to_string()),
         auditor: Some("StarForge Security Team".to_string()),
-        findings: Some(0),
+        findings: Some("0".to_string()),
         score: Some(98.0),
     });
     let q = entry.quality_score();

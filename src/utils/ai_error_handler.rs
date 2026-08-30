@@ -69,11 +69,12 @@ pub struct AiError {
 
 impl AiError {
     pub fn new(category: AiErrorCategory, code: String, message: String, provider: String) -> Self {
-        let user_message = Self::generate_user_message(&category, &message);
+        let sanitized_msg = crate::utils::redaction::redact_secrets(&message);
+        let user_message = Self::generate_user_message(&category, &sanitized_msg);
         AiError {
             category,
             code,
-            message,
+            message: sanitized_msg,
             user_message,
             timestamp: Utc::now(),
             retry_count: 0,

@@ -393,7 +393,7 @@ fn coverage_input_serialization_roundtrip() {
 
 #[test]
 fn empty_contract_analysis() {
-    let analysis = ata::analyze_contract_for_testing("fn helper() {}");
+    let analysis = ata::analyze_contract_for_testing("fn helper() {}").unwrap();
     assert_eq!(analysis.total_functions, 0);
     assert_eq!(analysis.public_functions, 0);
 }

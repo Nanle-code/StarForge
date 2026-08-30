@@ -366,7 +366,12 @@ fn infer_category(lower: &str, has_code: bool, signals: &mut Vec<String>) -> Tas
     } else if lower.contains("document") || lower.contains("readme") || lower.contains("explain") {
         TaskCategory::Documentation
     } else if lower.contains("generate") || lower.contains("implement") || lower.contains("write") {
-        if has_code {
+        if has_code
+            || lower.contains("contract")
+            || lower.contains("code")
+            || lower.contains("function")
+            || lower.contains("program")
+        {
             signals.push("code_generation".into());
             TaskCategory::CodeGeneration
         } else {

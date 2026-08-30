@@ -100,7 +100,7 @@ pub struct LearnedArgs {
 
 #[derive(Args)]
 pub struct ExplainArgs {
-    /// Category to explain: auth | arithmetic | storage | token | panic | wasm | network | ttl | test | type
+    /// Category to explain: auth | arithmetic | storage | token | panic | wasm | network | deployment | rollback | security | analytics | ttl | test | type
     pub category: String,
 }
 
@@ -446,27 +446,33 @@ async fn handle_learned(args: LearnedArgs) -> Result<()> {
 
 // ── explain handler ───────────────────────────────────────────────────────────
 
-async fn handle_explain(args: ExplainArgs) -> Result<()> {
-    // Map category to a synthetic error message that will trigger the right pattern
-    let synthetic_error = match args.category.to_lowercase().as_str() {
-        "auth" | "authorization" => "require_auth failed",
-        "arithmetic" | "overflow" | "underflow" => "attempt to add with overflow",
-        "storage" | "store" => "storage key not found",
-        "token" | "balance" => "insufficient balance for transfer",
-        "panic" => "called `option::unwrap` on a `none` value",
-        "wasm" | "binary" => "invalid wasm binary",
-        "network" | "contract" => "contract not found on network",
-        "ttl" | "archival" => "entry expired ttl elapsed",
-        "test" | "assert" => "assertion failed left right",
-        "type" | "abi" | "xdr" => "xdr type conversion mismatch",
-        "compilation" | "compile" | "compiler" => "error[E0308]: mismatched types, expected `u64`",
-        "configuration" | "config" => "failed to load config.toml: unknown network",
+fn synthetic_error_for_category(category: &str) -> Result<&'static str> {
+    match category.to_lowercase().as_str() {
+        "auth" | "authorization" => Ok("require_auth failed"),
+        "arithmetic" | "overflow" | "underflow" => Ok("attempt to add with overflow"),
+        "storage" | "store" => Ok("storage key not found"),
+        "token" | "balance" => Ok("insufficient balance for transfer"),
+        "panic" => Ok("called `option::unwrap` on a `none` value"),
+        "wasm" | "binary" => Ok("invalid wasm binary"),
+        "network" | "contract" => Ok("contract not found on network"),
+        "deployment" | "deploy" => Ok("deployment transaction failed on-chain"),
+        "rollback" => Ok("rollback target missing or deployment reverted"),
+        "security" => Ok("insufficient funds or unauthorized access"),
+        "analytics" => Ok("deployment trend analysis shows repeated failures"),
+        "ttl" | "archival" => Ok("entry expired ttl elapsed"),
+        "test" | "assert" => Ok("assertion failed left right"),
+        "type" | "abi" | "xdr" => Ok("xdr type conversion mismatch"),
+        "compilation" | "compile" | "compiler" => Ok("error[E0308]: mismatched types, expected `u64`"),
+        "configuration" | "config" => Ok("failed to load config.toml: unknown network"),
         other => anyhow::bail!(
-            "Unknown category '{}'. Valid categories: auth, arithmetic, storage, token, panic, wasm, network, ttl, test, type, compilation, configuration",
+            "Unknown category '{}'. Valid categories: auth, arithmetic, storage, token, panic, wasm, network, deployment, rollback, security, analytics, ttl, test, type, compilation, configuration",
             other
         ),
-    };
+    }
+}
 
+async fn handle_explain(args: ExplainArgs) -> Result<()> {
+    let synthetic_error = synthetic_error_for_category(&args.category)?;
     let report = ai_debugger::analyse(synthetic_error, None, None, None);
 
     p::header("AI Debugger — Category Explanation");
@@ -678,4 +684,21 @@ fn parse_variables(raw: &[String]) -> Result<Vec<(String, String)>> {
             Ok((name, value))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod explain_category_tests {
+    use super::synthetic_error_for_category;
+
+    #[test]
+    fn deployment_category_maps_to_deployment_error() {
+        let err = synthetic_error_for_category("deployment").unwrap();
+        assert!(err.to_lowercase().contains("deployment"));
+    }
+
+    #[test]
+    fn rollback_and_analytics_categories_are_supported() {
+        assert!(synthetic_error_for_category("rollback").is_ok());
+        assert!(synthetic_error_for_category("analytics").is_ok());
+    }
 }

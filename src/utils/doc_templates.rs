@@ -7,7 +7,7 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -33,7 +33,8 @@ pub struct TemplateContext {
     /// ISO-8601 timestamp of generation.
     pub generated_at: String,
     /// Rendered HTML / Markdown for each section (key = section title).
-    pub sections: HashMap<String, String>,
+    /// Uses `BTreeMap` so that iteration order is deterministic (sorted by key).
+    pub sections: BTreeMap<String, String>,
     /// Rendered function docs blocks.
     pub functions_html: String,
     /// Rendered event docs blocks.
@@ -185,7 +186,7 @@ impl TemplateManager {
         let Ok(entries) = fs::read_dir(dir) else {
             return vec![];
         };
-        entries
+        let mut paths: Vec<PathBuf> = entries
             .flatten()
             .map(|e| e.path())
             .filter(|p| {
@@ -194,7 +195,9 @@ impl TemplateManager {
                     Some("html") | Some("md")
                 )
             })
-            .collect()
+            .collect();
+        paths.sort();
+        paths
     }
 }
 
@@ -399,5 +402,61 @@ mod tests {
             .unwrap();
         assert!(out.contains("# TokenContract"));
         assert!(out.contains("`CABC1234`"));
+    }
+
+    /// Verify that rendering with BTreeMap-backed sections is deterministic:
+    /// the same context always produces the same output regardless of insertion
+    /// order.
+    #[test]
+    fn sections_render_in_deterministic_order() {
+        use std::collections::BTreeMap;
+
+        let mut sections_a = BTreeMap::new();
+        sections_a.insert("Zebra".to_string(), "<p>z</p>".to_string());
+        sections_a.insert("Alpha".to_string(), "<p>a</p>".to_string());
+        sections_a.insert("Middle".to_string(), "<p>m</p>".to_string());
+
+        let mut sections_b = BTreeMap::new();
+        sections_b.insert("Alpha".to_string(), "<p>a</p>".to_string());
+        sections_b.insert("Middle".to_string(), "<p>m</p>".to_string());
+        sections_b.insert("Zebra".to_string(), "<p>z</p>".to_string());
+
+        let mut ctx_a = sample_ctx();
+        ctx_a.sections = sections_a;
+        let mut ctx_b = sample_ctx();
+        ctx_b.sections = sections_b;
+
+        let template = "before {{section:Alpha}} mid {{section:Middle}} end {{section:Zebra}}";
+        let out_a = ctx_a.render(template);
+        let out_b = ctx_b.render(template);
+
+        assert_eq!(
+            out_a, out_b,
+            "BTreeMap ensures same output regardless of insertion order"
+        );
+        assert_eq!(out_a, "before <p>a</p> mid <p>m</p> end <p>z</p>");
+    }
+
+    /// Verify that list_custom_templates returns files in sorted order.
+    #[test]
+    fn list_custom_templates_is_sorted() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        fs::write(dir.join("z_template.html"), "<div>z</div>").unwrap();
+        fs::write(dir.join("a_template.md"), "# a").unwrap();
+        fs::write(dir.join("m_template.html"), "<div>m</div>").unwrap();
+        fs::write(dir.join("not_a_template.txt"), "skip").unwrap();
+
+        let mgr = TemplateManager::with_custom_dir(dir.to_path_buf());
+        let paths = mgr.list_custom_templates();
+        let names: Vec<String> = paths
+            .iter()
+            .map(|p| p.file_name().unwrap().to_str().unwrap().to_string())
+            .collect();
+
+        assert_eq!(
+            names,
+            vec!["a_template.md", "m_template.html", "z_template.html"]
+        );
     }
 }

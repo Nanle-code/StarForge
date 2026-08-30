@@ -75,11 +75,18 @@ pub fn generate_bindings(wasm_path: &Path, language: BindingLanguage) -> Result<
         anyhow::bail!("No contract functions found in WASM metadata");
     }
 
+    generate_from_metadata(&metadata, language)
+}
+
+pub fn generate_from_metadata(
+    metadata: &ContractMetadata,
+    language: BindingLanguage,
+) -> Result<String> {
     match language {
-        BindingLanguage::Rust => Ok(generate_rust(&metadata)),
-        BindingLanguage::TypeScript => Ok(generate_typescript(&metadata)),
-        BindingLanguage::Python => Ok(generate_python(&metadata)),
-        BindingLanguage::Go => Ok(generate_go(&metadata)),
+        BindingLanguage::Rust => Ok(generate_rust(metadata)),
+        BindingLanguage::TypeScript => Ok(generate_typescript(metadata)),
+        BindingLanguage::Python => Ok(generate_python(metadata)),
+        BindingLanguage::Go => Ok(generate_go(metadata)),
     }
 }
 
@@ -854,6 +861,160 @@ fn go_type(type_name: &str) -> String {
                 type_name.to_string()
             }
         }
+    }
+}
+
+/// A complex fixture contract covering functions with multiple parameter
+/// types, structs, enums, events, Option, Result, Vec, and Map.
+pub fn complex_metadata() -> ContractMetadata {
+    ContractMetadata {
+        functions: vec![
+            ContractFunction {
+                name: "transfer".to_string(),
+                inputs: vec![
+                    ContractInput {
+                        name: "from".to_string(),
+                        type_name: "Address".to_string(),
+                    },
+                    ContractInput {
+                        name: "to".to_string(),
+                        type_name: "Address".to_string(),
+                    },
+                    ContractInput {
+                        name: "amount".to_string(),
+                        type_name: "u128".to_string(),
+                    },
+                    ContractInput {
+                        name: "memo".to_string(),
+                        type_name: "Option<String>".to_string(),
+                    },
+                ],
+                output: Some("Result<(), Error>".to_string()),
+            },
+            ContractFunction {
+                name: "balance_of".to_string(),
+                inputs: vec![ContractInput {
+                    name: "owner".to_string(),
+                    type_name: "Address".to_string(),
+                }],
+                output: Some("u128".to_string()),
+            },
+            ContractFunction {
+                name: "get_metadata".to_string(),
+                inputs: vec![],
+                output: Some("TokenMetadata".to_string()),
+            },
+            ContractFunction {
+                name: "batch_transfer".to_string(),
+                inputs: vec![
+                    ContractInput {
+                        name: "recipients".to_string(),
+                        type_name: "Vec<Address>".to_string(),
+                    },
+                    ContractInput {
+                        name: "amounts".to_string(),
+                        type_name: "Vec<u128>".to_string(),
+                    },
+                ],
+                output: Some("Vec<Result<(), Error>>".to_string()),
+            },
+            ContractFunction {
+                name: "set_config".to_string(),
+                inputs: vec![
+                    ContractInput {
+                        name: "key".to_string(),
+                        type_name: "Symbol".to_string(),
+                    },
+                    ContractInput {
+                        name: "value".to_string(),
+                        type_name: "Bytes".to_string(),
+                    },
+                ],
+                output: None,
+            },
+        ],
+        structs: vec![
+            ContractStruct {
+                name: "TokenMetadata".to_string(),
+                fields: vec![
+                    ContractField {
+                        name: "name".to_string(),
+                        type_name: "String".to_string(),
+                    },
+                    ContractField {
+                        name: "symbol".to_string(),
+                        type_name: "String".to_string(),
+                    },
+                    ContractField {
+                        name: "decimals".to_string(),
+                        type_name: "u32".to_string(),
+                    },
+                    ContractField {
+                        name: "total_supply".to_string(),
+                        type_name: "u128".to_string(),
+                    },
+                    ContractField {
+                        name: "admin".to_string(),
+                        type_name: "Address".to_string(),
+                    },
+                ],
+            },
+            ContractStruct {
+                name: "Allowance".to_string(),
+                fields: vec![
+                    ContractField {
+                        name: "owner".to_string(),
+                        type_name: "Address".to_string(),
+                    },
+                    ContractField {
+                        name: "spender".to_string(),
+                        type_name: "Address".to_string(),
+                    },
+                    ContractField {
+                        name: "amount".to_string(),
+                        type_name: "u128".to_string(),
+                    },
+                    ContractField {
+                        name: "expires_at".to_string(),
+                        type_name: "Option<u64>".to_string(),
+                    },
+                ],
+            },
+        ],
+        enums: vec![ContractEnum {
+            name: "TokenError".to_string(),
+            variants: vec![
+                ContractVariant {
+                    name: "InsufficientBalance".to_string(),
+                    type_name: None,
+                },
+                ContractVariant {
+                    name: "Unauthorized".to_string(),
+                    type_name: Some("Address".to_string()),
+                },
+                ContractVariant {
+                    name: "InvalidAmount".to_string(),
+                    type_name: Some("u128".to_string()),
+                },
+            ],
+        }],
+        events: vec![ContractEvent {
+            name: "Transfer".to_string(),
+            fields: vec![
+                ContractField {
+                    name: "from".to_string(),
+                    type_name: "Address".to_string(),
+                },
+                ContractField {
+                    name: "to".to_string(),
+                    type_name: "Address".to_string(),
+                },
+                ContractField {
+                    name: "amount".to_string(),
+                    type_name: "u128".to_string(),
+                },
+            ],
+        }],
     }
 }
 

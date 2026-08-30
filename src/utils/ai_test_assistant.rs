@@ -359,22 +359,42 @@ fn extract_functions_with_signatures(source: &str) -> Vec<FunctionInfo> {
     let mut current_line = 1u32;
     let mut in_function = false;
     let mut brace_depth = 0u32;
+    let mut body_lines: Vec<&str> = Vec::new();
 
     for line in source.lines() {
         let trimmed = line.trim();
 
         if !in_function {
-            if let Some(func) = parse_function_line(trimmed, current_line) {
-                in_function = true;
-                brace_depth = 0;
-                functions.push(func);
+            if let Some(mut func) = parse_function_line(trimmed, current_line) {
+                let open_braces = trimmed.matches('{').count();
+                let close_braces = trimmed.matches('}').count();
+                if open_braces > 0 && open_braces == close_braces {
+                    if body_mutates_state(trimmed) {
+                        func.is_mutating = true;
+                    }
+                    func.complexity_score = calculate_complexity(trimmed);
+                    functions.push(func);
+                } else {
+                    in_function = true;
+                    brace_depth = open_braces as u32;
+                    brace_depth = brace_depth.saturating_sub(close_braces as u32);
+                    body_lines.clear();
+                    body_lines.push(trimmed);
+                    functions.push(func);
+                }
             }
         } else {
+            body_lines.push(trimmed);
             brace_depth += trimmed.matches('{').count() as u32;
             brace_depth = brace_depth.saturating_sub(trimmed.matches('}').count() as u32);
-            if brace_depth == 0 && (trimmed.contains('}') || trimmed.ends_with('}')) {
+            if brace_depth == 0 {
                 if let Some(last) = functions.last_mut() {
                     last.line_end = current_line;
+                    let body = body_lines.join("\n");
+                    if body_mutates_state(&body) {
+                        last.is_mutating = true;
+                    }
+                    last.complexity_score = calculate_complexity(&body);
                 }
                 in_function = false;
             }
@@ -382,6 +402,21 @@ fn extract_functions_with_signatures(source: &str) -> Vec<FunctionInfo> {
         current_line += 1;
     }
     functions
+}
+
+/// Detects state mutation in a function body: the classic `&mut self`
+/// pattern, Soroban's storage-write pattern (`env.storage()....set/remove/
+/// bump/extend_ttl(...)`), or a `require_auth()` call — Soroban view
+/// functions don't authorize callers, so requiring auth implies the function
+/// changes state even when the write itself is elsewhere (e.g. a helper).
+fn body_mutates_state(body: &str) -> bool {
+    body.contains("mut self")
+        || body.contains("require_auth(")
+        || (body.contains(".storage()")
+            && (body.contains(".set(")
+                || body.contains(".remove(")
+                || body.contains(".bump(")
+                || body.contains(".extend_ttl(")))
 }
 
 fn parse_function_line(line: &str, line_num: u32) -> Option<FunctionInfo> {
@@ -445,11 +480,13 @@ fn parse_function_line(line: &str, line_num: u32) -> Option<FunctionInfo> {
         None
     };
 
+    let is_entry_point = is_entry_point || name == "initialize" || name == "init";
+
     Some(FunctionInfo {
         name,
         signature: line.trim().to_string(),
-        is_public: is_public,
-        is_entry_point: is_entry_point,
+        is_public,
+        is_entry_point,
         is_mutating,
         params,
         return_type,
@@ -489,11 +526,14 @@ fn extract_storage_accesses(source: &str) -> Vec<String> {
     let mut accesses = Vec::new();
     for line in source.lines() {
         let trimmed = line.trim();
-        if trimmed.contains(".set(") || trimmed.contains(".get(") || trimmed.contains(".has(") {
-            if let Some(key) = trimmed.split('(').nth(1) {
-                let key = key.trim_end_matches(')').trim().to_string();
-                if !key.is_empty() && !accesses.contains(&key) {
-                    accesses.push(key);
+        for marker in &[".set(", ".get(", ".has("] {
+            if let Some(idx) = trimmed.find(marker) {
+                let rest = &trimmed[idx + marker.len()..];
+                if let Some(end_idx) = rest.find(')') {
+                    let key = rest[..end_idx].trim().to_string();
+                    if !key.is_empty() && !accesses.contains(&key) {
+                        accesses.push(key);
+                    }
                 }
             }
         }
@@ -519,12 +559,10 @@ pub fn generate_test_priorities(analysis: &ContractAnalysis) -> Vec<TestPriority
     for func in &analysis.functions {
         let priority = if func.is_entry_point {
             TestPriority::Critical
-        } else if func.is_mutating && func.complexity_score > 3 {
+        } else if func.is_mutating {
             TestPriority::High
         } else if func.complexity_score > 5 {
             TestPriority::High
-        } else if func.is_mutating {
-            TestPriority::Medium
         } else {
             TestPriority::Low
         };
@@ -593,6 +631,77 @@ fn estimate_tests_needed(func: &FunctionInfo) -> u32 {
     let complexity_bonus = func.complexity_score;
     let mutating_bonus = if func.is_mutating { 2 } else { 0 };
     base + param_bonus + complexity_bonus + mutating_bonus
+}
+
+/// Suggests concrete edge-case inputs to exercise for `func`, based on its
+/// parameter types and whether it mutates contract state.
+pub fn generate_edge_case_descriptions(func: &FunctionInfo) -> Vec<String> {
+    let mut cases = Vec::new();
+    for param in &func.params {
+        match param.param_type.as_str() {
+            t if t.contains("Address") => {
+                cases.push(format!("Zero address for {}", param.name));
+                cases.push(format!("Self-referencing address for {}", param.name));
+                cases.push(format!("Contract address for {}", param.name));
+            }
+            t if t.contains("u64") || t.contains("i64") => {
+                cases.push(format!("Zero value for {}", param.name));
+                cases.push(format!("Maximum value for {}", param.name));
+                cases.push(format!("Minimum positive value for {}", param.name));
+            }
+            t if t.contains("String") => {
+                cases.push(format!("Empty string for {}", param.name));
+                cases.push(format!("Maximum length string for {}", param.name));
+                cases.push(format!("Special characters for {}", param.name));
+            }
+            _ => {
+                cases.push(format!("Default value for {}", param.name));
+            }
+        }
+    }
+    if func.is_mutating {
+        cases.push("Unauthorized caller".to_string());
+        cases.push("Double spend / replay".to_string());
+    }
+    cases
+}
+
+/// Suggests security properties to verify for `func`, based on whether it
+/// mutates state and whether it takes numeric parameters.
+pub fn generate_security_checks(func: &FunctionInfo) -> Vec<String> {
+    let mut checks = Vec::new();
+    if func.is_mutating {
+        checks.push("Authorization required for state changes".to_string());
+        checks.push("Failed auth must not mutate state".to_string());
+        checks.push("Replay protection verified".to_string());
+    }
+    if func
+        .params
+        .iter()
+        .any(|p| p.param_type.contains("i64") || p.param_type.contains("u64"))
+    {
+        checks.push("Overflow/underflow protection".to_string());
+        checks.push("Negative amount handling".to_string());
+    }
+    checks.push("Input validation".to_string());
+    checks
+}
+
+/// Flags contract-level risk areas (complexity, storage usage, external
+/// calls) that deserve extra test coverage.
+pub fn generate_warnings(analysis: &ContractAnalysis) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if analysis.public_functions > 5 || analysis.complex_functions > 3 {
+        warnings.push("High complexity detected in contract functions".to_string());
+    }
+    if analysis.storage_accesses.len() > 5 {
+        warnings
+            .push("Contract has many storage accesses - ensure storage mock coverage".to_string());
+    }
+    if !analysis.external_calls.is_empty() {
+        warnings.push("Contract makes external calls - consider integration tests".to_string());
+    }
+    warnings
 }
 
 pub fn calculate_test_quality_score(test_code: &str, source_code: &str) -> TestQualityScore {

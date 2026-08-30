@@ -72,4 +72,74 @@ mod template_tests {
             "Cargo.toml should contain PROJECT_NAME placeholder"
         );
     }
+
+    #[test]
+    fn test_verify_checksum_matches() {
+        use sha2::{Digest, Sha256};
+        use starforge::utils::templates::verify_archive_checksum;
+
+        let sample_bytes = b"hello starforge template verification";
+        let mut hasher = Sha256::new();
+        hasher.update(sample_bytes);
+        let digest = hasher.finalize();
+        let expected_hex = hex::encode(digest);
+
+        let result = verify_archive_checksum(sample_bytes, &expected_hex);
+        assert!(
+            result.is_ok(),
+            "Checksum verification should succeed for matching hash"
+        );
+    }
+
+    #[test]
+    fn test_verify_checksum_mismatch() {
+        use sha2::{Digest, Sha256};
+        use starforge::utils::templates::verify_archive_checksum;
+
+        let sample_bytes = b"tampered bytes in archive";
+        let mut hasher = Sha256::new();
+        hasher.update(sample_bytes);
+        let digest = hasher.finalize();
+        let actual_hex = hex::encode(digest);
+
+        let wrong_hex = "0000000000000000000000000000000000000000000000000000000000000000";
+
+        let result = verify_archive_checksum(sample_bytes, wrong_hex);
+        assert!(
+            result.is_err(),
+            "Checksum verification should fail for mismatching hash"
+        );
+
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains(wrong_hex),
+            "Error message should contain expected hex '{}': got '{}'",
+            wrong_hex,
+            err_msg
+        );
+        assert!(
+            err_msg.contains(&actual_hex),
+            "Error message should contain actual hex '{}': got '{}'",
+            actual_hex,
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_verify_checksum_skipped_when_none() {
+        use starforge::utils::templates::verify_archive_checksum;
+
+        let sample_bytes = b"dummy archive bytes";
+        let expected_sha256: Option<&str> = None;
+
+        let result: anyhow::Result<()> = match expected_sha256 {
+            Some(hex) => verify_archive_checksum(sample_bytes, hex),
+            None => Ok(()),
+        };
+
+        assert!(
+            result.is_ok(),
+            "No error should occur when expected_sha256 is None"
+        );
+    }
 }

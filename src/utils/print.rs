@@ -1,3 +1,4 @@
+use crate::utils::redaction::redact_secrets;
 use colored::*;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::time::Duration;
@@ -8,15 +9,15 @@ pub fn success(msg: &str) {
 
 #[allow(dead_code)]
 pub fn error(msg: &str) {
-    eprintln!("{} {}", "✗".red().bold(), msg);
+    eprintln!("{} {}", "✗".red().bold(), redact_secrets(msg));
 }
 
 pub fn info(msg: &str) {
-    println!("{} {}", "→".cyan(), msg);
+    println!("{} {}", "→".cyan(), redact_secrets(msg));
 }
 
 pub fn warn(msg: &str) {
-    println!("{} {}", "⚠".yellow().bold(), msg);
+    println!("{} {}", "⚠".yellow().bold(), redact_secrets(msg));
 }
 
 /// Print a structured CLI error to stderr with context and recovery hints.
@@ -41,22 +42,16 @@ pub fn warn(msg: &str) {
 /// If `hints` is empty, a generic fallback is printed instead.
 pub fn cli_error(err: &anyhow::Error, hints: &[&str]) {
     // Primary message (the outermost error in the anyhow chain)
-    eprintln!(
-        "\n  {} {}\n",
-        "✗  Error:".red().bold(),
-        crate::utils::logging::redact_text(&err.to_string())
-    );
+    let err_msg = redact_secrets(&err.to_string());
+    eprintln!("\n  {} {}\n", "✗  Error:".red().bold(), err_msg);
 
     // Walk the anyhow cause chain and print each context layer (skipping the
     // root which was already printed above).
     let chain: Vec<_> = err.chain().skip(1).collect();
     if !chain.is_empty() {
         for cause in &chain {
-            eprintln!(
-                "     {} {}",
-                "Context:".dimmed(),
-                crate::utils::logging::redact_text(&cause.to_string()).dimmed()
-            );
+            let cause_msg = redact_secrets(&cause.to_string());
+            eprintln!("     {} {}", "Context:".dimmed(), cause_msg.dimmed());
         }
         eprintln!();
     }
@@ -76,7 +71,7 @@ pub fn cli_error(err: &anyhow::Error, hints: &[&str]) {
         );
     } else {
         for hint in hints {
-            eprintln!("   {} {}", "→".cyan(), hint);
+            eprintln!("   {} {}", "→".cyan(), redact_secrets(hint));
         }
     }
     eprintln!();
@@ -87,11 +82,19 @@ pub fn header(msg: &str) {
 }
 
 pub fn kv(key: &str, value: &str) {
-    println!("  {:<20} {}", key.dimmed(), value.bright_white());
+    println!(
+        "  {:<20} {}",
+        key.dimmed(),
+        redact_secrets(value).bright_white()
+    );
 }
 
 pub fn kv_accent(key: &str, value: &str) {
-    println!("  {:<20} {}", key.dimmed(), value.cyan().bold());
+    println!(
+        "  {:<20} {}",
+        key.dimmed(),
+        redact_secrets(value).cyan().bold()
+    );
 }
 
 pub fn separator() {

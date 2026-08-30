@@ -28,21 +28,34 @@ Any other source is `unknown` unless explicitly added to the `plugin_trust.trust
 
 ---
 
-## Compatibility requirements
+## Supported-Version Policy and Compatibility Requirements
 
 Plugins are native shared libraries loaded at runtime via `libloading`.
-Two compatibility checks run before a plugin is executed:
+To guarantee host stability, type safety, and memory safety, StarForge enforces a strict **Supported-Version Policy** and pre-load binary verification:
 
-1. **rustc ABI check** — the plugin must be compiled with the same Rust
-   toolchain version as StarForge. Mismatches cause undefined behaviour
-   and are rejected immediately.
+### Pre-load Manifest Verification
+To prevent OS-level dynamic library linker crashes or undefined behavior when loading incompatible binaries, the plugin loader inspects and validates the plugin manifest (`starforge-plugin.toml`) **before** invoking `Library::new()`.
 
-2. **Core version check** — the plugin's declared `core_version` major
-   number must match the running StarForge major version. A plugin built
-   for StarForge `0.x.y` is incompatible with StarForge `1.x.y`.
+### Compatibility Rules
 
-Both checks produce actionable error messages that tell you exactly what
-to rebuild.
+1. **rustc ABI Alignment** — The plugin binary must be compiled with the exact same `rustc` toolchain version as the host StarForge executable.
+2. **Major Version Alignment** — The plugin's `starforge_version` major number must match the running StarForge major version (e.g. `0.x.y` plugins are incompatible with `1.x.y` StarForge CLI hosts).
+3. **SemVer Range Bounds** — Plugins may declare `starforge_version_min` and/or `starforge_version_max` in `starforge-plugin.toml`. The running StarForge CLI host must fall within `[min, max]`.
+
+### Manifest Schema Example (`starforge-plugin.toml`)
+
+```toml
+name = "my-plugin"
+version = "1.0.0"
+starforge_version = "0.1.0"
+starforge_version_min = "0.1.0"
+starforge_version_max = "0.9.9"
+description = "StarForge compatible plugin"
+```
+
+### Migration Guidance
+- **Updating Plugins for New StarForge Versions**: Bump `starforge_version` in `starforge-plugin.toml` and rebuild using the matching Rust toolchain (`rustup override set <toolchain>`).
+- **Handling Version Rejections**: When a plugin is rejected with `PluginLoadError::ManifestIncompatible` or `UnsupportedCoreVersion`, check the error diagnostic for the expected core version and rebuild instructions.
 
 ---
 

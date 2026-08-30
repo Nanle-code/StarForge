@@ -558,7 +558,7 @@ fn handle_dashboard(args: DashboardArgs) -> Result<()> {
         let mut nets = Vec::new();
         for r in &records {
             if seen.insert(r.network.clone())
-                && args.network.as_ref().is_none_or(|n| n == &r.network)
+                && args.network.as_ref().map_or(true, |n| n == &r.network)
             {
                 nets.push(r.network.clone());
             }

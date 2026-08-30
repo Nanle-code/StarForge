@@ -157,6 +157,17 @@ impl PluginManager {
         let path_ref = path.as_ref();
         let path_display = path_ref.to_string_lossy().to_string();
 
+        // ── Pre-load manifest compatibility validation ───────────────────────
+        // Inspect and validate manifest *before* opening binary with Library::new()
+        // to prevent OS-level linker panics or ABI crashes on incompatible libraries.
+        if let Ok(Some(mf)) = manifest::load_manifest_for_library(Path::new(path_ref)) {
+            mf.validate()
+                .map_err(|e| PluginLoadError::ManifestIncompatible {
+                    path: path_display.clone(),
+                    detail: e.to_string(),
+                })?;
+        }
+
         // ── Open the shared library ──────────────────────────────────────────
         let library =
             Library::new(path_ref.as_os_str()).map_err(|e| PluginLoadError::InvalidLibrary {
@@ -206,15 +217,6 @@ impl PluginManager {
                 plugin_core: core_version.to_string(),
                 running_core: CORE_VERSION.to_string(),
             });
-        }
-
-        // ── Manifest compatibility (if present beside the library) ───────────
-        if let Ok(Some(mf)) = manifest::load_manifest_for_library(Path::new(path_ref)) {
-            mf.validate()
-                .map_err(|e| PluginLoadError::ManifestIncompatible {
-                    path: path_display.clone(),
-                    detail: e.to_string(),
-                })?;
         }
 
         let registry = load_registry().unwrap_or_default();

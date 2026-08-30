@@ -511,14 +511,14 @@ mod tests {
             documented: verified,
             maintenance: MaintenanceStatus::Active,
             license: Some("MIT".to_string()),
-            repository_url: None,
             repository: None,
+            repository_url: None,
             homepage: None,
             documentation: None,
+            categories: vec![],
+            featured: false,
             security_review: None,
             changelog: None,
-            categories: Vec::new(),
-            featured: false,
         }
     }
 

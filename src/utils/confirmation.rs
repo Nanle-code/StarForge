@@ -1,3 +1,4 @@
+use crate::utils::interactive;
 use crate::utils::print as p;
 use anyhow::Result;
 use colored::*;
@@ -139,6 +140,11 @@ pub fn confirm_operation(summary: &OperationSummary, config: &ConfirmationConfig
         return Ok(true);
     }
 
+    // Fail clearly instead of blocking on stdin: a non-interactive caller
+    // (CI, a piped script) has no one to answer this prompt. The `--yes`
+    // flag (checked above) is the secure, headless alternative.
+    interactive::ensure_interactive("confirmation", "Pass --yes to confirm non-interactively.")?;
+
     // Request confirmation
     println!();
 
@@ -249,5 +255,78 @@ mod tests {
         assert_eq!(config.network, "testnet");
         assert!(!config.skip_confirm);
         assert!(!config.dry_run);
+    }
+
+    // ── CI / non-interactive prompting ───────────────────────────────────────
+
+    fn clear_env() {
+        std::env::remove_var(interactive::ENV_NON_INTERACTIVE);
+        std::env::remove_var("CI");
+    }
+
+    #[test]
+    fn confirm_operation_fails_fast_in_ci_without_yes() {
+        let _guard = interactive::env_test_lock().lock().unwrap();
+        clear_env();
+        std::env::set_var("CI", "1");
+
+        let summary =
+            OperationSummary::new("Deploy".to_string(), "testnet".to_string(), RiskLevel::Low);
+        let config = ConfirmationConfig {
+            risk_level: RiskLevel::Low,
+            network: "testnet".to_string(),
+            skip_confirm: false,
+            dry_run: false,
+            ..Default::default()
+        };
+
+        let err = confirm_operation(&summary, &config)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("--yes"), "got: {}", err);
+
+        clear_env();
+    }
+
+    #[test]
+    fn confirm_operation_skip_confirm_bypasses_ci_check() {
+        let _guard = interactive::env_test_lock().lock().unwrap();
+        clear_env();
+        std::env::set_var("CI", "1");
+
+        let summary =
+            OperationSummary::new("Deploy".to_string(), "testnet".to_string(), RiskLevel::Low);
+        let config = ConfirmationConfig {
+            risk_level: RiskLevel::Low,
+            network: "testnet".to_string(),
+            skip_confirm: true,
+            dry_run: false,
+            ..Default::default()
+        };
+
+        assert!(confirm_operation(&summary, &config).unwrap());
+
+        clear_env();
+    }
+
+    #[test]
+    fn confirm_operation_dry_run_bypasses_ci_check() {
+        let _guard = interactive::env_test_lock().lock().unwrap();
+        clear_env();
+        std::env::set_var("CI", "1");
+
+        let summary =
+            OperationSummary::new("Deploy".to_string(), "testnet".to_string(), RiskLevel::Low);
+        let config = ConfirmationConfig {
+            risk_level: RiskLevel::Low,
+            network: "testnet".to_string(),
+            skip_confirm: false,
+            dry_run: true,
+            ..Default::default()
+        };
+
+        assert!(confirm_operation(&summary, &config).unwrap());
+
+        clear_env();
     }
 }

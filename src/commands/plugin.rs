@@ -147,20 +147,28 @@ fn install(name: String, path: Option<PathBuf>, source: Option<String>, force: b
     let plugin_manifest = manifest::require_compatible_manifest(&lib_path, &name)?;
 
     // Load the plugin to discover the commands it registers.
-    let discovered_commands: Vec<RegisteredCommand> = {
+    let (discovered_commands, discovered_description): (Vec<RegisteredCommand>, String) = {
         let mut pm = PluginManager::new();
         unsafe {
             pm.load_plugin(&lib_path).with_context(|| {
                 format!("Failed to load plugin '{}' to discover commands", name)
             })?;
         }
-        pm.list_commands()
+        let commands = pm
+            .list_commands()
             .into_iter()
             .map(|c| RegisteredCommand {
                 name: c.name,
                 description: c.description,
             })
-            .collect()
+            .collect();
+        let description = pm
+            .list_plugins()
+            .into_iter()
+            .map(|(_, desc, _)| desc.to_string())
+            .find(|d| !d.is_empty())
+            .unwrap_or_default();
+        (commands, description)
     };
 
     registry::install_plugin(
@@ -169,7 +177,7 @@ fn install(name: String, path: Option<PathBuf>, source: Option<String>, force: b
         source_str,
         &plugin_manifest.starforge_version,
         &plugin_manifest.version,
-        "",
+        &discovered_description,
         discovered_commands.clone(),
     )?;
 
@@ -273,6 +281,7 @@ fn list(json: bool) -> Result<()> {
             version: String,
             trust: String,
             source: String,
+            description: String,
             commands: Vec<PluginCommandSummary>,
         }
 
@@ -282,14 +291,14 @@ fn list(json: bool) -> Result<()> {
             description: String,
         }
 
-        let plugins: Vec<PluginSummary> = reg
-            .plugins
-            .iter()
+        let plugins: Vec<PluginSummary> = registry::plugin_list_entries(&reg)
+            .into_iter()
             .map(|entry| PluginSummary {
                 name: entry.name.clone(),
                 version: entry.plugin_version.clone(),
                 trust: entry.trust.label().to_string(),
                 source: entry.source.clone(),
+                description: entry.description.clone(),
                 commands: entry
                     .commands
                     .iter()
@@ -316,7 +325,7 @@ fn list(json: bool) -> Result<()> {
     p::kv("StarForge core version", CORE_VERSION);
     p::separator();
 
-    let entries = reg.plugins.clone();
+    let entries = registry::plugin_list_entries(&reg);
 
     let plugin_rows: Vec<Vec<String>> = entries
         .iter()
@@ -325,7 +334,7 @@ fn list(json: bool) -> Result<()> {
                 entry.name.clone(),
                 entry.plugin_version.clone(),
                 entry.trust.label().to_string(),
-                "".to_string(),
+                entry.description.clone(),
             ]
         })
         .collect();
@@ -605,7 +614,7 @@ fn update(name: Option<String>, yes: bool) -> Result<()> {
                         &pl.source,
                         &pl.starforge_version,
                         &pl.plugin_version,
-                        "",
+                        &pl.description,
                         pl.commands.clone(),
                     )?;
                     p::success(&format!("  '{}' updated via cargo install", pl.name));
@@ -646,15 +655,15 @@ fn update(name: Option<String>, yes: bool) -> Result<()> {
 
                     if modified > installed_epoch {
                         // Library on disk is newer — refresh the registry entry.
-                        let (cmds, _description) = discover_plugin_metadata(&pl.path)
-                            .unwrap_or_else(|_| (pl.commands.clone(), "".to_string()));
+                        let (cmds, description) = discover_plugin_metadata(&pl.path)
+                            .unwrap_or_else(|_| (pl.commands.clone(), pl.description.clone()));
                         registry::install_plugin(
                             &pl.name,
                             std::path::Path::new(&pl.path),
                             &pl.source,
                             &pl.starforge_version,
                             &pl.plugin_version,
-                            "",
+                            &description,
                             cmds,
                         )?;
                         p::success(&format!(

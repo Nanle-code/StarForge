@@ -314,8 +314,7 @@ impl PromptManager {
 }
 
 fn get_db_path() -> Result<PathBuf> {
-    let mut dir = dirs::home_dir().context("Could not find home directory")?;
-    dir.push(".starforge");
+    let mut dir = crate::utils::config::config_dir();
     std::fs::create_dir_all(&dir)?;
     dir.push("prompts.db");
     Ok(dir)

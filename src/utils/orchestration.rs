@@ -120,9 +120,7 @@ pub struct OrchestrationEngine {
 
 impl OrchestrationEngine {
     pub fn new() -> Result<Self> {
-        let home_dir = dirs::home_dir().context("Failed to get home directory")?;
-        let plans_dir = home_dir
-            .join(".starforge")
+        let plans_dir = crate::utils::config::config_dir()
             .join("orchestration")
             .join("plans");
 
