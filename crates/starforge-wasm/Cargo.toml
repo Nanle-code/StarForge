@@ -5,7 +5,9 @@ edition = "2021"
 rust-version = "1.80"
 description = "WebAssembly API surface for StarForge — browser-based Stellar wallet management"
 license = "MIT"
-repository = "https://github.com/YOUR_USERNAME/starforge"
+repository = "https://github.com/Josetic224/StarForge"
+homepage = "https://github.com/Josetic224/StarForge"
+documentation = "https://docs.rs/starforge-wasm"
 keywords = ["stellar", "soroban", "wasm", "wallet", "web3"]
 
 # `cdylib` is what `wasm-pack` consumes to emit the `.wasm` artifact; `rlib`

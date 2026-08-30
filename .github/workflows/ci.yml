@@ -28,6 +28,17 @@ jobs:
       - name: Verify compilation on Rust 1.80 MSRV
         run: cargo check --locked --workspace
 
+  package-metadata:
+    name: Package Metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate package links
+        run: python3 scripts/validate_package_metadata.py
+      - name: Test package metadata validator
+        working-directory: scripts
+        run: python3 test_package_metadata.py
+
   deny:
     name: Cargo Deny
     runs-on: ubuntu-latest

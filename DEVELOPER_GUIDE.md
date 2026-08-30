@@ -16,8 +16,25 @@ Complete guide for developers contributing to or extending StarForge.
 10. [Debugging](#debugging)
 11. [Release Process](#release-process)
 12. [Database Migrations](#database-migrations)
+13. [Package Metadata](#package-metadata)
 
 ---
+
+## Package Metadata
+
+Every publishable Cargo manifest must use the canonical repository URL
+`https://github.com/Josetic224/StarForge`, an HTTPS homepage, and its package-specific
+docs.rs URL. Validate all package links and failure cases locally with:
+
+```bash
+python3 scripts/validate_package_metadata.py
+python3 scripts/test_package_metadata.py
+```
+
+The validator is intentionally offline and requires Python 3.11 or newer. It rejects
+placeholder, non-HTTPS, malformed, and missing links rather than probing external
+services, so CI remains deterministic. Update the expected package list in
+`scripts/validate_package_metadata.py` whenever a publishable crate is added or removed.
 
 ## Plugin Version Compatibility
 
@@ -114,7 +131,7 @@ loaded plugin, and a descriptive error for any that fail the check.
 
 ```bash
 # Clone repository
-git clone https://github.com/YOUR_USERNAME/starforge.git
+git clone https://github.com/Josetic224/StarForge.git
 cd starforge
 
 # Build in debug mode
@@ -1411,14 +1428,14 @@ Closes #123
 
 - [Stellar Discord](https://discord.gg/stellar)
 - [Rust Users Forum](https://users.rust-lang.org/)
-- [GitHub Discussions](https://github.com/YOUR_USERNAME/starforge/discussions)
+- [GitHub Discussions](https://github.com/Josetic224/StarForge/discussions)
 
 ---
 
 ## Getting Help
 
-- **Issues**: [GitHub Issues](https://github.com/YOUR_USERNAME/starforge/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/YOUR_USERNAME/starforge/discussions)
+- **Issues**: [GitHub Issues](https://github.com/Josetic224/StarForge/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/Josetic224/StarForge/discussions)
 - **Discord**: Join the Stellar Discord
 - **Email**: maintainer@example.com
 

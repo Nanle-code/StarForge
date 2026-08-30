@@ -495,5 +495,5 @@ Failed to fetch template 'uniswap-v2' from git:https://github.com/...
 ## Support
 
 For issues or questions:
-- GitHub Issues: https://github.com/YOUR_USERNAME/starforge/issues
-- Documentation: https://github.com/YOUR_USERNAME/starforge/blob/main/README.md
+- GitHub Issues: https://github.com/Josetic224/StarForge/issues
+- Documentation: https://github.com/Josetic224/StarForge/blob/main/README.md

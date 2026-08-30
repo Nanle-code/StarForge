@@ -102,7 +102,7 @@ Validate, size-check, and deploy compiled Soroban `.wasm` files to Testnet or Ma
 ### Build from source
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/starforge.git
+git clone https://github.com/Josetic224/StarForge.git
 cd starforge
 cargo build --release
 

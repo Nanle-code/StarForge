@@ -116,7 +116,7 @@ impl Database {
     where
         F: FnOnce() -> Result<T>,
     {
-        let tx = self.conn.unchecked_transaction()?;
+        let mut tx = self.conn.unchecked_transaction()?;
         let result = f();
         match result {
             Ok(value) => {
@@ -174,19 +174,9 @@ impl Database {
 
     /// Get all applied migrations from the database
     pub fn get_applied_migrations(&self) -> Result<Vec<AppliedMigration>> {
-        let mut stmt = match self.conn.prepare(
+        let mut stmt = self.conn.prepare(
             "SELECT version, name, applied_at, checksum FROM schema_migrations ORDER BY version",
-        ) {
-            Ok(s) => s,
-            Err(e) => {
-                let msg = e.to_string();
-                if msg.contains("no such table: schema_migrations") {
-                    return Ok(Vec::new());
-                } else {
-                    return Err(e.into());
-                }
-            }
-        };
+        )?;
         let rows = stmt.query_map([], |row| {
             Ok(AppliedMigration {
                 version: row.get(0)?,
@@ -263,7 +253,7 @@ impl Database {
             .get_migration(version)
             .ok_or_else(|| anyhow::anyhow!("Migration version {} not found", version))?;
 
-        let tx = self.conn.unchecked_transaction()?;
+        let mut tx = self.conn.unchecked_transaction()?;
 
         // Apply the migration
         match migration.up(&tx) {
@@ -295,11 +285,23 @@ impl Database {
     /// Rollback a single migration within a transaction
     pub fn rollback_migration(&self, version: i64) -> Result<()> {
         let applied = self.get_applied_migrations()?;
+        let current_version = self.get_current_schema_version()?;
+
+        // Check if the migration is applied
         if !applied.iter().any(|m| m.version == version) {
-            return Err(anyhow::anyhow!("Migration {} not applied", version));
+            return Err(anyhow::anyhow!(
+                "Migration version {} is not applied",
+                version
+            ));
         }
 
-        let max_applied = applied.iter().map(|m| m.version).max().unwrap_or(0);
+        // Check if we can rollback (must be the latest applied migration)
+        let max_applied = applied
+            .iter()
+            .map(|m| m.version)
+            .max()
+            .ok_or_else(|| anyhow::anyhow!("No migrations applied"))?;
+
         if version != max_applied {
             return Err(anyhow::anyhow!(
                 "Can only rollback the latest migration ({}), tried to rollback {}",
@@ -312,7 +314,7 @@ impl Database {
             .get_migration(version)
             .ok_or_else(|| anyhow::anyhow!("Migration version {} not found", version))?;
 
-        let tx = self.conn.unchecked_transaction()?;
+        let mut tx = self.conn.unchecked_transaction()?;
 
         // Rollback the migration
         match migration.down(&tx) {
@@ -321,24 +323,14 @@ impl Database {
                 if let Err(e) = tx.execute(
                     "DELETE FROM schema_migrations WHERE version = ?1",
                     params![version],
-                ) {
-                    let msg = e.to_string();
-                    if !msg.contains("no such table") {
-                        return Err(e.into());
-                    }
-                }
+                )?;
 
-                // Update schema version to previous version if table exists
+                // Update schema version to previous version
                 let previous_version = if version > 1 { version - 1 } else { 0 };
                 if let Err(e) = tx.execute(
                     "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
                     params![previous_version.to_string()],
-                ) {
-                    let msg = e.to_string();
-                    if !msg.contains("no such table") {
-                        return Err(e.into());
-                    }
-                }
+                )?;
 
                 tx.commit()?;
                 Ok(())
@@ -1412,7 +1404,8 @@ mod tests {
     fn migration_v1_down_drops_tables() {
         let db = in_memory_db();
         let migration = MigrationV1 {};
-        let conn = db.conn;
+        let mut conn = db.conn;
+
         // Verify tables exist before rollback
         let table_count: i64 = conn
             .query_row(
@@ -1424,7 +1417,8 @@ mod tests {
         assert!(table_count > 0);
 
         // Rollback
-        migration.down(&conn).unwrap();
+        migration.down(&mut conn).unwrap();
+
         // Verify tables are dropped
         let table_count_after: i64 = conn
             .query_row(
@@ -1453,9 +1447,6 @@ mod tests {
                 "UPDATE meta SET value = '0' WHERE key = 'schema_version'",
                 [],
             )
-            .unwrap();
-        db.conn
-            .execute("DELETE FROM schema_migrations WHERE version = 1", [])
             .unwrap();
 
         // This should apply migration 1
