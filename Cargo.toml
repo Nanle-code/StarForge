@@ -5,7 +5,9 @@ edition = "2021"
 rust-version = "1.80"
 description = "A developer productivity CLI for Stellar and Soroban workflows"
 license = "MIT"
-repository = "https://github.com/YOUR_USERNAME/starforge"
+repository = "https://github.com/onajidavid87-web/StarForge"
+homepage = "https://github.com/onajidavid87-web/StarForge"
+documentation = "https://docs.rs/starforge"
 keywords = ["stellar", "soroban", "blockchain", "cli", "web3"]
 
 [[bin]]
