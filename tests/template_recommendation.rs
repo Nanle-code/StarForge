@@ -51,6 +51,9 @@ fn make_entry(name: &str, tags: &[&str], downloads: u32, verified: bool) -> Temp
         featured: false,
         security_review: None,
         changelog: None,
+        repository_url: None,
+        categories: vec![],
+        featured: false,
     }
 }
 
@@ -91,7 +94,7 @@ fn skill_level_parses_all_variants() {
         ("senior", SkillLevel::Advanced),
     ] {
         assert_eq!(
-            SkillLevel::from_str(input),
+            SkillLevel::parse_lenient(input),
             Some(expected),
             "Expected '{}' to parse correctly",
             input
@@ -103,7 +106,7 @@ fn skill_level_parses_all_variants() {
 fn skill_level_rejects_unknown_strings() {
     for bad in ["", "pro", "newbie", "wizard", "123"] {
         assert_eq!(
-            SkillLevel::from_str(bad),
+            SkillLevel::parse_lenient(bad),
             None,
             "Expected '{}' to be rejected",
             bad
@@ -130,7 +133,11 @@ fn explanation_contains_all_fields() {
     );
     let explanation = format_explanation(&rec);
 
-    assert!(explanation.contains("85"), "Should include rounded score");
+    assert!(
+        explanation.contains("85"),
+        "Should include rounded score, got {}",
+        explanation
+    );
     assert!(explanation.contains("70"), "Should include relevance");
     assert!(explanation.contains("60"), "Should include popularity");
     assert!(explanation.contains("Good fit"), "Should include skill fit");
@@ -240,7 +247,9 @@ fn verified_documented_audited_entry_scores_high() {
         status: "audited".to_string(),
         audited_at: Some("2025-06-01T00:00:00Z".to_string()),
         auditor: Some("StarForge Security Team".to_string()),
+        findings: None,
         findings: Some("0".to_string()),
+        findings: Some(0),
         score: Some(98.0),
     });
     let q = entry.quality_score();

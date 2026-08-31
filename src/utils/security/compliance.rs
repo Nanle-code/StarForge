@@ -85,6 +85,12 @@ pub struct ComplianceEngine {
     rules: Vec<ComplianceRule>,
 }
 
+impl Default for ComplianceEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ComplianceEngine {
     pub fn new() -> Self {
         let rules = vec![
@@ -259,7 +265,7 @@ impl ComplianceEngine {
             .map(|r| r.remediation.clone())
             .collect();
 
-        let overall_risk = if critical_gaps.len() > 0 {
+        let overall_risk = if !critical_gaps.is_empty() {
             "critical"
         } else if failed_count > total / 2 {
             "high"

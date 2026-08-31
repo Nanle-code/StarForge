@@ -79,6 +79,10 @@ pub fn parse_when(when: &str) -> Result<DateTime<Utc>> {
     )
 }
 
+// Each parameter is an independent, named input (CLI flags / distinct config
+// values); bundling them into a struct here would add indirection without
+// reducing real complexity.
+#[allow(clippy::too_many_arguments)]
 pub fn create(
     contract_id: String,
     wasm: PathBuf,

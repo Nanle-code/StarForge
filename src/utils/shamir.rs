@@ -188,9 +188,9 @@ pub fn split(secret: &[u8], threshold: usize, total_shares: usize) -> Result<Vec
     // Generate coefficients for all polynomials: one polynomial per secret byte.
     // coeffs[0] is the secret (constant term), coeffs[1..=degree] are random.
     let mut all_coeffs = Vec::with_capacity(secret_len);
-    for byte_idx in 0..secret_len {
+    for &secret_byte in secret {
         let mut coeffs = vec![0u8; degree + 1];
-        coeffs[0] = secret[byte_idx];
+        coeffs[0] = secret_byte;
         for c in coeffs[1..].iter_mut() {
             *c = rng.next_u32() as u8;
         }
@@ -203,8 +203,8 @@ pub fn split(secret: &[u8], threshold: usize, total_shares: usize) -> Result<Vec
         let x = share_idx as u8;
         let mut payload_bytes = Vec::with_capacity(secret_len);
 
-        for byte_idx in 0..secret_len {
-            payload_bytes.push(poly_eval(&all_coeffs[byte_idx], x));
+        for coeffs in &all_coeffs {
+            payload_bytes.push(poly_eval(coeffs, x));
         }
 
         shares.push(RecoveryShare {

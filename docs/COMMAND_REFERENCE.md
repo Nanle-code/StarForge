@@ -100,7 +100,15 @@ starforge multisig notify proposal.json --message "Please sign the treasury paym
 | `inspect storage` | Deep storage inspection |
 | `deploy --wasm <FILE>` | Prepare Soroban deployment |
 
-**`deploy` flags:** `--network`, `--wallet`, `--optimize`, `--simulate`, `--yes`, `--execute`
+**`deploy` flags:** `--network`, `--wallet`, `--optimize`, `--simulate`, `--yes`, `--execute`, `--policy`, `--checklist`
+
+Deploy policy files (`starforge-deploy-policy.toml`) gate allowed networks,
+required reviewers, and checklist items. Validate in CI with
+`starforge deploy-policy check`. See [DEPLOY_POLICY.md](DEPLOY_POLICY.md).
+
+Destructive confirmations (mainnet deploy, secret reveal) require typed
+challenge phrases; automation bypass needs `STARFORGE_UNSAFE_SKIP_CONFIRMATION=1`.
+See [CONFIRMATION_UX.md](CONFIRMATION_UX.md).
 
 `--simulate` and `--dry-run` print the simulated CPU, memory, and ledger
 footprint alongside the minimum resource fee and a recommended fee that
@@ -114,6 +122,15 @@ starforge deploy --wasm ./token.wasm --optimize --yes --execute
 
 starforge contract generate-bindings ./token.wasm --lang rust
 ```
+
+## `deploy-policy`
+
+| Subcommand | Purpose |
+|------------|---------|
+| `init [FILE]` | Write a documented default policy (TOML or YAML) |
+| `check --config <FILE>` | Validate policy schema and simulate deploy context (CI-friendly) |
+
+See [DEPLOY_POLICY.md](DEPLOY_POLICY.md).
 
 ### Invocation scripts
 
@@ -248,6 +265,7 @@ When downloading template archives from a remote registry, the CLI automatically
 | `simulate resources --file <JSON>` | Report CPU, memory, footprint, and minimum resource fee from a saved `simulateTransaction` response |
 | `simulate resources --contract <ID> --function <NAME>` | The same, simulated live against Soroban RPC |
 | `cost resources --file <JSON>` | Price a simulation and check it against configured budgets (`--enforce` to gate CI) |
+| `cost forecast-batch <MANIFEST>` | Forecast aggregate fees for a batch of planned invokes before submission (per-item estimates + totals, high-variance calls highlighted) |
 
 Shared flags: `--margin <PERCENT>` (default `20`), `--inclusion-fee <STROOPS>`
 (default `100`). `simulate resources` also takes `--json`.
@@ -256,9 +274,11 @@ Shared flags: `--margin <PERCENT>` (default `20`), `--inclusion-fee <STROOPS>`
 starforge simulate resources --file simulation.json --json
 starforge simulate resources --contract CCPYZ... --function balance --network testnet
 starforge cost resources --file simulation.json --network mainnet --enforce
+starforge cost forecast-batch batch-invoke-manifest.json --network testnet --enforce
 ```
 
-Full reference: [SIMULATION_RESOURCES.md](SIMULATION_RESOURCES.md).
+Full reference: [SIMULATION_RESOURCES.md](SIMULATION_RESOURCES.md) and
+[BATCH_FORECAST.md](BATCH_FORECAST.md).
 
 ---
 
@@ -398,7 +418,7 @@ See [GOVERNANCE.md](GOVERNANCE.md) for the full workflow.
 | `test` | Soroban WASM test runner |
 | `lint <PATH>` | Static Soroban source lint |
 | `plugin install/list/run` | Dynamic plugin management |
-| `completions <SHELL>` | bash/zsh/fish completions |
+| `completions <SHELL>` | bash/zsh/fish/powershell completions |
 
 ### `monitor`
 

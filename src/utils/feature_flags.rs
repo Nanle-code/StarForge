@@ -25,7 +25,6 @@
 use crate::utils::database::Database;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
@@ -119,7 +118,7 @@ impl SegmentRule {
                 bucket < (*percent as u32).min(100)
             }
             SegmentRule::HasAttribute { key, any_of } => match ctx.attributes.get(key) {
-                Some(v) if any_of.is_empty() => true,
+                Some(_v) if any_of.is_empty() => true,
                 Some(v) => any_of.iter().any(|cand| cand == v),
                 None => false,
             },
@@ -631,7 +630,7 @@ impl Database {
             "SELECT flag_name, version, enabled, rollout_percent, segments_json, variants_json, note, created_at \
              FROM flag_states WHERE flag_name = ?1 ORDER BY version ASC",
         )?;
-        let rows = stmt.query_map(rusqlite::params![flag_name], |row| row_to_state(row))?;
+        let rows = stmt.query_map(rusqlite::params![flag_name], row_to_state)?;
         rows.map(|r| r.map_err(anyhow::Error::from)).collect()
     }
 
@@ -658,7 +657,7 @@ impl Database {
              ) latest ON latest.flag_name = s.flag_name AND latest.v = s.version \
              ORDER BY s.flag_name",
         )?;
-        let rows = stmt.query_map([], |row| row_to_state(row))?;
+        let rows = stmt.query_map([], row_to_state)?;
         rows.map(|r| r.map_err(anyhow::Error::from)).collect()
     }
 
@@ -1393,6 +1392,7 @@ pub fn load_or_create_install_id(db: &Database) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
 
     fn db() -> Database {
         Database::open_in_memory().unwrap()

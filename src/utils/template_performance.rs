@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 fn read_source_files(root: &Path) -> Vec<String> {
     let mut sources = Vec::new();
@@ -119,9 +119,9 @@ pub fn analyze_template_directory(
         + external_call_score as u32
         + batch_operations_score as u32)
         / 5) as u8;
-    let estimated_gas_reduction_percent = (100 - overall_score).max(5).min(40) as u8;
-    let estimated_speedup_percent = ((100 - overall_score) / 2).max(3).min(25) as u8;
-    let estimated_memory_savings_percent = ((100 - overall_score) / 3).max(2).min(15) as u8;
+    let estimated_gas_reduction_percent = (100 - overall_score).clamp(5, 40);
+    let estimated_speedup_percent = ((100 - overall_score) / 2).clamp(3, 25);
+    let estimated_memory_savings_percent = ((100 - overall_score) / 3).clamp(2, 15);
 
     Ok(TemplatePerformanceAnalysis {
         template_name: name,

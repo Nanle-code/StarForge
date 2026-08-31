@@ -120,8 +120,8 @@ impl KnownVulnerabilities {
             if line.contains("transfer") && !line.trim().starts_with("//") {
                 // Check if state update happens after transfer
                 let mut state_after = false;
-                for j in (i + 1)..std::cmp::min(i + 10, lines.len()) {
-                    if lines[j].contains("storage") && lines[j].contains("set") {
+                for nearby in &lines[(i + 1)..std::cmp::min(i + 10, lines.len())] {
+                    if nearby.contains("storage") && nearby.contains("set") {
                         state_after = true;
                         break;
                     }
@@ -150,12 +150,12 @@ impl KnownVulnerabilities {
                 && (line.contains("&mut") || line.contains("env:"))
             {
                 let mut has_auth = false;
-                for j in i..std::cmp::min(i + 20, lines.len()) {
-                    if lines[j].contains("require_auth") {
+                for nearby in &lines[i..std::cmp::min(i + 20, lines.len())] {
+                    if nearby.contains("require_auth") {
                         has_auth = true;
                         break;
                     }
-                    if lines[j].contains("pub fn ") {
+                    if nearby.contains("pub fn ") {
                         break;
                     }
                 }
@@ -268,12 +268,12 @@ impl KnownVulnerabilities {
         for (i, line) in lines.iter().enumerate() {
             if line.contains("pub fn ") && (line.contains("admin") || line.contains("owner")) {
                 let mut has_check = false;
-                for j in i..std::cmp::min(i + 20, lines.len()) {
-                    if lines[j].contains("require_auth") || lines[j].contains("assert") {
+                for nearby in &lines[i..std::cmp::min(i + 20, lines.len())] {
+                    if nearby.contains("require_auth") || nearby.contains("assert") {
                         has_check = true;
                         break;
                     }
-                    if lines[j].contains("pub fn ") {
+                    if nearby.contains("pub fn ") {
                         break;
                     }
                 }

@@ -28,6 +28,27 @@ If the above works, you're good! Otherwise, continue below.
 
 ## Common Issues and Solutions
 
+### 0. Cargo.lock Reproducibility or Mutation Failures
+
+**Problem**: CI fails with `git diff --exit-code Cargo.lock` or `starforge verify lockfile` reports violations.
+
+**Cause**: `Cargo.toml` dependencies were modified without updating `Cargo.lock`, or platform-specific dependencies caused lockfile drift across operating systems.
+
+**Solutions**:
+
+```bash
+# 1. Run starforge verify lockfile locally to inspect exact resolution errors or diffs
+starforge verify lockfile
+
+# 2. Update Cargo.lock to match Cargo.toml definitions
+cargo check
+
+# 3. Verify Cargo.lock immutability again
+git diff --exit-code Cargo.lock
+```
+
+---
+
 ### 1. Network Connection Issues
 
 **Problem**: `error: failed to get <crate> as a dependency...`
@@ -129,6 +150,27 @@ cargo build --features hardware-wallet
 # Check what features are available
 cargo metadata --format-version 1 | grep -A 10 '"features"'
 ```
+
+**`hardware-wallet` system dependencies**: this feature links `hidapi` (Ledger,
+via USB HID) and `trezor-client` (Trezor, via `rusb`/libusb). Both are optional
+so the default build never needs them, but building or testing with the
+feature enabled requires the matching system headers:
+
+```bash
+# Debian/Ubuntu
+sudo apt-get install -y libudev-dev libusb-1.0-0-dev
+
+# Fedora
+sudo dnf install -y systemd-devel libusbx-devel
+
+# macOS
+brew install libusb
+```
+
+Without a physical device, `wallet connect`, `wallet hw-status`, and
+`wallet import --hardware` still build and run — they fail fast with a
+"No Ledger/Trezor device detected" error instead of hanging, which is what
+CI's `hardware-wallet` job exercises on every push (see `.github/workflows/ci.yml`).
 
 ---
 
@@ -338,11 +380,18 @@ cargo test --locked
 # 5. Run linter (CI checks)
 cargo clippy --locked -- -D warnings
 
+# 6. Build and test the optional hardware-wallet backends (requires
+#    libudev-dev + libusb-1.0-0-dev, see "Feature Flag Issues" above)
+cargo build --locked --features hardware-wallet
+cargo test --locked --features hardware-wallet
+
 # All together (simulates CI)
 cargo fmt --all --check && \
   cargo build --locked && \
   cargo test --locked && \
-  cargo clippy --locked -- -D warnings
+  cargo clippy --locked -- -D warnings && \
+  cargo build --locked --features hardware-wallet && \
+  cargo test --locked --features hardware-wallet
 ```
 
 ---

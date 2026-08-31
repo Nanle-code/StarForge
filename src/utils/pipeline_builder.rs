@@ -927,7 +927,6 @@ pub fn import_pipeline(path: &Path) -> Result<DeploymentPipeline> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
     use tempfile::TempDir;
 
     fn temp_home() -> (TempDir, std::sync::MutexGuard<'static, ()>) {

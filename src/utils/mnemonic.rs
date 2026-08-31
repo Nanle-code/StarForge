@@ -4,6 +4,7 @@ use ed25519_dalek::SigningKey;
 use hmac::{Hmac, Mac};
 use sha2::Sha512;
 use stellar_strkey::ed25519::{PrivateKey as StellarPrivateKey, PublicKey as StellarPublicKey};
+use zeroize::Zeroizing;
 
 type HmacSha512 = Hmac<Sha512>;
 
@@ -35,7 +36,7 @@ pub fn keypair_from_phrase(
     phrase: &str,
     bip39_passphrase: &str,
     account_index: u32,
-) -> Result<(String, String)> {
+) -> Result<(String, Zeroizing<String>)> {
     let mnemonic = Mnemonic::parse_in(Language::English, normalize_phrase(phrase))
         .map_err(|e| anyhow!("Invalid recovery phrase: {}", e))?;
 
@@ -47,13 +48,13 @@ pub fn keypair_from_phrase(
         );
     }
 
-    let seed = mnemonic.to_seed(bip39_passphrase);
-    let private_key = derive_stellar_private_key(&seed, account_index)?;
-    let signing_key = SigningKey::from_bytes(&private_key);
+    let seed = Zeroizing::new(mnemonic.to_seed(bip39_passphrase));
+    let private_key = Zeroizing::new(derive_stellar_private_key(&*seed, account_index)?);
+    let signing_key = SigningKey::from_bytes(&*private_key);
     let verifying_key = signing_key.verifying_key();
 
     let public_key = StellarPublicKey(verifying_key.to_bytes()).to_string();
-    let secret_key = StellarPrivateKey(private_key).to_string();
+    let secret_key = Zeroizing::new(StellarPrivateKey(*private_key).to_string());
     Ok((public_key, secret_key))
 }
 
@@ -63,11 +64,19 @@ fn normalize_phrase(phrase: &str) -> String {
 
 /// SLIP-0010 ed25519 derivation for Stellar path `m/44'/148'/account'`.
 fn derive_stellar_private_key(seed: &[u8], account_index: u32) -> Result<[u8; 32]> {
-    let (mut key, mut chain) = slip10_ed25519_master(seed)?;
-    (key, chain) = slip10_ed25519_child(key, chain, hardened(44))?;
-    (key, chain) = slip10_ed25519_child(key, chain, hardened(148))?;
-    (key, _) = slip10_ed25519_child(key, chain, hardened(account_index))?;
-    Ok(key)
+    let (k, c) = slip10_ed25519_master(seed)?;
+    let (mut key, mut chain) = (Zeroizing::new(k), Zeroizing::new(c));
+
+    let (k2, c2) = slip10_ed25519_child(*key, *chain, hardened(44))?;
+    (key, chain) = (Zeroizing::new(k2), Zeroizing::new(c2));
+
+    let (k3, c3) = slip10_ed25519_child(*key, *chain, hardened(148))?;
+    (key, chain) = (Zeroizing::new(k3), Zeroizing::new(c3));
+
+    let (k4, _c4) = slip10_ed25519_child(*key, *chain, hardened(account_index))?;
+    Ok(k4)
+    // key and chain drop here and zeroize. k4 is returned to the caller who
+    // wraps it in Zeroizing in keypair_from_phrase.
 }
 
 fn hardened(index: u32) -> u32 {
@@ -230,5 +239,22 @@ mod tests {
             );
         }
         assert_eq!(unique.len(), 10, "All 10 addresses must be unique");
+    }
+
+    #[test]
+    fn keypair_secret_key_is_wrapped_in_zeroizing() {
+        let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let (_pk, sk) = keypair_from_phrase(phrase, "", 0).unwrap();
+        // Derefs to &str via Zeroizing<String>
+        assert!(sk.starts_with('S'));
+        assert_eq!(sk.len(), 56);
+        // sk drops here; Zeroizing zeroes the heap bytes
+    }
+
+    #[test]
+    fn bad_phrase_returns_error_without_panicking() {
+        // Invalid checksum — no secret material is ever derived
+        let bad = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon";
+        assert!(keypair_from_phrase(bad, "", 0).is_err());
     }
 }

@@ -195,6 +195,9 @@ impl Debugger {
         None
     }
 
+    // Not currently called from any code path in this crate. Kept rather than
+    // removed since deleting it is a product decision, not a lint-scoping one.
+    #[allow(dead_code)]
     fn evaluate_condition(&self, _condition: &str) -> bool {
         true
     }

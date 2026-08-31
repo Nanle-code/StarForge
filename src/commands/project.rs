@@ -9,15 +9,8 @@
 //! - `risk`      – Assess and mitigate project risks using AI analysis
 //! - `timeline`  – Manage project timelines, milestones, and deadlines
 
-use crate::utils::{config, ollama, print as p};
-use anyhow::{Context, Result};
-use chrono::{DateTime, Utc};
+use anyhow::Result;
 use clap::{Args, Subcommand};
-use colored::*;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::fs;
-use std::path::PathBuf;
 
 // ─── Top-level Subcommand ──────────────────────────────────────────
 

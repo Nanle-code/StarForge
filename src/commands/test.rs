@@ -1,6 +1,6 @@
 use crate::utils::{
     config, contract_testing, print as p, rollback_testing, test_automation, test_coverage,
-    test_generator, test_runner,
+    test_runner,
 };
 use anyhow::Result;
 use clap::Args;
@@ -496,7 +496,7 @@ pub async fn handle(args: TestArgs) -> Result<()> {
                         }
                     }
 
-                    let timings: Vec<crate::utils::test_optimizer::TestCaseTiming> = report
+                    let _timings: Vec<crate::utils::test_optimizer::TestCaseTiming> = report
                         .results
                         .iter()
                         .map(|r| crate::utils::test_optimizer::TestCaseTiming {

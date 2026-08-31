@@ -206,6 +206,10 @@ pub enum PlanStatus {
 
 // ─── Planner Implementation ──────────────────────────────────────────────────
 
+// `target_network`/`max_gas_price` are not currently read from any code path
+// in this crate. Kept rather than removed since deleting them is a product
+// decision, not a lint-scoping one.
+#[allow(dead_code)]
 pub struct AiDeploymentPlanner {
     contract_path: PathBuf,
     target_network: String,
@@ -311,7 +315,7 @@ Contract code:
             num_ctx: Some(8192),
         };
 
-        let response = ollama::generate(&self.model, &prompt, Some(opts))
+        let _response = ollama::generate(&self.model, &prompt, Some(opts))
             .await
             .context("AI contract analysis failed")?;
 
@@ -411,7 +415,7 @@ Contract code:
             upgrade_patterns,
             security_findings,
             optimization_suggestions,
-            readiness_score: score.max(0).min(100) as u8,
+            readiness_score: score.clamp(0, 100) as u8,
         })
     }
 
@@ -524,7 +528,7 @@ Contract code:
         // Suggest next weekday at 8 AM UTC
         let mut start_time = now;
         let days_to_add = 1;
-        start_time = start_time + chrono::Duration::days(days_to_add);
+        start_time += chrono::Duration::days(days_to_add);
         start_time = start_time
             .with_hour(8)
             .unwrap()
@@ -536,9 +540,9 @@ Contract code:
         // If weekend, move to Monday
         let weekday = start_time.weekday();
         if weekday == chrono::Weekday::Sat {
-            start_time = start_time + chrono::Duration::days(2);
+            start_time += chrono::Duration::days(2);
         } else if weekday == chrono::Weekday::Sun {
-            start_time = start_time + chrono::Duration::days(1);
+            start_time += chrono::Duration::days(1);
         }
 
         let end_time = start_time + chrono::Duration::hours(4);
@@ -659,7 +663,7 @@ Contract code:
 
         Ok(RiskAssessment {
             overall,
-            score: score.max(0).min(100) as u8,
+            score: score.clamp(0, 100) as u8,
             categories,
             mitigations,
         })
@@ -668,7 +672,7 @@ Contract code:
     async fn create_rollback_plan(
         &self,
         analysis: &ContractAnalysis,
-        network: &NetworkRecommendation,
+        _network: &NetworkRecommendation,
     ) -> Result<RollbackPlan> {
         let mut steps = Vec::new();
 

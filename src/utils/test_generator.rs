@@ -210,6 +210,9 @@ fn safe_identifier(value: &str) -> String {
     identifier
 }
 
+// Not currently called from any code path in this crate. Kept rather than
+// removed since deleting it is a product decision, not a lint-scoping one.
+#[allow(dead_code)]
 fn is_mutating(content: &str, func: &str) -> bool {
     let mut in_fn = false;
     for line in content.lines() {

@@ -29,12 +29,32 @@ pub struct AuditReport {
     pub entries: Vec<AuditEntry>,
 }
 
-fn audit_dir() -> Result<PathBuf> {
-    let dir = crate::utils::config::config_dir().join("audit");
+pub(crate) fn audit_dir() -> Result<PathBuf> {
+    let home = home_dir()?;
+    let dir = home.join(".starforge").join("audit");
     if !dir.exists() {
         fs::create_dir_all(&dir)?;
     }
     Ok(dir)
+}
+
+/// Resolve the user's home directory, honouring the `HOME` (Unix) and
+/// `USERPROFILE` (Windows) environment variables ahead of `dirs::home_dir()`.
+///
+/// Honouring the env vars lets callers (especially tests) redirect the audit
+/// directory to a temporary location for isolation without changing the
+/// process-wide profile. In normal use the env var matches the real home, so
+/// the resolved path is identical to `dirs::home_dir()`.
+fn home_dir() -> Result<PathBuf> {
+    if let Some(home) = std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .filter(|v| !v.is_empty())
+    {
+        if let Some(home) = home.to_str().filter(|s| !s.trim().is_empty()) {
+            return Ok(PathBuf::from(home));
+        }
+    }
+    dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))
 }
 
 fn audit_log_file() -> Result<PathBuf> {
@@ -132,12 +152,12 @@ pub fn get_audit_report(start_time: Option<&str>, end_time: Option<&str>) -> Res
         .iter()
         .filter(|e| {
             if let Some(start) = start_time {
-                if e.timestamp < start.to_string() {
+                if e.timestamp.as_str() < start {
                     return false;
                 }
             }
             if let Some(end) = end_time {
-                if e.timestamp > end.to_string() {
+                if e.timestamp.as_str() > end {
                     return false;
                 }
             }
@@ -188,6 +208,10 @@ pub fn export_audit_log_csv(entries: &[AuditEntry]) -> String {
     csv
 }
 
+// Each parameter is an independent, named input (CLI flags / distinct config
+// values); bundling them into a struct here would add indirection without
+// reducing real complexity.
+#[allow(clippy::too_many_arguments)]
 pub fn log_approval_action(
     action: &str,
     actor: &str,

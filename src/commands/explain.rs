@@ -54,6 +54,13 @@ struct ChatResponseMessage {
 }
 
 pub async fn handle(cmd: &ExplainCommands) -> Result<()> {
+    // Offline-first guard: `explain` is cloud-only and must fail clearly
+    // before any network call when offline mode is active.
+    crate::utils::ai_offline::require_offline_compatible(
+        "explain",
+        crate::utils::ai_offline::resolve_configured_mode_sync(),
+    )?;
+
     match cmd {
         ExplainCommands::Contract { file, level, lang } => {
             let api_key = env::var("OPENAI_API_KEY").context(

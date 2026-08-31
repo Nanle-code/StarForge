@@ -3,10 +3,7 @@
 //! Provides commands for managing AI error handling, viewing analytics,
 //! and configuring fallback providers.
 
-use crate::utils::{
-    ai_error_handler::{AiErrorHandler, ErrorAnalytics, ProviderConfig},
-    print as p,
-};
+use crate::utils::{ai_error_handler::AiErrorHandler, print as p};
 use anyhow::Result;
 use clap::Subcommand;
 

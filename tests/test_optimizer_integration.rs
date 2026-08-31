@@ -4,16 +4,20 @@
 //! deduplication, caching, performance analysis, resource scheduling,
 //! failure pattern analysis, and report generation.
 
-use std::path::PathBuf;
+use std::collections::HashMap;
 
 use starforge::utils::test_generator::GeneratedTestCase;
 use starforge::utils::test_optimizer::*;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/// Insert a `(name, history)` pair produced by [`make_history`].
+fn insert_history(map: &mut HashMap<String, TestHistory>, entry: (String, TestHistory)) {
+    map.insert(entry.0, entry.1);
+}
+
 fn make_optimizer() -> TestOptimizer {
-    let dir = tempfile::tempdir().unwrap().keep();
-    TestOptimizer::with_config_dir(dir).unwrap()
+    TestOptimizer::with_empty_config_dir(PathBuf::from("/tmp/test_opt_integration"))
 }
 
 fn make_history(
@@ -82,14 +86,78 @@ fn test_full_optimization_pipeline_with_history() {
     ];
 
     // Populate history with realistic patterns
+    opt.history.extend([make_history(
+        "test_security_auth",
+        20,
+        5,
+        15,
+        3,
+        300.0,
+        "pass",
+    )]);
+    opt.history
+        .extend([make_history("test_wallet_e2e", 15, 8, 7, 6, 1200.0, "fail")]);
+    opt.history.extend([make_history(
+        "test_smoke_connectivity",
+        25,
+        1,
+        24,
+        1,
+        50.0,
+        "pass",
+    )]);
+    opt.history.extend([make_history(
+        "test_perf_benchmark",
+        10,
+        2,
+        8,
+        2,
+        5000.0,
+        "pass",
+    )]);
+    opt.history.extend([make_history(
+        "test_property_invariant",
+        30,
+        0,
+        30,
+        0,
+        200.0,
+        "pass",
+    )]);
+    opt.history.extend([make_history(
+        "test_integration_rollback",
+        8,
+        4,
+        4,
+        4,
+        800.0,
+        "fail",
+    )]);
     opt.history.extend([
+    insert_history(
+        &mut opt.history,
         make_history("test_security_auth", 20, 5, 15, 3, 300.0, "pass"),
+    );
+    insert_history(
+        &mut opt.history,
         make_history("test_wallet_e2e", 15, 8, 7, 6, 1200.0, "fail"),
+    );
+    insert_history(
+        &mut opt.history,
         make_history("test_smoke_connectivity", 25, 1, 24, 1, 50.0, "pass"),
+    );
+    insert_history(
+        &mut opt.history,
         make_history("test_perf_benchmark", 10, 2, 8, 2, 5000.0, "pass"),
+    );
+    insert_history(
+        &mut opt.history,
         make_history("test_property_invariant", 30, 0, 30, 0, 200.0, "pass"),
+    );
+    insert_history(
+        &mut opt.history,
         make_history("test_integration_rollback", 8, 4, 4, 4, 800.0, "fail"),
-    ]);
+    );
 
     // Check ordering: flaky/failing tests should come first
     let ordered = opt.optimize_order(&test_names);
@@ -397,10 +465,19 @@ fn test_report_generation_and_export() {
     let mut opt = make_optimizer();
 
     // Add some history
+    opt.history
+        .extend([make_history("test_a", 10, 2, 8, 1, 100.0, "pass")]);
+    opt.history
+        .extend([make_history("test_b", 5, 3, 2, 3, 500.0, "fail")]);
     opt.history.extend([
+    insert_history(
+        &mut opt.history,
         make_history("test_a", 10, 2, 8, 1, 100.0, "pass"),
+    );
+    insert_history(
+        &mut opt.history,
         make_history("test_b", 5, 3, 2, 3, 500.0, "fail"),
-    ]);
+    );
 
     let test_names = vec!["test_a".into(), "test_b".into()];
     let generated = vec![make_generated("test_a", "func1", "happy_path")];
@@ -453,6 +530,7 @@ fn test_result_recording_consistency() {
 
     let h = opt.history.get("test_consistent").unwrap();
     assert_eq!(h.total_runs, 50);
+    // `i % 3 == 0` fails: 0, 3, … 48 — 17 of the 50 runs.
     assert_eq!(h.passes, 33);
     assert_eq!(h.failures, 17);
     assert!(h.avg_duration_ms > 0.0);

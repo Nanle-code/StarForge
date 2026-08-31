@@ -1,9 +1,7 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
@@ -114,7 +112,7 @@ impl TestCaseGenerator {
     }
 
     pub fn generate_from_contract(&self) -> Result<TestSuite> {
-        let wasm_path = self
+        let _wasm_path = self
             .contract_path
             .join("target/wasm32-unknown-unknown/release");
 
@@ -208,7 +206,7 @@ impl TestCaseGenerator {
         &self,
         line: &str,
         line_num: usize,
-        file_path: &Path,
+        _file_path: &Path,
     ) -> Result<TestCase> {
         let function_name = line
             .trim_start()
@@ -312,7 +310,7 @@ impl ParallelTestRunner {
         self.generate_report(suite, results, duration)
     }
 
-    fn run_single_test(test: &TestCase, wasm_path: &Path) -> TestResult {
+    fn run_single_test(test: &TestCase, _wasm_path: &Path) -> TestResult {
         let start = Instant::now();
 
         // Simulate test execution

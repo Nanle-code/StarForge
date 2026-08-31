@@ -1,6 +1,6 @@
 use crate::utils::migration_ai;
 use crate::utils::migration_ai::{AnalysisConfig, MigrationPlan};
-use crate::utils::{config, print as p};
+use crate::utils::print as p;
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use colored::*;
@@ -220,6 +220,10 @@ fn load_spec_entries(
     Ok(Vec::new())
 }
 
+// Each parameter is an independent, named input (CLI flags / distinct config
+// values); bundling them into a struct here would add indirection without
+// reducing real complexity.
+#[allow(clippy::too_many_arguments)]
 fn build_analysis_config(
     old_specs: &[String],
     new_specs: &[String],
@@ -251,6 +255,10 @@ fn build_analysis_config(
     })
 }
 
+// Each parameter is an independent, named input (CLI flags / distinct config
+// values); bundling them into a struct here would add indirection without
+// reducing real complexity.
+#[allow(clippy::too_many_arguments)]
 fn load_or_build_plan(
     old_wasm: Option<&PathBuf>,
     new_wasm: Option<&PathBuf>,
@@ -404,7 +412,7 @@ fn handle_generate(args: GenerateArgs) -> Result<()> {
 
     let storage_changes = &plan.storage_changes;
     let contract_name = args.contract.unwrap_or_else(|| "Contract".to_string());
-    let sdk_version = plan.to_version.clone();
+    let _sdk_version = plan.to_version.clone();
 
     let mut code = String::new();
     code.push_str(&format!(
@@ -527,7 +535,7 @@ fn handle_suggest(args: SuggestArgs) -> Result<()> {
         let priority_color = match suggestion.priority.as_str() {
             "high" => "HIGH".red().bold(),
             "medium" => "MEDIUM".yellow().bold(),
-            "low" | _ => "LOW".cyan(),
+            _ => "LOW".cyan(),
         };
 
         println!(
@@ -630,7 +638,7 @@ fn handle_plan(args: PlanArgs) -> Result<()> {
 }
 
 fn print_plan_summary(plan: &MigrationPlan) {
-    let compat_color = match plan.compatibility {
+    let _compat_color = match plan.compatibility {
         crate::utils::migration_ai::Compatibility::FullyCompatible => {
             "fully compatible".green().bold()
         }

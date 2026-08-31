@@ -242,7 +242,7 @@ fn analyze_type_changes(
     old_specs: &[String],
     new_specs: &[String],
     breaking_changes: &mut Vec<BreakingChange>,
-    _suggestions: &mut Vec<MigrationSuggestion>,
+    _suggestions: &mut [MigrationSuggestion],
 ) {
     let old_types = extract_types(old_specs);
     let new_types = extract_types(new_specs);
@@ -281,7 +281,7 @@ fn analyze_storage_layout(
     new_specs: &[String],
     storage_changes: &mut Vec<StorageChange>,
     breaking_changes: &mut Vec<BreakingChange>,
-    _suggestions: &mut Vec<MigrationSuggestion>,
+    _suggestions: &mut [MigrationSuggestion],
 ) {
     let old_storage = extract_storage_keys(old_specs);
     let new_storage = extract_storage_keys(new_specs);
@@ -403,12 +403,11 @@ fn analyze_sdk_upgrade(
 fn analyze_protocol_upgrade(
     config: &AnalysisConfig,
     breaking_changes: &mut Vec<BreakingChange>,
-    _suggestions: &mut Vec<MigrationSuggestion>,
+    _suggestions: &mut [MigrationSuggestion],
 ) {
     match (config.old_protocol_version, config.new_protocol_version) {
-        (Some(old), Some(new)) if old != new => {
-            if new > old {
-                breaking_changes.push(BreakingChange {
+        (Some(old), Some(new)) if old != new && new > old => {
+            breaking_changes.push(BreakingChange {
                     category: "protocol_upgrade".into(),
                     severity: Severity::Major,
                     title: format!("Soroban protocol upgrade: v{} → v{}", old, new),
@@ -425,7 +424,6 @@ fn analyze_protocol_upgrade(
                     ),
                     affected_items: vec!["protocol".into(), "host_functions".into()],
                 });
-            }
         }
         _ => {}
     }
@@ -446,7 +444,7 @@ fn determine_compatibility(changes: &[BreakingChange]) -> Compatibility {
 
 fn build_migration_steps(
     config: &AnalysisConfig,
-    breaking_changes: &[BreakingChange],
+    _breaking_changes: &[BreakingChange],
     storage_changes: &[StorageChange],
     old_wasm_hash: &str,
     new_wasm_hash: &str,
@@ -456,7 +454,7 @@ fn build_migration_steps(
     let mut order = 1usize;
 
     steps.push(MigrationStep {
-        order: order,
+        order,
         action: "backup".into(),
         description: "Create a backup of the current contract state and WASM".into(),
         command: Some("starforge backup create --contract <CONTRACT_ID>".into()),
@@ -467,7 +465,7 @@ fn build_migration_steps(
 
     if has_storage_migration {
         steps.push(MigrationStep {
-            order: order,
+            order,
             action: "export_storage".into(),
             description: "Export current contract storage to a snapshot".into(),
             command: Some(
@@ -514,7 +512,7 @@ fn build_migration_steps(
             );
 
             steps.push(MigrationStep {
-                order: order,
+                order,
                 action: "create_rules".into(),
                 description: "Create migration rules file for storage transformation".into(),
                 command: Some("starforge migrate init --from-version <OLD> --to-version <NEW>".into()),
@@ -524,7 +522,7 @@ fn build_migration_steps(
             order += 1;
 
             steps.push(MigrationStep {
-                order: order,
+                order,
                 action: "test_migration".into(),
                 description: "Dry-run migration to verify rules produce expected output".into(),
                 command: Some(
@@ -536,7 +534,7 @@ fn build_migration_steps(
             order += 1;
 
             steps.push(MigrationStep {
-                order: order,
+                order,
                 action: "apply_migration".into(),
                 description: "Apply storage migration to produce transformed snapshot".into(),
                 command: Some("starforge migrate run --contract-id <CONTRACT_ID> --snapshot snapshot.json --rules rules.json --output migrated-snapshot.json".into()),
@@ -547,7 +545,7 @@ fn build_migration_steps(
         }
 
         steps.push(MigrationStep {
-            order: order,
+            order,
             action: "generate_migration_code".into(),
             description: "Generate on-chain migration function in the new contract".into(),
             command: Some("starforge migrate-ai generate --old-wasm <OLD> --new-wasm <NEW> --output migration.rs".into()),
@@ -563,7 +561,7 @@ fn build_migration_steps(
     }
 
     steps.push(MigrationStep {
-        order: order,
+        order,
         action: "compatibility_check".into(),
         description: "Run final compatibility check between old and new WASM".into(),
         command: Some("starforge upgrade-auto compat --old-wasm <OLD> --new-wasm <NEW>".into()),
@@ -573,7 +571,7 @@ fn build_migration_steps(
     order += 1;
 
     steps.push(MigrationStep {
-        order: order,
+        order,
         action: "upgrade_contract".into(),
         description: "Upgrade the contract to the new WASM version".into(),
         command: Some("starforge upgrade execute --contract-id <CONTRACT_ID> --wasm <NEW_WASM> --wallet <WALLET>".into()),
@@ -595,9 +593,7 @@ fn generate_migration_code_stub(
     snippet.push_str(&format!("// Migration function for {}\n", contract_name));
     snippet.push_str("// Generated by starforge migrate-ai\n\n");
     snippet.push_str("#[allow(unused)]\n");
-    snippet.push_str(&format!(
-        "pub fn migrate(env: &soroban_sdk::Env, admin: soroban_sdk::Address) {{\n"
-    ));
+    snippet.push_str("pub fn migrate(env: &soroban_sdk::Env, admin: soroban_sdk::Address) {\n");
     snippet.push_str("    admin.require_auth();\n\n");
 
     for sc in storage_changes {
@@ -763,9 +759,7 @@ pub fn extract_spec_entries(wasm_bytes: &[u8]) -> Result<Vec<String>> {
         let content = String::from_utf8_lossy(meta_section);
         for line in content.lines() {
             let trimmed = line.trim();
-            if trimmed.starts_with("SDK_VERSION:") {
-                specs.push(format!("meta:{}", trimmed));
-            } else if trimmed.starts_with("PROTOCOL_VERSION:") {
+            if trimmed.starts_with("SDK_VERSION:") || trimmed.starts_with("PROTOCOL_VERSION:") {
                 specs.push(format!("meta:{}", trimmed));
             }
         }

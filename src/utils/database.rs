@@ -3,7 +3,6 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
-use std::sync::Arc;
 
 pub fn db_path() -> PathBuf {
     crate::utils::config::config_dir().join("starforge.db")
@@ -21,6 +20,9 @@ pub trait Migration: Send + Sync {
     fn description(&self) -> &str;
 
     /// Apply the migration (upgrade)
+    ///
+    /// Takes a shared reference so a migration can run inside a
+    /// `rusqlite::Transaction`, which only derefs to `&Connection`.
     fn up(&self, conn: &Connection) -> Result<()>;
 
     /// Rollback the migration (downgrade)
@@ -44,49 +46,30 @@ pub struct MigrationResult {
     pub migrations_rolled_back: Vec<i64>,
 }
 
-use std::fmt;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Error types for migration operations
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum MigrationError {
+    #[error("Migration version {0} is already applied")]
     AlreadyApplied(i64),
+
+    #[error("Migration version {0} not found")]
     NotFound(i64),
+
+    #[error("Cannot rollback: no migrations applied")]
     NothingToRollback,
+
+    #[error("Migration version {0} depends on unapplied version {1}")]
     MissingDependency(i64, i64),
+
+    #[error("Invalid migration sequence: versions must be consecutive")]
     InvalidSequence,
+
+    #[error("Database schema version {0} is not supported (minimum: {1}, maximum: {2})")]
     UnsupportedVersion(i64, i64, i64),
+
+    #[error("Migration failed: {0}")]
     MigrationFailed(String),
 }
-
-impl fmt::Display for MigrationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::AlreadyApplied(v) => write!(f, "Migration version {v} is already applied"),
-            Self::NotFound(v) => write!(f, "Migration version {v} not found"),
-            Self::NothingToRollback => write!(f, "Cannot rollback: no migrations applied"),
-            Self::MissingDependency(v, dep) => {
-                write!(
-                    f,
-                    "Migration version {v} depends on unapplied version {dep}"
-                )
-            }
-            Self::InvalidSequence => {
-                write!(
-                    f,
-                    "Invalid migration sequence: versions must be consecutive"
-                )
-            }
-            Self::UnsupportedVersion(v, min, max) => {
-                write!(
-                    f,
-                    "Database schema version {v} is not supported (minimum: {min}, maximum: {max})"
-                )
-            }
-            Self::MigrationFailed(msg) => write!(f, "Migration failed: {msg}"),
-        }
-    }
-}
-
-impl std::error::Error for MigrationError {}
 
 pub struct Database {
     pub(crate) conn: Connection,
@@ -135,7 +118,11 @@ impl Database {
         self.ensure_column("wallets", "secret_key", "TEXT")?;
         self.ensure_column("wallets", "rotation_history", "TEXT NOT NULL DEFAULT '[]'")?;
 
-        // Run migrations if this is not a fresh database
+        // Run migrations if this is not a fresh database.
+        //
+        // `get_meta` returns `Ok(None)` for a key that is absent, so the
+        // presence of the row — not the success of the lookup — decides which
+        // branch a fresh database takes.
         if self.get_meta("schema_version")?.is_some() {
             self.run_migrations()?;
         } else {
@@ -210,6 +197,9 @@ impl Database {
     }
 
     /// Remove a migration record from the database
+    // Not currently called from any code path in this crate. Kept rather than
+    // removed since deleting it is a product decision, not a lint-scoping one.
+    #[allow(dead_code)]
     fn remove_migration(&self, version: i64) -> Result<()> {
         self.conn.execute(
             "DELETE FROM schema_migrations WHERE version = ?1",
@@ -232,10 +222,11 @@ impl Database {
 
     /// Run pending migrations to bring the database to the current schema version
     pub fn run_migrations(&self) -> Result<MigrationResult> {
+        // `schema_version` is the authority on how far the database has been
+        // migrated; `schema_migrations` is the audit log of what ran. A
+        // database whose version trails the log is still upgraded, and the log
+        // entry is rewritten rather than duplicated.
         let current_version = self.get_current_schema_version()?;
-        let applied = self.get_applied_migrations()?;
-        let applied_versions: std::collections::HashSet<i64> =
-            applied.iter().map(|m| m.version).collect();
 
         let mut migrations_applied = Vec::new();
 
@@ -243,10 +234,8 @@ impl Database {
         if current_version < CURRENT_SCHEMA_VERSION {
             // Apply migrations from current_version + 1 to CURRENT_SCHEMA_VERSION
             for version in (current_version + 1)..=CURRENT_SCHEMA_VERSION {
-                if !applied_versions.contains(&version) {
-                    self.apply_migration(version)?;
-                    migrations_applied.push(version);
-                }
+                self.apply_migration(version)?;
+                migrations_applied.push(version);
             }
         }
 
@@ -272,13 +261,14 @@ impl Database {
                 let checksum = self.compute_migration_checksum(version, migration.description())?;
                 let applied_at = chrono::Utc::now().to_rfc3339();
                 tx.execute(
-                    "INSERT INTO schema_migrations (version, name, applied_at, checksum) VALUES (?1, ?2, ?3, ?4)",
+                    "INSERT OR REPLACE INTO schema_migrations (version, name, applied_at, checksum) VALUES (?1, ?2, ?3, ?4)",
                     params![version, migration.description(), applied_at, checksum],
                 )?;
 
                 // Update schema version
                 tx.execute(
-                    "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
+                    "INSERT INTO meta (key, value) VALUES ('schema_version', ?1)
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                     params![version.to_string()],
                 )?;
 
@@ -295,15 +285,29 @@ impl Database {
     /// Rollback a single migration within a transaction
     pub fn rollback_migration(&self, version: i64) -> Result<()> {
         let applied = self.get_applied_migrations()?;
-        if !applied.iter().any(|m| m.version == version) {
-            return Err(anyhow::anyhow!("Migration {} not applied", version));
-        }
+        let _current_version = self.get_current_schema_version()?;
 
-        let max_applied = applied.iter().map(|m| m.version).max().unwrap_or(0);
-        if version != max_applied {
+        // Migrations roll back newest first, so anything below the newest
+        // applied version is refused on that ground — whether or not it was
+        // itself applied. Only a version at or above the newest can be
+        // "not applied".
+        let max_applied = applied
+            .iter()
+            .map(|m| m.version)
+            .max()
+            .ok_or_else(|| anyhow::anyhow!("No migrations applied"))?;
+
+        if version < max_applied {
             return Err(anyhow::anyhow!(
                 "Can only rollback the latest migration ({}), tried to rollback {}",
                 max_applied,
+                version
+            ));
+        }
+
+        if !applied.iter().any(|m| m.version == version) {
+            return Err(anyhow::anyhow!(
+                "Migration version {} is not applied",
                 version
             ));
         }
@@ -317,28 +321,25 @@ impl Database {
         // Rollback the migration
         match migration.down(&tx) {
             Ok(()) => {
-                // Remove the migration record if table exists
-                if let Err(e) = tx.execute(
+                // A migration's `down` undoes the schema it created, which for
+                // the initial migration includes the runner's own bookkeeping
+                // tables. Re-create them before recording the rollback.
+                tx.execute_batch(MIGRATION_BOOKKEEPING_SCHEMA)?;
+
+                // Remove the migration record
+                tx.execute(
                     "DELETE FROM schema_migrations WHERE version = ?1",
                     params![version],
-                ) {
-                    let msg = e.to_string();
-                    if !msg.contains("no such table") {
-                        return Err(e.into());
-                    }
-                }
+                )?;
 
-                // Update schema version to previous version if table exists
+                // Update schema version to previous version. This is an upsert
+                // because `meta` may have just been re-created empty.
                 let previous_version = if version > 1 { version - 1 } else { 0 };
-                if let Err(e) = tx.execute(
-                    "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
+                tx.execute(
+                    "INSERT INTO meta (key, value) VALUES ('schema_version', ?1)
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                     params![previous_version.to_string()],
-                ) {
-                    let msg = e.to_string();
-                    if !msg.contains("no such table") {
-                        return Err(e.into());
-                    }
-                }
+                )?;
 
                 tx.commit()?;
                 Ok(())
@@ -544,9 +545,13 @@ impl Database {
             cfg.telemetry_enabled = telemetry.parse::<bool>().ok();
         }
         if let Some(plugin_trust) = self.get_config_kv("plugin_trust.trusted_sources")? {
-            cfg.plugin_trust = PluginTrustConfig {
-                trusted_sources: serde_json::from_str(&plugin_trust)?,
-            };
+            cfg.plugin_trust.trusted_sources = serde_json::from_str(&plugin_trust)?;
+        }
+        if let Some(trusted_pubs) = self.get_config_kv("plugin_trust.trusted_publishers")? {
+            cfg.plugin_trust.trusted_publishers = serde_json::from_str(&trusted_pubs)?;
+        }
+        if let Some(req_sigs) = self.get_config_kv("plugin_trust.require_signatures")? {
+            cfg.plugin_trust.require_signatures = req_sigs.parse::<bool>().unwrap_or(false);
         }
         if let Some(wallet_encryption) = self.get_config_kv("wallet_encryption")? {
             cfg.wallet_encryption = Some(serde_json::from_str(&wallet_encryption)?);
@@ -584,6 +589,15 @@ impl Database {
             .map(|wallet| {
                 let rotation_history: Vec<WalletRotationRecord> =
                     serde_json::from_str(&wallet.rotation_history).unwrap_or_default();
+                let kdf_options = wallet
+                    .secret_key
+                    .as_ref()
+                    .and_then(|s| crate::utils::crypto::extract_kdf_metadata(s).ok())
+                    .map(|m| crate::utils::crypto::KdfOptions {
+                        mem: Some(m.mem),
+                        iterations: Some(m.iterations),
+                        parallelism: Some(m.parallelism),
+                    });
                 WalletEntry {
                     name: wallet.name,
                     public_key: wallet.public_key,
@@ -591,6 +605,7 @@ impl Database {
                     network: wallet.network,
                     created_at: wallet.created_at,
                     funded: wallet.funded,
+                    kdf_options,
                     rotation_history,
                 }
             })
@@ -637,6 +652,14 @@ impl Database {
         self.insert_config_kv(
             "plugin_trust.trusted_sources",
             &serde_json::to_string(&cfg.plugin_trust.trusted_sources)?,
+        )?;
+        self.insert_config_kv(
+            "plugin_trust.trusted_publishers",
+            &serde_json::to_string(&cfg.plugin_trust.trusted_publishers)?,
+        )?;
+        self.insert_config_kv(
+            "plugin_trust.require_signatures",
+            &cfg.plugin_trust.require_signatures.to_string(),
         )?;
         if let Some(kdf) = &cfg.wallet_encryption {
             self.insert_config_kv("wallet_encryption", &serde_json::to_string(kdf)?)?;
@@ -924,7 +947,7 @@ impl Database {
             }
             ExportFormat::Csv => {
                 let mut wtr = csv::Writer::from_writer(writer);
-                wtr.write_record(&[
+                wtr.write_record([
                     "id",
                     "event_type",
                     "contract_id",
@@ -935,7 +958,7 @@ impl Database {
                     "network",
                 ])?;
                 for event in events {
-                    wtr.write_record(&[
+                    wtr.write_record([
                         &event.id,
                         &event.event_type,
                         &event.contract_id,
@@ -984,6 +1007,25 @@ pub fn migrate_from_toml(db: &Database) -> Result<MigrationReport> {
 pub fn export_to_toml(db: &Database) -> Result<String> {
     Ok(toml::to_string_pretty(&db.load_config()?)?)
 }
+
+/// The tables the migration runner needs to record what it has done.
+///
+/// A migration's `down` undoes the schema it created, and for the initial
+/// migration that includes these tables. The runner re-creates them before
+/// writing the rollback down, so its own bookkeeping survives.
+const MIGRATION_BOOKKEEPING_SCHEMA: &str = "
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    applied_at TEXT NOT NULL,
+    checksum TEXT NOT NULL
+);
+";
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS meta (
@@ -1163,14 +1205,23 @@ impl Migration for MigrationV1 {
     fn description(&self) -> &str {
         "initial_schema"
     }
-    fn up(&self, conn: &Connection) -> Result<()> {
+
+    fn up(&self, _conn: &Connection) -> Result<()> {
         // This is a no-op since the initial schema is already applied in SCHEMA
+        let _ = conn;
         Ok(())
     }
+
     fn down(&self, conn: &Connection) -> Result<()> {
-        // Rollback: drop all tables
+        // Rollback: drop every table the initial bootstrap created. That
+        // includes the feature-flag tables, which `Database::initialize`
+        // applies alongside SCHEMA.
         conn.execute_batch(
-            "DROP TABLE IF EXISTS events;
+            "DROP TABLE IF EXISTS flag_metrics;
+             DROP TABLE IF EXISTS flag_overrides;
+             DROP TABLE IF EXISTS flag_states;
+             DROP TABLE IF EXISTS flag_definitions;
+             DROP TABLE IF EXISTS events;
              DROP TABLE IF EXISTS templates;
              DROP TABLE IF EXISTS plugins;
              DROP TABLE IF EXISTS config_kv;
@@ -1373,7 +1424,6 @@ mod tests {
         // Try to rollback a migration that isn't the latest
         let result = db.rollback_migration(0);
         assert!(result.is_err());
-        assert!(result.is_err());
     }
 
     #[test]
@@ -1413,9 +1463,13 @@ mod tests {
         let db = in_memory_db();
         let migration = MigrationV1 {};
         let conn = db.conn;
+
         // Verify tables exist before rollback
         let table_count: i64 = conn
             .query_row(
+                // `sqlite_%` names are SQLite's own internals (sqlite_sequence
+                // is created by the AUTOINCREMENT columns) and are not part of
+                // the schema a migration owns.
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
                 [],
                 |r| r.get(0),
@@ -1425,9 +1479,13 @@ mod tests {
 
         // Rollback
         migration.down(&conn).unwrap();
+
         // Verify tables are dropped
         let table_count_after: i64 = conn
             .query_row(
+                // `sqlite_%` names are SQLite's own internals (sqlite_sequence
+                // is created by the AUTOINCREMENT columns) and are not part of
+                // the schema a migration owns.
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
                 [],
                 |r| r.get(0),

@@ -1,6 +1,6 @@
 use crate::utils::template_integration;
 use crate::utils::template_performance;
-use crate::utils::{output, print as p, registry, template_customization_ai, templates};
+use crate::utils::{output, print as p, template_customization_ai, templates};
 use anyhow::{Context, Result};
 use clap::Subcommand;
 use colored::Colorize;
@@ -25,12 +25,24 @@ pub enum TemplateCommands {
         /// Force refresh of remote registry, ignoring cached copy
         #[arg(long)]
         refresh: bool,
+        /// Maximum number of results to show per page. Omit to show all matches.
+        #[arg(long)]
+        limit: Option<usize>,
+        /// Resume after this pagination cursor (from a previous page's "Next cursor")
+        #[arg(long)]
+        cursor: Option<String>,
     },
     /// List all available templates
     List {
         /// Emit a machine-readable JSON object instead of the human-readable output
         #[arg(long)]
         json: bool,
+        /// Maximum number of templates to show per page. Omit to show all.
+        #[arg(long)]
+        limit: Option<usize>,
+        /// Resume after this pagination cursor (from a previous page's "Next cursor")
+        #[arg(long)]
+        cursor: Option<String>,
     },
     /// Show details of a specific template
     Show {
@@ -161,6 +173,15 @@ pub enum TemplateCommands {
         #[arg(long)]
         output: Option<std::path::PathBuf>,
     },
+    /// Validate a template registry (or a single template's metadata) against the registry schema
+    Validate {
+        /// Registry JSON file, or a JSON file holding one template entry.
+        /// Defaults to the local registry, falling back to the bundled one.
+        path: Option<PathBuf>,
+        /// Emit a machine-readable JSON report instead of human-readable output
+        #[arg(long)]
+        json: bool,
+    },
     /// Show security review status for a template (or all templates)
     Audit {
         /// Template name (omit to list the security status of all templates)
@@ -241,14 +262,20 @@ pub async fn handle(cmd: TemplateCommands) -> Result<()> {
             )
             .await
         }
-        TemplateCommands::List { json } => list(json).await,
+        TemplateCommands::List {
+            json,
+            limit,
+            cursor,
+        } => list(json, limit, cursor).await,
         TemplateCommands::Search {
             query,
             tags,
             verified,
             min_quality,
             refresh,
-        } => search(query, tags, verified, min_quality, refresh).await,
+            limit,
+            cursor,
+        } => search(query, tags, verified, min_quality, refresh, limit, cursor).await,
         TemplateCommands::Show { name } => show(name).await,
         TemplateCommands::Remove { name, purge } => remove(name, purge).await,
         TemplateCommands::Init => init(),
@@ -263,6 +290,7 @@ pub async fn handle(cmd: TemplateCommands) -> Result<()> {
         TemplateCommands::Rollback { name } => rollback(name).await,
         TemplateCommands::Test { name, verbose } => template_test(name, verbose).await,
         TemplateCommands::Docs { name, output } => template_docs(name, output).await,
+        TemplateCommands::Validate { path, json } => template_validate(path, json),
         TemplateCommands::Audit { name } => template_audit(name).await,
         TemplateCommands::Customize { path, requirements } => {
             template_customize(path, requirements).await
@@ -274,6 +302,9 @@ pub async fn handle(cmd: TemplateCommands) -> Result<()> {
     }
 }
 
+// Not currently called from any code path in this crate. Kept rather than
+// removed since deleting it is a product decision, not a lint-scoping one.
+#[allow(dead_code)]
 async fn template_assist(
     template: String,
     project: PathBuf,
@@ -322,6 +353,10 @@ async fn template_assist(
     }
     Ok(())
 }
+// Each parameter is an independent, named input (CLI flags / distinct config
+// values); bundling them into a struct here would add indirection without
+// reducing real complexity.
+#[allow(clippy::too_many_arguments)]
 async fn import(
     path: PathBuf,
     name: Option<String>,
@@ -352,6 +387,10 @@ async fn import(
     Ok(())
 }
 
+// Each parameter is an independent, named input (CLI flags / distinct config
+// values); bundling them into a struct here would add indirection without
+// reducing real complexity.
+#[allow(clippy::too_many_arguments)]
 async fn publish(
     path: PathBuf,
     name: Option<String>,
@@ -430,16 +469,53 @@ async fn publish(
     Ok(())
 }
 
-async fn list(json: bool) -> Result<()> {
+/// Default number of results shown per page when pagination is requested via
+/// `--cursor` without an explicit `--limit`.
+const DEFAULT_PAGE_LIMIT: usize = 20;
+
+/// Print the "Shown X of Y" / "Next cursor" footer for a paginated command,
+/// when pagination was requested at all.
+fn print_pagination_footer<T>(page: Option<&templates::Page<T>>) {
+    if let Some(page) = page {
+        println!();
+        p::kv("Shown", &format!("{} of {}", page.items.len(), page.total));
+        if let Some(next) = &page.next_cursor {
+            p::info(&format!(
+                "More results available — pass --cursor {} to continue",
+                next
+            ));
+        }
+    }
+}
+
+async fn list(json: bool, limit: Option<usize>, cursor: Option<String>) -> Result<()> {
     use crate::utils::templates::{check_template_compatibility, CompatibilityStatus};
 
     let registry = templates::load_registry().await?;
     let emit_json = json || output::is_json_mode_enabled();
 
+    // Pagination only kicks in when the caller opts in via --limit or
+    // --cursor, so plain `template list` keeps showing everything.
+    let page = match limit.or(cursor.is_some().then_some(DEFAULT_PAGE_LIMIT)) {
+        Some(limit) => Some(templates::paginate(
+            &registry.templates,
+            cursor.as_deref(),
+            limit,
+            |t| t.name.as_str(),
+        )?),
+        None => None,
+    };
+    let shown: &[templates::TemplateEntry] = match &page {
+        Some(page) => &page.items,
+        None => &registry.templates,
+    };
+
     if emit_json {
         #[derive(serde::Serialize)]
         struct TemplateListResponse {
             template_count: usize,
+            shown_count: usize,
+            next_cursor: Option<String>,
             templates: Vec<TemplateSummary>,
         }
 
@@ -454,8 +530,9 @@ async fn list(json: bool) -> Result<()> {
             compatible: bool,
         }
 
-        let templates: Vec<TemplateSummary> = registry
-            .templates
+        let template_count = registry.templates.len();
+        let next_cursor = page.as_ref().and_then(|p| p.next_cursor.clone());
+        let templates: Vec<TemplateSummary> = shown
             .iter()
             .map(|template| {
                 let compatible = matches!(
@@ -475,7 +552,9 @@ async fn list(json: bool) -> Result<()> {
             .collect();
 
         return output::print_json(&TemplateListResponse {
-            template_count: templates.len(),
+            template_count,
+            shown_count: templates.len(),
+            next_cursor,
             templates,
         });
     }
@@ -484,8 +563,12 @@ async fn list(json: bool) -> Result<()> {
         p::info("No templates found. Publish one with: starforge template publish <path>");
         return Ok(());
     }
+    if shown.is_empty() {
+        p::info("No more templates on this page.");
+        return Ok(());
+    }
 
-    for (i, template) in registry.templates.iter().enumerate() {
+    for (i, template) in shown.iter().enumerate() {
         let compat_badge = match check_template_compatibility(template) {
             CompatibilityStatus::Compatible => "[COMPATIBLE]",
             CompatibilityStatus::TooOld { .. } | CompatibilityStatus::TooNew { .. } => {
@@ -511,20 +594,25 @@ async fn list(json: bool) -> Result<()> {
         if let Some(path) = template.path.as_ref() {
             p::kv("Path", path);
         }
-        if i + 1 < registry.templates.len() {
+        if i + 1 < shown.len() {
             println!();
         }
     }
 
+    print_pagination_footer(page.as_ref());
+
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn search(
     query: String,
     tags: Option<String>,
     verified: bool,
     min_quality: u8,
     refresh: bool,
+    limit: Option<usize>,
+    cursor: Option<String>,
 ) -> Result<()> {
     use crate::utils::templates::{check_template_compatibility, CompatibilityStatus};
     let tag_list: Vec<String> = tags
@@ -580,10 +668,31 @@ async fn search(
         return Ok(());
     }
 
+    // Pagination only kicks in when the caller opts in via --limit or
+    // --cursor, so plain `template search` keeps showing every match.
+    let page = match limit.or(cursor.is_some().then_some(DEFAULT_PAGE_LIMIT)) {
+        Some(limit) => Some(templates::paginate(
+            &results,
+            cursor.as_deref(),
+            limit,
+            |r| r.entry.name.as_str(),
+        )?),
+        None => None,
+    };
+    let shown: &[templates::SearchResult] = match &page {
+        Some(page) => &page.items,
+        None => &results,
+    };
+
     p::kv("Matches", &results.len().to_string());
     println!();
 
-    for (i, result) in results.iter().enumerate() {
+    if shown.is_empty() {
+        p::info("No more results on this page.");
+        return Ok(());
+    }
+
+    for (i, result) in shown.iter().enumerate() {
         let template = &result.entry;
         let compat_badge = match check_template_compatibility(template) {
             CompatibilityStatus::Compatible => "[COMPATIBLE]",
@@ -619,10 +728,12 @@ async fn search(
             );
         }
         p::kv("Source", &template.source.to_string());
-        if i + 1 < results.len() {
+        if i + 1 < shown.len() {
             println!();
         }
     }
+
+    print_pagination_footer(page.as_ref());
 
     Ok(())
 }
@@ -729,6 +840,9 @@ fn init() -> Result<()> {
     Ok(())
 }
 
+// Not currently called from any code path in this crate. Kept rather than
+// removed since deleting it is a product decision, not a lint-scoping one.
+#[allow(dead_code)]
 async fn optimize(path: PathBuf, name: Option<String>) -> Result<()> {
     let analysis = template_performance::analyze_template_directory(&path, name.as_deref())?;
 
@@ -895,6 +1009,9 @@ async fn info(name: String) -> Result<()> {
     Ok(())
 }
 
+// Not currently called from any code path in this crate. Kept rather than
+// removed since deleting it is a product decision, not a lint-scoping one.
+#[allow(dead_code)]
 async fn fetch(
     source: String,
     name: Option<String>,
@@ -1147,6 +1264,78 @@ async fn template_docs(name: String, output: Option<std::path::PathBuf>) -> Resu
     Ok(())
 }
 
+// ─── template validate ────────────────────────────────────────────────────────
+
+/// Check a registry document against `templates/registry.schema.json` and
+/// report every problem, each anchored to the field that caused it.
+///
+/// With no path it checks the registry the CLI would actually load: the local
+/// registry, or the bundled one when no local registry exists yet.
+fn template_validate(path: Option<std::path::PathBuf>, json: bool) -> Result<()> {
+    let report = match path {
+        Some(path) => {
+            if !path.exists() {
+                anyhow::bail!("No such file: {}", path.display());
+            }
+            templates::validate_registry_file(&path)?
+        }
+        None => {
+            let local = templates::active_registry_path()?;
+            if local.exists() {
+                templates::validate_registry_file(&local)?
+            } else {
+                templates::validate_bundled_registry()?
+            }
+        }
+    };
+
+    if json {
+        output::print_json(&serde_json::json!({
+            "origin": report.origin,
+            "valid": report.is_valid(),
+            "errors": report.errors.iter().map(|issue| serde_json::json!({
+                "field": issue.field,
+                "message": issue.message,
+            })).collect::<Vec<_>>(),
+            "warnings": report.warnings.iter().map(|issue| serde_json::json!({
+                "field": issue.field,
+                "message": issue.message,
+            })).collect::<Vec<_>>(),
+        }))?;
+    } else {
+        p::header(&format!("Validating {}", report.origin));
+        for issue in &report.errors {
+            println!(
+                "  {} {}",
+                "✗".red().bold(),
+                issue.to_string().bright_white()
+            );
+        }
+        for issue in &report.warnings {
+            println!("  {} {}", "⚠".yellow().bold(), issue);
+        }
+        if report.is_valid() {
+            p::success(&format!(
+                "Matches the registry schema{}",
+                if report.warnings.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({} warning(s))", report.warnings.len())
+                }
+            ));
+        }
+    }
+
+    if report.is_valid() {
+        Ok(())
+    } else {
+        anyhow::bail!(
+            "{} field(s) do not match the template registry schema",
+            report.errors.len()
+        )
+    }
+}
+
 // ─── template audit ───────────────────────────────────────────────────────────
 
 async fn template_audit(name: Option<String>) -> Result<()> {
@@ -1178,7 +1367,6 @@ async fn template_audit(name: Option<String>) -> Result<()> {
             Some(sr) => (
                 sr.status.as_str(),
                 sr.findings
-                    .clone()
                     .map(|f| f.to_string())
                     .unwrap_or_else(|| "—".to_string()),
                 sr.score

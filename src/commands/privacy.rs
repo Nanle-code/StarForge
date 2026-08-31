@@ -1,7 +1,6 @@
 use crate::utils::{print as p, privacy};
 use anyhow::Result;
-use clap::{Args, Subcommand};
-use serde_json::json;
+use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum PrivacyCommands {

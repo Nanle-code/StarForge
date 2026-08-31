@@ -1,7 +1,6 @@
 use crate::utils::{config, print as p, social};
 use anyhow::Result;
 use clap::{Args, Subcommand};
-use std::path::PathBuf;
 
 #[derive(Subcommand)]
 pub enum SocialCommands {

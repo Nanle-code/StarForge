@@ -1,4 +1,3 @@
-use std::mem::size_of;
 use std::time::{Duration, Instant};
 
 #[cfg(feature = "memory-profiling")]
@@ -125,6 +124,9 @@ pub struct Profiler {
 #[cfg(feature = "memory-profiling")]
 #[derive(Debug)]
 struct MemoryTracker {
+    // Not currently called from any code path in this crate. Kept rather than
+    // removed since deleting it is a product decision, not a lint-scoping one.
+    #[allow(dead_code)]
     start: Instant,
     current_memory: usize,
     peak_memory: usize,
@@ -143,10 +145,6 @@ impl MemoryTracker {
     }
 }
 
-#[cfg(not(feature = "memory-profiling"))]
-#[derive(Debug)]
-struct MemoryTracker;
-
 impl Profiler {
     pub fn start() -> Self {
         #[cfg(feature = "memory-profiling")]
@@ -156,8 +154,6 @@ impl Profiler {
             peak_memory: 0,
             samples: Vec::new(),
         });
-        #[cfg(not(feature = "memory-profiling"))]
-        let memory_tracker: Option<MemoryTracker> = None;
 
         Self {
             start: Instant::now(),

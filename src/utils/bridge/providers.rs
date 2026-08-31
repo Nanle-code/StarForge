@@ -81,7 +81,7 @@ pub fn default_providers() -> Vec<BridgeProvider> {
 
 /// Initiate a cross-chain transfer through the configured provider.
 pub fn initiate_transfer(
-    provider: &BridgeProvider,
+    _provider: &BridgeProvider,
     request: &BridgeTransferRequest,
 ) -> anyhow::Result<BridgeTransferResult> {
     let transfer_id = uuid::Uuid::new_v4().to_string();

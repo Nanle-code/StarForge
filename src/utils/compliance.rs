@@ -401,7 +401,7 @@ pub fn run_compliance_checks(
                     policy_name: policy.name.clone(),
                     passed: regulatory_checks.iter().all(|r| r.passed),
                     severity: policy.severity.clone(),
-                    message: format!("Regulatory compliance check complete"),
+                    message: "Regulatory compliance check complete".to_string(),
                 }
             }
             PolicyType::SecurityCompliance => {
@@ -852,7 +852,7 @@ fn check_gdpr_compliance(network: &str, _contract_id: &str) -> Vec<RegulatoryChe
     ]
 }
 
-fn check_soc2_compliance(network: &str, _contract_id: &str) -> Vec<RegulatoryCheck> {
+fn check_soc2_compliance(_network: &str, _contract_id: &str) -> Vec<RegulatoryCheck> {
     vec![
         RegulatoryCheck {
             framework: RegulatoryFramework::Soc2,
@@ -1275,16 +1275,28 @@ pub fn perform_risk_assessment(
     });
     total_score += id_risk as u32;
 
-    // Calculate overall score (0-100, weighted)
-    let max_possible = 5u32 * 100; // 5 factors, max 100 each
+    // Calculate overall score (0-100, weighted).
+    //
+    // The denominator is the score that is actually reachable, not a notional
+    // 100 per factor: no factor above scores anywhere near 100, so dividing by
+    // 500 would leave even a wholly non-compliant mainnet deployment below the
+    // Critical threshold.
+    const MAX_NETWORK_RISK: u32 = 70;
+    const MAX_POLICY_RISK: u32 = 80;
+    const MAX_REGULATORY_RISK: u32 = 75;
+    const MAX_BEST_PRACTICE_RISK: u32 = 40;
+    const MAX_ID_RISK: u32 = 25;
+    let max_possible = MAX_NETWORK_RISK
+        + MAX_POLICY_RISK
+        + MAX_REGULATORY_RISK
+        + MAX_BEST_PRACTICE_RISK
+        + MAX_ID_RISK;
     let overall_score = ((total_score as f64 / max_possible as f64) * 100.0).round() as u8;
 
     // Determine risk level. A blocking policy violation is a hard stop
     // regardless of the averaged score, consistent with `approved_for_deployment`
     // below also refusing deployment whenever one is present.
-    let overall_level = if failed_blocking > 0 {
-        RiskLevel::Critical
-    } else if overall_score >= 70 {
+    let overall_level = if failed_blocking > 0 || overall_score >= 70 {
         RiskLevel::Critical
     } else if overall_score >= 50 {
         RiskLevel::High
@@ -1481,7 +1493,7 @@ pub fn export_report_csv(report: &ComplianceReport) -> String {
             csv_escape("policy"),
             csv_escape(&check.policy_id),
             csv_escape(&check.policy_name),
-            csv_escape(&check.passed),
+            csv_escape(check.passed),
             csv_escape(&check.severity),
             csv_escape(&check.message),
         ));
@@ -1492,7 +1504,7 @@ pub fn export_report_csv(report: &ComplianceReport) -> String {
             csv_escape("regulatory"),
             csv_escape(""),
             csv_escape(&check.requirement),
-            csv_escape(&check.passed),
+            csv_escape(check.passed),
             csv_escape(&check.severity),
             csv_escape(&check.message),
             csv_escape(&check.framework),
@@ -1504,7 +1516,7 @@ pub fn export_report_csv(report: &ComplianceReport) -> String {
             csv_escape("best_practice"),
             csv_escape(""),
             csv_escape(&practice.check),
-            csv_escape(&practice.passed),
+            csv_escape(practice.passed),
             csv_escape(&practice.severity),
             csv_escape(&practice.recommendation),
             csv_escape(&practice.category),
@@ -1521,6 +1533,9 @@ pub fn export_report_json(report: &ComplianceReport) -> Result<String> {
 // Default policy initialization
 // ────────────────────────────────────────────────
 
+// Eight multi-line `create_policy(...)?` calls read far more clearly as
+// sequential pushes than as one giant `vec![]` literal.
+#[allow(clippy::vec_init_then_push)]
 pub fn build_default_policies() -> Result<Vec<CompliancePolicy>> {
     let existing = load_policies_raw()?;
     if !existing.is_empty() {

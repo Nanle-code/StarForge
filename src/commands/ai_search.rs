@@ -4,7 +4,6 @@ use crate::utils::print as p;
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use colored::*;
-use std::fs;
 use std::path::PathBuf;
 
 #[derive(Subcommand)]

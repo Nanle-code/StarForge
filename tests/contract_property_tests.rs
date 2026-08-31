@@ -287,6 +287,9 @@ proptest! {
             vec![serde_json::json!("test")],
             serde_json::json!({"data": 1}),
         );
+        let account = MockAddress::account(1);
+        env.auth.auto_approve(account.clone());
+        env.auth.require_auth(&account, &MockAddress::contract(1), "test_fn");
         env.auth.auto_approve(MockAddress::account(1));
         env.auth.require_auth(&MockAddress::account(1), &MockAddress::contract(1), "test");
 

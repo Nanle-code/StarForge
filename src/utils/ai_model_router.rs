@@ -316,7 +316,7 @@ pub fn classify_task(prompt: &str, category_hint: Option<TaskCategory>) -> TaskC
             TaskComplexity::Simple
         };
 
-    let estimated_tokens = (word_count as u32 * 2).max(256).min(8192);
+    let estimated_tokens = (word_count as u32 * 2).clamp(256, 8192);
     let confidence = if category_hint.is_some() {
         0.95
     } else if signals.len() >= 2 {
@@ -366,17 +366,14 @@ fn infer_category(lower: &str, has_code: bool, signals: &mut Vec<String>) -> Tas
     } else if lower.contains("document") || lower.contains("readme") || lower.contains("explain") {
         TaskCategory::Documentation
     } else if lower.contains("generate") || lower.contains("implement") || lower.contains("write") {
-        if has_code
-            || lower.contains("contract")
-            || lower.contains("code")
-            || lower.contains("function")
-            || lower.contains("program")
-        {
-            signals.push("code_generation".into());
-            TaskCategory::CodeGeneration
-        } else {
-            TaskCategory::General
+        // Asking for code to be produced is code generation whether or not the
+        // prompt already carries a snippet; an included snippet is only a
+        // stronger signal, not a precondition.
+        signals.push("code_generation".into());
+        if has_code {
+            signals.push("inline_code".into());
         }
+        TaskCategory::CodeGeneration
     } else if has_code || lower.contains("analyze") || lower.contains("review") {
         TaskCategory::CodeAnalysis
     } else {
@@ -535,7 +532,7 @@ fn build_decision(
         None
     } else {
         ai_telemetry::estimate_cost(
-            &provider_name(&model.provider),
+            provider_name(&model.provider),
             &model.model,
             classification.estimated_tokens as u64,
             (classification.estimated_tokens / 2) as u64,
@@ -596,10 +593,15 @@ pub fn config_from_decision(decision: &RoutingDecision) -> AIServiceConfig {
     }
 }
 
+/// (provider, model, feature)
+type ModelKey = (String, String, String);
+/// (call_count, success_count, total_latency_ms, total_tokens)
+type ModelTotals = (u64, u64, u64, u64);
+
 /// Aggregate model performance from local AI telemetry records.
 pub fn model_performance_stats(days: Option<u32>) -> Result<Vec<ModelPerformanceRecord>> {
     let records = ai_telemetry::load_records(days)?;
-    let mut by_model: HashMap<(String, String, String), (u64, u64, u64, u64)> = HashMap::new();
+    let mut by_model: HashMap<ModelKey, ModelTotals> = HashMap::new();
 
     for r in &records {
         let key = (r.provider.clone(), r.model.clone(), r.feature.clone());
@@ -626,15 +628,15 @@ pub fn model_performance_stats(days: Option<u32>) -> Result<Vec<ModelPerformance
                     } else {
                         0.0
                     },
-                    avg_latency_ms: if total > 0 { latency / total } else { 0 },
-                    avg_tokens: if total > 0 { tokens / total } else { 0 },
+                    avg_latency_ms: latency.checked_div(total).unwrap_or(0),
+                    avg_tokens: tokens.checked_div(total).unwrap_or(0),
                     total_calls: total,
                 }
             },
         )
         .collect();
 
-    stats.sort_by(|a, b| b.total_calls.cmp(&a.total_calls));
+    stats.sort_by_key(|a| std::cmp::Reverse(a.total_calls));
     Ok(stats)
 }
 

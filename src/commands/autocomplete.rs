@@ -1,6 +1,4 @@
-use crate::utils::history::{
-    history_file_path, load_history, prune_history, save_history, HistoryEntry,
-};
+use crate::utils::history::{load_history, prune_history, save_history, HistoryEntry};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

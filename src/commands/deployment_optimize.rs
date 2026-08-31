@@ -364,7 +364,7 @@ fn print_optimization_result(
     }
 }
 
-fn handle_history(limit: usize) -> Result<()> {
+fn handle_history(_limit: usize) -> Result<()> {
     p::header("Deployment Optimization History");
     p::separator();
 

@@ -209,7 +209,7 @@ fn handle_create(args: CreateArgs) -> Result<()> {
         &args.sources,
         &args.label,
         args.encrypt,
-        passphrase.as_deref(),
+        passphrase.as_deref().map(|s| s.as_str()),
         &args.region,
     )?;
 
@@ -275,7 +275,7 @@ fn handle_verify(args: VerifyArgs) -> Result<()> {
     } else {
         None
     };
-    let updated = backup::verify_backup(&args.id, passphrase.as_deref())?;
+    let updated = backup::verify_backup(&args.id, passphrase.as_deref().map(|s| s.as_str()))?;
     p::kv("Backup ID", &updated.id);
     p::kv("Status", &updated.status.to_string());
     p::success("Backup verified successfully");
@@ -290,7 +290,11 @@ fn handle_restore(args: RestoreArgs) -> Result<()> {
     } else {
         None
     };
-    let extracted = backup::restore_backup(&args.id, &args.dest, passphrase.as_deref())?;
+    let extracted = backup::restore_backup(
+        &args.id,
+        &args.dest,
+        passphrase.as_deref().map(|s| s.as_str()),
+    )?;
     p::kv("Files restored", &extracted.len().to_string());
     for f in &extracted {
         println!("  - {}", f);
@@ -310,7 +314,11 @@ fn handle_restore_pit(args: RestorePitArgs) -> Result<()> {
     } else {
         None
     };
-    let extracted = backup::restore_backup(&at.id, &args.dest, passphrase.as_deref())?;
+    let extracted = backup::restore_backup(
+        &at.id,
+        &args.dest,
+        passphrase.as_deref().map(|s| s.as_str()),
+    )?;
     p::kv("Files restored", &extracted.len().to_string());
     p::success("Point-in-time recovery complete");
     Ok(())
@@ -333,7 +341,7 @@ fn handle_test_recovery(args: VerifyArgs) -> Result<()> {
     } else {
         None
     };
-    let count = backup::test_restore(&args.id, passphrase.as_deref())?;
+    let count = backup::test_restore(&args.id, passphrase.as_deref().map(|s| s.as_str()))?;
     p::kv("Files verified", &count.to_string());
     p::success("Recovery test passed — backup can be restored");
     Ok(())
@@ -361,7 +369,7 @@ async fn handle_auto_run(_args: AutoRunArgs) -> Result<()> {
     } else {
         None
     };
-    let ran = backup::run_automation(passphrase.as_deref())?;
+    let ran = backup::run_automation(passphrase.as_deref().map(|s| s.as_str()))?;
     let mut contract_ran = Vec::new();
     for cfg in backup::list_automation()? {
         let Some(contract) = cfg.contract.as_ref() else {
@@ -376,7 +384,7 @@ async fn handle_auto_run(_args: AutoRunArgs) -> Result<()> {
             &contract.network,
             &cfg.label,
             cfg.encrypt,
-            passphrase.as_deref(),
+            passphrase.as_deref().map(|s| s.as_str()),
             &cfg.region,
         )?;
         backup::mark_automation_ran(&cfg.label, chrono::Utc::now())?;
@@ -413,11 +421,14 @@ async fn handle_contract_state(args: ContractStateArgs) -> Result<()> {
         &args.network,
         &args.label,
         args.encrypt,
-        passphrase.as_deref(),
+        passphrase.as_deref().map(|s| s.as_str()),
         &args.region,
     )?;
     p::step(3, 3, "Verifying backup manifest...");
-    let manifest = backup::verify_contract_state_backup(&record.id, passphrase.as_deref())?;
+    let manifest = backup::verify_contract_state_backup(
+        &record.id,
+        passphrase.as_deref().map(|s| s.as_str()),
+    )?;
 
     p::kv("Backup ID", &record.id);
     p::kv("Contract", &manifest.contract_id);
@@ -440,7 +451,8 @@ fn handle_verify_state(args: VerifyArgs) -> Result<()> {
     } else {
         None
     };
-    let manifest = backup::verify_contract_state_backup(&args.id, passphrase.as_deref())?;
+    let manifest =
+        backup::verify_contract_state_backup(&args.id, passphrase.as_deref().map(|s| s.as_str()))?;
     p::kv("Backup ID", &args.id);
     p::kv("Contract", &manifest.contract_id);
     p::kv("Manifest checksum", &manifest.checksum);
@@ -461,7 +473,7 @@ fn handle_restore_state(args: RestoreStateArgs) -> Result<()> {
         &args.target_network,
         args.target_contract.as_deref(),
         &args.output_dir,
-        passphrase.as_deref(),
+        passphrase.as_deref().map(|s| s.as_str()),
     )?;
     p::kv("Target network", &restore.target_network);
     if let Some(contract) = &restore.target_contract_id {

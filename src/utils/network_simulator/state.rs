@@ -67,6 +67,10 @@ impl SnapshotManager {
     }
 
     /// Take a snapshot of the current simulator state.
+    // Each parameter is an independent, named input (CLI flags / distinct config
+    // values); bundling them into a struct here would add indirection without
+    // reducing real complexity.
+    #[allow(clippy::too_many_arguments)]
     pub fn take_snapshot(
         &mut self,
         label: &str,
@@ -127,7 +131,7 @@ impl SnapshotManager {
             if path.exists() {
                 if let Ok(json) = fs::read_to_string(&path) {
                     if let Ok(snapshot) = serde_json::from_str::<StateSnapshot>(&json) {
-                        let label = snapshot.label.clone();
+                        let _label = snapshot.label.clone();
                         self.snapshots.insert(id.to_string(), snapshot);
                         return self.snapshots.get(id);
                     }

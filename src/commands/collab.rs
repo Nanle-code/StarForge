@@ -21,7 +21,7 @@ use chrono::{DateTime, Utc};
 use clap::Subcommand;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 // ─── Sub-command enum ──────────────────────────────────────────────────────
@@ -145,7 +145,7 @@ fn save_store(store: &CollabStore) -> Result<()> {
     Ok(())
 }
 
-fn record_review(file: &PathBuf, kind: &str) {
+fn record_review(file: &Path, kind: &str) {
     if let Ok(mut store) = load_store() {
         store.reviews.push(ReviewRecord {
             file: file.display().to_string(),
@@ -371,7 +371,7 @@ fn handle_contributions(days: i64) -> Result<()> {
     let total: usize = counts.values().sum();
 
     let mut rows: Vec<(String, usize)> = counts.into_iter().collect();
-    rows.sort_by(|a, b| b.1.cmp(&a.1));
+    rows.sort_by_key(|a| std::cmp::Reverse(a.1));
 
     let headers = &["Author", "Commits", "Share"];
     let table_rows: Vec<Vec<String>> = rows

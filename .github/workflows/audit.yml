@@ -1,0 +1,22 @@
+name: Security Audit
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    - cron: '0 0 * * 0' # Weekly on Sundays
+
+jobs:
+  audit:
+    name: Cargo Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v1.4.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # Keep in sync with the documented, justified exceptions in audit.toml —
+          # this action does not read that file itself, only this input.
+          ignore: RUSTSEC-2026-0098,RUSTSEC-2026-0099,RUSTSEC-2026-0104,RUSTSEC-2025-0119,RUSTSEC-2024-0388,RUSTSEC-2024-0436,RUSTSEC-2025-0134,RUSTSEC-2026-0258,RUSTSEC-2026-0009

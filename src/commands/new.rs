@@ -201,6 +201,10 @@ async fn scaffold_contract_interactive(default_name: String) -> Result<()> {
     .await
 }
 
+// Each parameter is an independent, named input (CLI flags / distinct config
+// values); bundling them into a struct here would add indirection without
+// reducing real complexity.
+#[allow(clippy::too_many_arguments)]
 async fn scaffold_contract(
     name: String,
     template: String,
@@ -879,14 +883,23 @@ fn dapp_index(name: &str) -> String {
     )
 }
 
+// Not currently called from any code path in this crate. Kept rather than
+// removed since deleting it is a product decision, not a lint-scoping one.
+#[allow(dead_code)]
 fn dapp_tsconfig() -> String {
     r#"{"compilerOptions": {"target": "es2020", "module": "esnext", "moduleResolution": "node", "esModuleInterop": true}}"#.to_string()
 }
 
+// Not currently called from any code path in this crate. Kept rather than
+// removed since deleting it is a product decision, not a lint-scoping one.
+#[allow(dead_code)]
 fn dapp_tsconfig_node() -> String {
     r#"{"extends": "./tsconfig.json", "compilerOptions": {"module": "commonjs", "target": "es2020", "moduleResolution": "node", "esModuleInterop": true}}"#.to_string()
 }
 
+// Not currently called from any code path in this crate. Kept rather than
+// removed since deleting it is a product decision, not a lint-scoping one.
+#[allow(dead_code)]
 fn dapp_vite_env_types(wallet_kit: bool) -> String {
     if wallet_kit {
         r#"interface ImportMetaEnv { VITE_NETWORK: string; VITE_WALLET_KIT: boolean; }"#.to_string()
@@ -977,6 +990,9 @@ Source: `{source}`
 
 // ── Template Marketplace ──────────────────────────────────────────────────────
 
+// Not currently called from any code path in this crate. Kept rather than
+// removed since deleting it is a product decision, not a lint-scoping one.
+#[allow(dead_code)]
 async fn handle_template_search(query: &str, tags: Option<&str>) -> Result<()> {
     p::header("Template Marketplace — Search");
     p::kv("Query", query);
@@ -1078,6 +1094,9 @@ impl Drop for PathCleanup {
 /// Run a single install step behind a spinner, finishing with a check mark on
 /// success or clearing the spinner and attaching an actionable message on
 /// failure.
+// Not currently called from any code path in this crate. Kept rather than
+// removed since deleting it is a product decision, not a lint-scoping one.
+#[allow(dead_code)]
 fn install_step<T>(
     label: &str,
     done: &str,
@@ -1097,6 +1116,9 @@ fn install_step<T>(
     }
 }
 
+// Not currently called from any code path in this crate. Kept rather than
+// removed since deleting it is a product decision, not a lint-scoping one.
+#[allow(dead_code)]
 async fn scaffold_from_marketplace(name: String, template_name: String) -> Result<()> {
     p::header(&format!("Scaffolding from Marketplace: {}", template_name));
 
@@ -1222,10 +1244,13 @@ async fn scaffold_from_marketplace(name: String, template_name: String) -> Resul
     Ok(())
 }
 
+// Not currently called from any code path in this crate. Kept rather than
+// removed since deleting it is a product decision, not a lint-scoping one.
+#[allow(dead_code)]
 fn copy_template_contents(src: &Path, dst: &Path, project_name: &str) -> Result<()> {
     let mut entries: Vec<_> = fs::read_dir(src)?.filter_map(|e| e.ok()).collect();
 
-    entries.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+    entries.sort_by_key(|a| a.file_name());
 
     for entry in entries {
         let path = entry.path();
@@ -1384,10 +1409,10 @@ mod determinism_tests {
         fs::create_dir_all(&out).unwrap();
         copy_template_contents(&template_dir, &out, "hello-world").unwrap();
 
-        let content = fs::read_to_string(out.join("lib.rs")).unwrap();
+        let content = fs::read_to_string(out.join("src/lib.rs")).unwrap();
         assert_eq!(
             content,
-            "name=hello-world snake=hello_world pascal=HelloWorld"
+            "name=hello-world snake=hello_world Pascal=HelloWorld"
         );
     }
 

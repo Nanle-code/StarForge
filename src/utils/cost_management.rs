@@ -412,7 +412,7 @@ pub fn compare_networks(
             adjusted_total_xlm: adjusted as f64 / 10_000_000.0,
         });
     }
-    results.sort_by(|a, b| a.adjusted_total_stroops.cmp(&b.adjusted_total_stroops));
+    results.sort_by_key(|a| a.adjusted_total_stroops);
     Ok(results)
 }
 

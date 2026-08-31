@@ -174,3 +174,39 @@ corpora, and the invariants each target asserts.
 - [WALLET_ENCRYPTION_FIX.md](../WALLET_ENCRYPTION_FIX.md) — the encryption format itself
 - [SECURITY_LOGGING_GUIDE.md](../SECURITY_LOGGING_GUIDE.md) — what may be logged
 - [docs/COMMAND_REFERENCE.md](COMMAND_REFERENCE.md) — the `wallet` command
+
+---
+
+## Secret material lifetime and zeroization
+
+StarForge uses the [`zeroize`](https://docs.rs/zeroize) crate to overwrite
+sensitive bytes with zeros before they are freed. The following are zeroized
+immediately after use:
+
+| Material | File | Mechanism |
+|---|---|---|
+| Argon2-derived AES key (32 bytes) | `utils/crypto.rs` | `Zeroizing<[u8; 32]>` drops on scope exit |
+| BIP39 seed (64 bytes) | `utils/mnemonic.rs` | `Zeroizing<[u8; 64]>` drops on scope exit |
+| SLIP-0010 intermediate key + chain (2 × 32 bytes per derivation step) | `utils/mnemonic.rs` | `Zeroizing<[u8; 32]>` drops after each child derivation |
+| Raw ed25519 private key bytes | `utils/mnemonic.rs` | `Zeroizing<[u8; 32]>` drops on scope exit |
+| Decrypted Stellar secret key string | `utils/wallet_signer.rs` | `Zeroizing<String>` drops with `SigningRequest` |
+| Passphrase / password from terminal prompt | `utils/crypto.rs` | `Zeroizing<String>` drops when caller is done |
+
+### Compatibility notes
+
+`zeroize` v1.9.0 was already an indirect dependency (pulled in by `argon2`); this
+change makes it direct and enables the derive feature. No migration is needed.
+
+### Security caveats
+
+- **WASM builds**: `zeroize` uses `volatile_write` and a compiler fence on native
+  targets. WebAssembly JIT runtimes do not guarantee that volatile semantics survive
+  compilation; the `starforge-wasm` crate does not handle raw secret material directly,
+  so this is informational rather than a gap.
+- **Heap realloc**: `Zeroizing<String>` zeros the final heap allocation. If the
+  allocator grew the string via realloc, earlier copies of the bytes in freed heap
+  blocks are not covered. For the highest assurance, use a locked-memory allocator.
+- **Swap**: Pages written to swap before the zero pass occur are not retroactively
+  cleared. Use full-disk encryption or an encrypted swap partition on machines
+  handling mainnet keys.
+

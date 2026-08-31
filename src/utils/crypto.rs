@@ -7,6 +7,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use colored::Colorize;
 use dialoguer::Password;
 use rand::RngCore;
+use zeroize::{Zeroize, Zeroizing};
 use zxcvbn::zxcvbn;
 
 /// Env var checked by [`prompt_passphrase`] / [`prompt_passphrase_with_inputs`]
@@ -182,7 +183,7 @@ fn print_strength_hint(report: &StrengthReport) {
 /// - When `strict` is `true`, also rejects passphrases with a zxcvbn score
 ///   below [`STRICT_MIN_SCORE`] (i.e. anything weaker than "Strong").
 /// - Loops until the user provides an acceptable passphrase.
-pub fn prompt_passphrase(prompt: &str, strict: bool) -> Result<String> {
+pub fn prompt_passphrase(prompt: &str, strict: bool) -> Result<Zeroizing<String>> {
     prompt_passphrase_with_inputs(prompt, strict, &[])
 }
 
@@ -190,11 +191,11 @@ pub fn prompt_passphrase_with_inputs(
     prompt: &str,
     strict: bool,
     user_inputs: &[&str],
-) -> Result<String> {
+) -> Result<Zeroizing<String>> {
     // Secure input alternative: let automated pipelines supply a fresh
     // passphrase via env var instead of typing it at an interactive prompt.
     if let Ok(pwd) = std::env::var(ENV_PASSPHRASE) {
-        return validate_new_passphrase(&pwd, strict, user_inputs);
+        return validate_new_passphrase(&pwd, strict, user_inputs).map(Zeroizing::new);
     }
 
     interactive::ensure_interactive(
@@ -262,12 +263,14 @@ pub fn prompt_passphrase_with_inputs(
                     continue;
                 }
 
-                let confirm = Password::new()
+                let confirm_raw = Password::new()
                     .with_prompt("Confirm passphrase")
                     .interact()
                     .map_err(|e| anyhow!("Failed to read passphrase confirmation: {}", e))?;
 
-                if pwd != confirm {
+                let confirm = Zeroizing::new(confirm_raw);
+
+                if pwd != *confirm {
                     eprintln!(
                         "  {}",
                         "✗ Passphrases do not match. Please try again.".red()
@@ -275,7 +278,7 @@ pub fn prompt_passphrase_with_inputs(
                     continue;
                 }
 
-                return Ok(pwd);
+                return Ok(Zeroizing::new(pwd));
             }
         }
     }
@@ -308,6 +311,95 @@ fn validate_new_passphrase(pwd: &str, strict: bool, user_inputs: &[&str]) -> Res
 
 // ── Argon2 KDF tuning ─────────────────────────────────────────────────────────
 
+/// KDF schema version (1 = Argon2id + AES-256-GCM).
+pub const KDF_VERSION_1: u32 = 1;
+
+/// Minimum allowed Argon2 memory cost in KiB (8 MiB).
+pub const MIN_KDF_MEM: u32 = 8192;
+/// Maximum allowed Argon2 memory cost in KiB (2 GiB).
+pub const MAX_KDF_MEM: u32 = 2_097_152;
+/// Minimum allowed Argon2 iteration count (`t_cost`).
+pub const MIN_KDF_ITERATIONS: u32 = 1;
+/// Maximum allowed Argon2 iteration count (`t_cost`).
+pub const MAX_KDF_ITERATIONS: u32 = 100;
+/// Minimum allowed Argon2 parallelism factor (`p_cost`).
+pub const MIN_KDF_PARALLELISM: u32 = 1;
+/// Maximum allowed Argon2 parallelism factor (`p_cost`).
+pub const MAX_KDF_PARALLELISM: u32 = 64;
+
+/// Structured metadata describing the KDF parameters used for a wallet secret key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct KdfMetadata {
+    /// KDF version (1 = Argon2id + AES-256-GCM).
+    pub version: u32,
+    /// Memory cost in KiB (`m_cost`).
+    pub mem: u32,
+    /// Iteration count (`t_cost`).
+    pub iterations: u32,
+    /// Parallelism factor (`p_cost`).
+    pub parallelism: u32,
+}
+
+impl KdfMetadata {
+    /// Default metadata matching Argon2 library defaults (v1, 32768 KiB, 3 iterations, 1 parallelism).
+    pub fn default_v1() -> Self {
+        let defaults = Params::default();
+        Self {
+            version: KDF_VERSION_1,
+            mem: defaults.m_cost(),
+            iterations: defaults.t_cost(),
+            parallelism: defaults.p_cost(),
+        }
+    }
+
+    /// Validate metadata against safety and system boundaries.
+    pub fn validate(&self) -> Result<()> {
+        if self.version != KDF_VERSION_1 {
+            anyhow::bail!("Unsupported KDF version {}", self.version);
+        }
+        validate_kdf_params(Some(self.mem), Some(self.iterations), Some(self.parallelism))
+    }
+}
+
+/// Validate KDF parameters against minimum and maximum bounds.
+pub fn validate_kdf_params(
+    mem: Option<u32>,
+    iterations: Option<u32>,
+    parallelism: Option<u32>,
+) -> Result<()> {
+    if let Some(m) = mem {
+        if m < MIN_KDF_MEM || m > MAX_KDF_MEM {
+            anyhow::bail!(
+                "Memory cost must be between {} KiB and {} KiB (got {} KiB)",
+                MIN_KDF_MEM,
+                MAX_KDF_MEM,
+                m
+            );
+        }
+    }
+    if let Some(i) = iterations {
+        if i < MIN_KDF_ITERATIONS || i > MAX_KDF_ITERATIONS {
+            anyhow::bail!(
+                "Iteration count must be between {} and {} (got {})",
+                MIN_KDF_ITERATIONS,
+                MAX_KDF_ITERATIONS,
+                i
+            );
+        }
+    }
+    if let Some(p) = parallelism {
+        if p < MIN_KDF_PARALLELISM || p > MAX_KDF_PARALLELISM {
+            anyhow::bail!(
+                "Parallelism factor must be between {} and {} (got {})",
+                MIN_KDF_PARALLELISM,
+                MAX_KDF_PARALLELISM,
+                p
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Optional Argon2 parameters for wallet encryption (`m_cost` / `t_cost` / `p_cost`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct KdfOptions {
@@ -324,9 +416,17 @@ impl KdfOptions {
     pub fn is_default(&self) -> bool {
         self.mem.is_none() && self.iterations.is_none() && self.parallelism.is_none()
     }
+
+    /// Validate option parameter values if set.
+    pub fn validate(&self) -> Result<()> {
+        validate_kdf_params(self.mem, self.iterations, self.parallelism)
+    }
 }
 
 fn resolve_params(options: Option<&KdfOptions>) -> Result<Params> {
+    if let Some(opts) = options {
+        opts.validate()?;
+    }
     let defaults = Params::default();
     let m_cost = options
         .and_then(|o| o.mem)
@@ -345,8 +445,43 @@ fn argon2_from_params(params: &Params) -> Argon2<'_> {
     Argon2::from(params.clone())
 }
 
-fn parse_encrypted_bundle(bundle: &str) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, Option<KdfOptions>)> {
+/// (salt, nonce, ciphertext, KDF params if the bundle encodes non-default ones)
+type EncryptedBundle = (Vec<u8>, Vec<u8>, Vec<u8>, Option<KdfOptions>);
+
+fn parse_encrypted_bundle(bundle: &str) -> Result<EncryptedBundle> {
     let parts: Vec<&str> = bundle.split(':').collect();
+    if parts.is_empty() {
+        anyhow::bail!("Invalid encrypted bundle: empty string");
+    }
+
+    if parts[0] == "v1" {
+        if parts.len() != 7 {
+            anyhow::bail!(
+                "Invalid v1 encrypted bundle format: expected 7 parts (v1:salt:nonce:ciphertext:mem:iterations:parallelism), got {}",
+                parts.len()
+            );
+        }
+        let salt = BASE64.decode(parts[1])?;
+        let nonce_bytes = BASE64.decode(parts[2])?;
+        let ciphertext = BASE64.decode(parts[3])?;
+        let mem = parts[4]
+            .parse::<u32>()
+            .map_err(|_| anyhow!("Invalid encrypted bundle: bad mem cost"))?;
+        let iterations = parts[5]
+            .parse::<u32>()
+            .map_err(|_| anyhow!("Invalid encrypted bundle: bad iteration count"))?;
+        let parallelism = parts[6]
+            .parse::<u32>()
+            .map_err(|_| anyhow!("Invalid encrypted bundle: bad parallelism factor"))?;
+        let opts = KdfOptions {
+            mem: Some(mem),
+            iterations: Some(iterations),
+            parallelism: Some(parallelism),
+        };
+        opts.validate()?;
+        return Ok((salt, nonce_bytes, ciphertext, Some(opts)));
+    }
+
     match parts.len() {
         3 => {
             let salt = BASE64.decode(parts[0])?;
@@ -364,16 +499,13 @@ fn parse_encrypted_bundle(bundle: &str) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, Op
             let iterations = parts[4]
                 .parse::<u32>()
                 .map_err(|_| anyhow!("Invalid encrypted bundle: bad iteration count"))?;
-            Ok((
-                salt,
-                nonce_bytes,
-                ciphertext,
-                Some(KdfOptions {
-                    mem: Some(mem),
-                    iterations: Some(iterations),
-                    parallelism: None,
-                }),
-            ))
+            let opts = KdfOptions {
+                mem: Some(mem),
+                iterations: Some(iterations),
+                parallelism: None,
+            };
+            opts.validate()?;
+            Ok((salt, nonce_bytes, ciphertext, Some(opts)))
         }
         6 => {
             let salt = BASE64.decode(parts[0])?;
@@ -388,38 +520,48 @@ fn parse_encrypted_bundle(bundle: &str) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>, Op
             let parallelism = parts[5]
                 .parse::<u32>()
                 .map_err(|_| anyhow!("Invalid encrypted bundle: bad parallelism factor"))?;
-            Ok((
-                salt,
-                nonce_bytes,
-                ciphertext,
-                Some(KdfOptions {
-                    mem: Some(mem),
-                    iterations: Some(iterations),
-                    parallelism: Some(parallelism),
-                }),
-            ))
+            let opts = KdfOptions {
+                mem: Some(mem),
+                iterations: Some(iterations),
+                parallelism: Some(parallelism),
+            };
+            opts.validate()?;
+            Ok((salt, nonce_bytes, ciphertext, Some(opts)))
         }
         _ => anyhow::bail!("Invalid encrypted bundle format"),
     }
 }
 
-// ── Password prompt (for decryption / non-creation flows) ────────────────────
+/// Extract KDF metadata from an encrypted secret bundle.
+pub fn extract_kdf_metadata(bundle: &str) -> Result<KdfMetadata> {
+    let (_, _, _, kdf) = parse_encrypted_bundle(bundle)?;
+    let defaults = Params::default();
+    let opts = kdf.unwrap_or_default();
+    let meta = KdfMetadata {
+        version: KDF_VERSION_1,
+        mem: opts.mem.unwrap_or_else(|| defaults.m_cost()),
+        iterations: opts.iterations.unwrap_or_else(|| defaults.t_cost()),
+        parallelism: opts.parallelism.unwrap_or_else(|| defaults.p_cost()),
+    };
+    meta.validate()?;
+    Ok(meta)
+}
 
-pub fn prompt_password(prompt: &str, confirm: bool) -> Result<String> {
+// ── Password prompt (for decryption / non-creation flows) ────────────────────
+pub fn prompt_password(prompt: &str, confirm: bool) -> Result<Zeroizing<String>> {
     // Secure input alternative: let automated pipelines supply the existing
     // password/passphrase via env var instead of typing it at a prompt.
     if let Ok(pwd) = std::env::var(ENV_PASSWORD) {
         if pwd.is_empty() {
             anyhow::bail!("Password cannot be empty");
         }
-        return Ok(pwd);
+        return Ok(Zeroizing::new(pwd));
     }
 
     interactive::ensure_interactive(
         "a password",
         &format!("Set {ENV_PASSWORD} to supply one headlessly."),
     )?;
-
     let builder = Password::new().with_prompt(prompt);
 
     let builder = if confirm {
@@ -432,7 +574,7 @@ pub fn prompt_password(prompt: &str, confirm: bool) -> Result<String> {
     if pwd.is_empty() {
         anyhow::bail!("Password cannot be empty");
     }
-    Ok(pwd)
+    Ok(Zeroizing::new(pwd))
 }
 
 pub fn encrypt_secret(password: &str, secret: &str, kdf: Option<&KdfOptions>) -> Result<String> {
@@ -441,12 +583,12 @@ pub fn encrypt_secret(password: &str, secret: &str, kdf: Option<&KdfOptions>) ->
 
     let params = resolve_params(kdf)?;
     let argon2 = argon2_from_params(&params);
-    let mut key = [0u8; 32];
+    let mut key = Zeroizing::new([0u8; 32]);
     argon2
-        .hash_password_into(password.as_bytes(), &salt, &mut key)
+        .hash_password_into(password.as_bytes(), &salt, key.as_mut())
         .map_err(|e| anyhow!("Key derivation failed: {}", e))?;
 
-    let cipher = Aes256Gcm::new(&key.into());
+    let cipher = Aes256Gcm::new((&*key).into());
     let mut nonce_bytes = [0u8; 12];
     rand::thread_rng().fill_bytes(&mut nonce_bytes);
 
@@ -466,7 +608,7 @@ pub fn encrypt_secret(password: &str, secret: &str, kdf: Option<&KdfOptions>) ->
         ))
     } else {
         Ok(format!(
-            "{}:{}:{}:{}:{}:{}",
+            "v1:{}:{}:{}:{}:{}:{}",
             encoded_salt,
             encoded_nonce,
             encoded_cipher,
@@ -477,17 +619,46 @@ pub fn encrypt_secret(password: &str, secret: &str, kdf: Option<&KdfOptions>) ->
     }
 }
 
+/// Safely upgrade/re-encrypt an encrypted secret bundle with new KDF parameters.
+///
+/// Decrypts the secret with `password`, validates `new_kdf`, re-encrypts the secret,
+/// and verifies that the new bundle decrypts successfully before returning it.
+/// If `password` is incorrect, `current_bundle` is invalid, or `new_kdf` is out of bounds,
+/// the function returns an error without altering the input.
+pub fn upgrade_wallet_kdf_secret(
+    password: &str,
+    current_bundle: &str,
+    new_kdf: Option<&KdfOptions>,
+) -> Result<String> {
+    if let Some(opts) = new_kdf {
+        opts.validate()?;
+    }
+    // 1. Decrypt current secret using password (fails fast on wrong password or corrupted bundle)
+    let secret = decrypt_secret(password, current_bundle)?;
+
+    // 2. Re-encrypt with new KDF parameters
+    let new_bundle = encrypt_secret(password, &secret, new_kdf)?;
+
+    // 3. Verify decryption round-trip with new parameters before returning
+    let verified_secret = decrypt_secret(password, &new_bundle)?;
+    if verified_secret != secret {
+        anyhow::bail!("Upgrade verification failed: decrypted secret mismatch");
+    }
+
+    Ok(new_bundle)
+}
+
 pub fn decrypt_secret(password: &str, bundle: &str) -> Result<String> {
     let (salt, nonce_bytes, ciphertext, kdf) = parse_encrypted_bundle(bundle)?;
 
     let params = resolve_params(kdf.as_ref())?;
     let argon2 = argon2_from_params(&params);
-    let mut key = [0u8; 32];
+    let mut key = Zeroizing::new([0u8; 32]);
     argon2
-        .hash_password_into(password.as_bytes(), &salt, &mut key)
+        .hash_password_into(password.as_bytes(), &salt, key.as_mut())
         .map_err(|e| anyhow!("Key derivation failed: {}", e))?;
 
-    let cipher = Aes256Gcm::new(&key.into());
+    let cipher = Aes256Gcm::new((&*key).into());
     let nonce = Nonce::from_slice(&nonce_bytes);
 
     let decrypted = cipher
@@ -635,6 +806,38 @@ mod tests {
         assert_eq!(secret, decrypted);
     }
 
+    #[test]
+    fn aes_key_zeroizes_on_drop() {
+        use std::ptr;
+        let addr: *const [u8; 32];
+        {
+            let z = Zeroizing::new([0xFFu8; 32]);
+            addr = z.as_ptr() as *const [u8; 32];
+        }
+        // SAFETY: We owned this stack slot; reading it after drop to verify zeroize.
+        let after: [u8; 32] = unsafe { ptr::read_volatile(addr) };
+        assert_eq!(after, [0u8; 32]);
+    }
+
+    #[test]
+    fn zeroizing_array_explicit_call_clears_all_bytes() {
+        let mut z = Zeroizing::new([0xFFu8; 32]);
+        z.zeroize();
+        assert_eq!(*z, [0u8; 32]);
+    }
+
+    #[test]
+    fn encrypt_error_path_still_compiles_with_zeroizing_key() {
+        // mem cost of 0 is rejected by Argon2; key must zeroize even on error path.
+        let bad_kdf = KdfOptions {
+            mem: Some(0),
+            iterations: Some(1),
+            parallelism: Some(1),
+        };
+        let result = encrypt_secret("password", "STEST", Some(&bad_kdf));
+        assert!(result.is_err());
+    }
+
     // ── CI / non-interactive prompting ───────────────────────────────────────
 
     fn clear_prompt_env() {
@@ -666,7 +869,7 @@ mod tests {
         std::env::set_var(ENV_PASSWORD, "correct-horse-battery-staple");
 
         let pwd = prompt_password("Enter password", false).unwrap();
-        assert_eq!(pwd, "correct-horse-battery-staple");
+        assert_eq!(*pwd, "correct-horse-battery-staple");
 
         clear_prompt_env();
     }
@@ -708,7 +911,7 @@ mod tests {
         std::env::set_var(ENV_PASSPHRASE, "orchid-river-copper-harbor");
 
         let pwd = prompt_passphrase("New passphrase", false).unwrap();
-        assert_eq!(pwd, "orchid-river-copper-harbor");
+        assert_eq!(*pwd, "orchid-river-copper-harbor");
 
         clear_prompt_env();
     }

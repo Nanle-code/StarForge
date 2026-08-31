@@ -267,6 +267,74 @@ fn test_hardware_wallet_connect_timeout_flag_documented() {
     );
 }
 
+// -- Optional-backend coverage: these only run when the crate is compiled with
+// `--features hardware-wallet`, which exercises the real hidapi/trezor-client
+// code paths. CI runners have no physical device attached, so the assertions
+// below pin down the disconnect / device-approval-required behavior rather
+// than requiring hardware.
+
+#[cfg(feature = "hardware-wallet")]
+#[test]
+fn test_hardware_wallet_connect_reports_disconnect_without_device() {
+    let starforge_binary = env!("CARGO_BIN_EXE_starforge");
+
+    let output = Command::new(starforge_binary)
+        .args(["wallet", "connect", "ledger", "--timeout", "1s"])
+        .output()
+        .expect("Failed to run wallet connect");
+
+    assert!(
+        !output.status.success(),
+        "Connect should fail when no physical Ledger is attached"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let combined = format!("{}{}", stderr, stdout).to_lowercase();
+    assert!(
+        combined.contains("ledger") || combined.contains("device") || combined.contains("connect"),
+        "Disconnect error should name the device or connection state"
+    );
+}
+
+#[cfg(feature = "hardware-wallet")]
+#[test]
+fn test_hardware_wallet_hw_status_reports_disconnect_without_device() {
+    let starforge_binary = env!("CARGO_BIN_EXE_starforge");
+
+    let output = Command::new(starforge_binary)
+        .args(["wallet", "hw-status", "trezor"])
+        .output()
+        .expect("Failed to run wallet hw-status");
+
+    assert!(
+        !output.status.success(),
+        "hw-status should fail when no physical Trezor is attached"
+    );
+}
+
+#[cfg(feature = "hardware-wallet")]
+#[test]
+fn test_hardware_wallet_import_rejects_unapproved_device() {
+    let starforge_binary = env!("CARGO_BIN_EXE_starforge");
+
+    let output = Command::new(starforge_binary)
+        .args([
+            "wallet",
+            "import",
+            "ci-hw-import-test",
+            "--hardware",
+            "ledger",
+        ])
+        .output()
+        .expect("Failed to attempt hardware import");
+
+    assert!(
+        !output.status.success(),
+        "Import from an unapproved/absent hardware device must fail, not silently succeed"
+    );
+}
+
 #[test]
 fn test_hardware_wallet_timeout_behavior() {
     let home = isolated_home();

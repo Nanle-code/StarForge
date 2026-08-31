@@ -694,21 +694,21 @@ impl HtmlDocGenerator {
             .functions
             .iter()
             .filter(|f| f.visibility == Visibility::Public)
-            .map(|f| render_function_card(f))
+            .map(render_function_card)
             .collect::<Vec<_>>()
             .join("\n");
 
         let structs_html = docs
             .structs
             .iter()
-            .map(|s| render_struct_card(s))
+            .map(render_struct_card)
             .collect::<Vec<_>>()
             .join("\n");
 
         let enums_html = docs
             .enums
             .iter()
-            .map(|e| render_enum_card(e))
+            .map(render_enum_card)
             .collect::<Vec<_>>()
             .join("\n");
 
@@ -1114,7 +1114,7 @@ fn render_function_card(f: &ExtractedFn) -> String {
         .doc_comment
         .lines()
         .filter(|l| !l.starts_with("```"))
-        .map(|l| escape_html(l))
+        .map(escape_html)
         .collect::<Vec<_>>()
         .join("<br>");
 

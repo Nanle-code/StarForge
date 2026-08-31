@@ -156,6 +156,12 @@ pub async fn handle(args: InvokeArgs) -> Result<()> {
             dry_run: false,
             prompt: Some("Submit this transaction?".to_string()),
             require_type_confirmation: *network == "mainnet",
+            destructive_action: if *network == "mainnet" {
+                Some(confirmation::DestructiveAction::ContractInvoke)
+            } else {
+                None
+            },
+            challenge_phrase: None,
         };
 
         if !confirmation::confirm_operation(&summary, &confirm_config)? {

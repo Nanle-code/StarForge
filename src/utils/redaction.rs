@@ -81,9 +81,7 @@ fn redact_secrets_impl(input: &str) -> String {
     let s = HEX_PRIVATE_KEY_REGEX.replace_all(&s, REDACTED);
 
     // 8. BIP-39 Mnemonics (12, 15, 18, 21, 24 space-separated words)
-    let final_result = redact_mnemonics(&s);
-
-    final_result
+    redact_mnemonics(&s)
 }
 
 /// Helper function to detect and redact BIP-39 mnemonic seed phrases (12 to 24 words).

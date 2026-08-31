@@ -4,6 +4,9 @@ use rusqlite::{params, Connection};
 use serde_json::Value;
 use std::path::PathBuf;
 
+/// (prompt_name, version_tag, uses, successes, failures, avg_rating)
+pub type PromptStats = (String, String, i64, i64, i64, f64);
+
 pub struct PromptManager {
     conn: Connection,
 }
@@ -257,7 +260,7 @@ impl PromptManager {
         Ok(prompts)
     }
 
-    pub fn get_stats(&self) -> Result<Vec<(String, String, i64, i64, i64, f64)>> {
+    pub fn get_stats(&self) -> Result<Vec<PromptStats>> {
         let mut stmt = self.conn.prepare(
             "SELECT p.name, v.version_tag, a.uses, a.successes, a.failures, 
                     CAST(a.rating_sum AS REAL) / NULLIF(a.rating_count, 0)

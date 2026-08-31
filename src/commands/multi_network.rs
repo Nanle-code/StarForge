@@ -3,7 +3,7 @@
 //! Provides CLI commands for AI-driven multi-network deployment support.
 
 use crate::utils::{
-    multi_network_deploy::{DeploymentStrategy, MultiNetworkConfig, MultiNetworkDeployer},
+    multi_network_deploy::{DeploymentStrategy, MultiNetworkDeployer},
     print as p,
 };
 use anyhow::Result;
@@ -322,7 +322,7 @@ fn print_deployment_result(
     println!();
 }
 
-fn handle_compare(include_custom: bool) -> Result<()> {
+fn handle_compare(_include_custom: bool) -> Result<()> {
     p::header("Network Comparison");
     p::separator();
 

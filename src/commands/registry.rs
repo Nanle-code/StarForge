@@ -452,6 +452,10 @@ fn logout() -> Result<()> {
     Ok(())
 }
 
+// Each parameter is an independent, named input (CLI flags / distinct config
+// values); bundling them into a struct here would add indirection without
+// reducing real complexity.
+#[allow(clippy::too_many_arguments)]
 async fn publish(
     path: PathBuf,
     name: Option<String>,

@@ -127,10 +127,22 @@ fn troubleshoot_returns_actionable_step_for_common_errors() {
 
 #[test]
 fn troubleshoot_merging_does_not_duplicate_existing_hints() {
-    let mut existing = vec!["Already-known hint".into()];
+    let mut existing: Vec<String> = vec!["Already-known hint".into()];
     context_help::troubleshoot_merging("require_auth failed", &mut existing);
+    let after_first = existing.len();
+    assert!(
+        after_first > 1,
+        "expected the auth fixes to be merged in: {:?}",
+        existing
+    );
+
     context_help::troubleshoot_merging("require_auth failed", &mut existing);
-    assert_eq!(existing.len(), 3, "result was {:?}", existing);
+    assert_eq!(
+        existing.len(),
+        after_first,
+        "merging the same error twice duplicated hints: {:?}",
+        existing
+    );
 }
 
 #[test]

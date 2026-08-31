@@ -14,6 +14,7 @@ Before opening a pull request, confirm each item:
 - [ ] Template source uses `{{PROJECT_NAME_PASCAL}}` as the contract struct name
 - [ ] A `README.md` is included describing the contract and its public functions
 - [ ] `registry.json` entry is present with all required fields
+- [ ] `starforge template validate templates/registry.json` reports no problems
 - [ ] `security_review` field is present (status `"pending"` is acceptable for new submissions)
 - [ ] `changelog` field has at least one entry for the initial version
 - [ ] License is declared via the `license` field (MIT or Apache-2.0 preferred)
@@ -136,6 +137,37 @@ Below is the minimum required shape:
 | `security_review` | recommended | Audit status — `pending` is fine initially |
 | `changelog` | recommended | At least one entry |
 | `maintenance` | recommended | `active`, `maintained`, `deprecated`, or `unknown` |
+
+`security_review.findings` is a number (the count of findings) or `null` — not
+a quoted string.
+
+### Validating your entry
+
+`templates/registry.schema.json` is the authoritative shape of a registry
+entry, and StarForge validates against it before loading any registry. Check
+your entry before opening a pull request:
+
+```bash
+# the whole registry, including your new entry
+starforge template validate templates/registry.json
+
+# or just your entry, saved to its own file
+starforge template validate ./my-template.json
+```
+
+Problems are reported field by field, so you can fix them directly:
+
+```text
+templates[12].version: 'v1.0' is not valid semver (expected major.minor.patch, e.g. "1.2.0")
+templates[12].changelog[0].date: '01/06/2025' is not a date in YYYY-MM-DD form
+templates[12].source.id: required field is missing
+```
+
+Field names the schema does not know are reported as warnings rather than
+errors, so a typo like `descripton` shows up without breaking older CLIs that
+read a newer registry. See
+[`templates/README.md`](templates/README.md#registry-validation) for the full
+list of checks.
 
 ### Tag taxonomy
 

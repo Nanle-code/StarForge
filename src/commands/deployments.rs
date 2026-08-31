@@ -1,10 +1,11 @@
 use crate::utils::deploy_history::{
-    get_record, last_successful, load_history, set_verified, update_status, DeployStatus,
+    get_record, last_successful, load_history, set_verified, DeployStatus,
 };
 use crate::utils::deployment_monitor;
 use crate::utils::deployment_monitoring_service::{
     render_monitoring_dashboard, DeploymentAlertEngine, DeploymentHealthChecker, DeploymentTracker,
 };
+use crate::utils::deployment_timeline::{self, Phase, PhaseState};
 use crate::utils::deployment_verify::{
     generate_ci_snippet, load_report, save_report, DeploymentVerifier,
 };
@@ -13,6 +14,7 @@ use crate::utils::{config, horizon};
 use anyhow::Result;
 use clap::{Args, Subcommand};
 use colored::*;
+use std::io::IsTerminal;
 use std::path::PathBuf;
 
 #[derive(Subcommand)]
@@ -33,6 +35,9 @@ pub enum DeploymentsCommands {
     Ci(CiArgs),
     /// Run deployment monitoring service, real-time status updates, health checks, and alerting
     Monitor(MonitorArgs),
+    /// Show a phased timeline of an in-flight deployment, polling RPC until
+    /// finalization (or the bounded retry budget is exhausted)
+    Status(StatusArgs),
 }
 
 #[derive(Args)]
@@ -139,6 +144,28 @@ pub struct MonitorArgs {
 }
 
 #[derive(Args)]
+pub struct StatusArgs {
+    /// Deployment id (or any prefix) to render a timeline for
+    #[arg(long)]
+    pub id: String,
+    /// Transaction hash to poll for finalization
+    #[arg(long)]
+    pub tx_hash: Option<String>,
+    /// Network to poll against
+    #[arg(long, default_value = "testnet")]
+    pub network: String,
+    /// Maximum number of RPC polls before giving up
+    #[arg(long, default_value = "30")]
+    pub max_retries: u32,
+    /// Poll interval in milliseconds
+    #[arg(long, default_value = "2000")]
+    pub interval_ms: u64,
+    /// Force JSON event output (non-TTY renders JSON automatically)
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args)]
 pub struct ApproveArgs {
     /// Deployment ID to approve
     #[arg(long)]
@@ -158,6 +185,7 @@ pub async fn handle(cmd: DeploymentsCommands) -> Result<()> {
         DeploymentsCommands::Report(args) => handle_report(args),
         DeploymentsCommands::Ci(args) => handle_ci(args),
         DeploymentsCommands::Monitor(args) => handle_monitor(args),
+        DeploymentsCommands::Status(args) => handle_status(args).await,
     }
 }
 
@@ -449,7 +477,7 @@ fn handle_monitor(args: MonitorArgs) -> Result<()> {
 
         // Populate tracker with history for visual status
         let records = load_history().unwrap_or_default();
-        for (idx, r) in records.iter().enumerate().take(5) {
+        for (_idx, r) in records.iter().enumerate().take(5) {
             let tr_id = format!("dep-{}", &r.id[..8.min(r.id.len())]);
             tracker.start_tracking(&tr_id, &r.network, &r.wallet);
             if r.status == DeployStatus::Success {
@@ -519,6 +547,80 @@ fn handle_monitor(args: MonitorArgs) -> Result<()> {
     }
 
     p::separator();
+    Ok(())
+}
+
+async fn handle_status(args: StatusArgs) -> Result<()> {
+    p::header("Deployment Status Timeline");
+    crate::utils::config::validate_network(&args.network)?;
+
+    let mut timeline =
+        deployment_timeline::DeploymentTimeline::new(&args.id).with_max_retries(args.max_retries);
+    if let Some(hash) = &args.tx_hash {
+        timeline = timeline.with_tx_hash(hash);
+    }
+
+    // A status view of a deployment that has already built/uploaded/submitted
+    // and is now awaiting RPC finalization — the slow window operators watch.
+    timeline.set(Phase::Build, PhaseState::Done);
+    timeline.set(Phase::Upload, PhaseState::Done);
+    timeline.set(Phase::Submit, PhaseState::Done);
+    timeline.set(Phase::ConfirmRpc, PhaseState::Running);
+
+    let tty = std::io::stdout().is_terminal();
+
+    // Poll RPC for finalization when the operator supplies a transaction hash.
+    if let Some(hash) = &args.tx_hash {
+        let poll_config = crate::utils::soroban::PollConfig {
+            max_polls: args.max_retries.max(1),
+            poll_interval_ms: args.interval_ms,
+        };
+        let result: crate::utils::soroban::TxStatusResult =
+            crate::utils::soroban::poll_transaction_status(hash, &args.network, &poll_config)
+                .await?;
+        timeline.polls_done = result.polls;
+
+        use crate::utils::soroban::TxStatus;
+        match result.status {
+            TxStatus::Success => {
+                timeline.set(Phase::ConfirmRpc, PhaseState::Done);
+                timeline.set(Phase::Finalize, PhaseState::Done);
+                if let Some(row) = timeline.phase_mut(Phase::Finalize) {
+                    row.rpc_status = Some("SUCCESS".to_string());
+                    row.poll_attempt = Some(result.polls);
+                }
+            }
+            TxStatus::Error | TxStatus::Duplicate => {
+                timeline.set(Phase::ConfirmRpc, PhaseState::Failed);
+                if let Some(row) = timeline.phase_mut(Phase::ConfirmRpc) {
+                    row.rpc_status = Some(result.status.to_string());
+                    row.poll_attempt = Some(result.polls);
+                    row.note = Some(result.error_message.clone().unwrap_or_default());
+                }
+            }
+            TxStatus::Pending | TxStatus::NotFound => {
+                // Budget exhausted before finalization (or not found). The
+                // RPC layer already produced an actionable message.
+                if let Some(err) = result.error_message {
+                    anyhow::bail!(err);
+                }
+                timeline.set(Phase::ConfirmRpc, PhaseState::Pending);
+            }
+        }
+    } else if let Some(row) = timeline.phase_mut(Phase::ConfirmRpc) {
+        row.note = Some("no tx hash supplied; pass --tx-hash to poll for finalization".to_string());
+    }
+
+    let opts = deployment_timeline::RenderOptions {
+        tty: tty && !args.json,
+        correlation_id: crate::utils::correlation::current_str().to_string(),
+    };
+    print!("{}", deployment_timeline::render(&timeline, &opts));
+
+    if timeline.failed() {
+        anyhow::bail!("deployment '{}' failed during RPC finalization", args.id);
+    }
+
     Ok(())
 }
 

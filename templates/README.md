@@ -34,6 +34,72 @@ The `registry.json` file contains metadata for all available templates:
 }
 ```
 
+## Registry Validation
+
+`registry.schema.json` is the authoritative description of a registry document,
+and StarForge checks a registry against it **before using it** — whether that
+registry is the one bundled with the binary, one fetched from the marketplace,
+or the local cache at `~/.starforge/templates/registry.json`. A malformed
+template therefore fails immediately, naming the field at fault:
+
+```text
+templates[3].version: 'v1.2' is not valid semver (expected major.minor.patch, e.g. "1.2.0")
+templates[3].source.url: required field is missing
+templates[4].maintenance: 'archived' is not one of: active, maintained, deprecated, unknown
+```
+
+Check a registry yourself with:
+
+```bash
+# validate the registry the CLI would load
+starforge template validate
+
+# validate a specific registry file, or a file holding one template entry
+starforge template validate templates/registry.json
+starforge template validate ./my-template.json
+
+# machine-readable report (exit status is non-zero when invalid)
+starforge template validate --json
+```
+
+### What is checked
+
+Beyond types and required fields, the schema carries semantic checks that
+plain JSON Schema cannot express (declared as `x-format`):
+
+| Check | Applies to | Rule |
+|---|---|---|
+| `semver` | `version`, `cli_version_min`, `cli_version_max`, `changelog[].version` | Exactly `major.minor.patch`, all numeric |
+| `rfc3339` | `created_at`, `updated_at`, `security_review.audited_at` | RFC 3339 timestamp; the empty string means "unset" |
+| `date` | `changelog[].date` | `YYYY-MM-DD` |
+| `url` | `repository`, `homepage`, `documentation` | Absolute `http(s)://` URL |
+| `git-url` | `source.url` | `https://`, `http://`, `git://`, `ssh://` or `git@host:path` |
+| `template-name` | `name`, builtin `source.id` | No path separators, whitespace or control characters — the name becomes a directory under the template store |
+
+Two further rules apply across a whole registry: `cli_version_min` may not
+exceed `cli_version_max`, and no two entries may share a `name` **and**
+`version` (the same template at different versions is fine).
+
+### Where validation runs
+
+| Point | Behaviour on failure |
+|---|---|
+| Remote registry fetch | Rejected **before** it is cached, so a broken marketplace index cannot replace a working local cache |
+| Local registry read | Fails with the offending fields rather than an opaque parse error |
+| Bundled registry fallback | Same check — the offline fallback is held to the schema too |
+| `template install` / `publish` / `remove` | The registry is validated before it is written, so a malformed entry never reaches disk |
+| `template install` / `fetch` | The derived template name is checked before any file is fetched |
+
+### Compatibility
+
+Unknown fields are **not** an error: an older CLI can read a registry written
+by a newer one. They are reported as warnings by `starforge template validate`
+so authors still catch misspelled field names.
+
+> **Migration note:** `security_review.findings` is a *number* (the count of
+> findings), matching the schema and the published registry. A hand-written
+> registry that quoted it (`"findings": "0"`) must drop the quotes.
+
 ## Template Sources
 
 Templates can come from three sources:
