@@ -295,6 +295,89 @@ starforge wallet sign alice "Transaction data" --hardware ledger
 
 ---
 
+### Hardware wallets (Ledger / Trezor)
+
+Hardware-wallet support (`--hardware`, `wallet connect`, `wallet hw-address`,
+`wallet hw-status`, `wallet import --hardware`) is compiled behind the
+`hardware-wallet` Cargo feature and is **off by default**:
+
+```bash
+cargo build --features hardware-wallet
+```
+
+Building it requires the vendor USB backends for each device: `hidapi`
+(Ledger, HID) and `trezor-client` (Trezor, `rusb`/libusb). On Linux this
+means `libudev-dev` and `libusb-1.0-0-dev` (see
+[BUILD_TROUBLESHOOTING.md](BUILD_TROUBLESHOOTING.md#4-feature-flag-issues)
+for the full per-OS list). CI builds and tests this feature in its own
+`hardware-wallet` job (`.github/workflows/ci.yml`) so the optional backends
+don't silently bit-rot between releases.
+
+#### `starforge wallet connect`
+
+```bash
+starforge wallet connect <ledger|trezor> [--timeout <DURATION>]
+```
+
+Opens a session with the device and prints its Stellar address and HD path.
+Fails fast — no hang — if the device is absent, locked, or the Stellar app
+isn't open; `--timeout` (default `30s`) bounds how long it waits.
+
+#### `starforge wallet hw-status`
+
+```bash
+starforge wallet hw-status <ledger|trezor>
+```
+
+Cheaper than `connect`: reports whether the device is reachable without
+performing a full handshake.
+
+#### `starforge wallet hw-address`
+
+```bash
+starforge wallet hw-address <ledger|trezor> [--path <HD_PATH>]
+```
+
+Derives and prints the Stellar address at the given path (default
+`m/44'/148'/0'`) without importing a wallet entry.
+
+#### `starforge wallet import --hardware`
+
+```bash
+starforge wallet import <NAME> --hardware <ledger|trezor> [--hd-path <PATH>]
+```
+
+Imports a **watch-only** wallet backed by the device's public key — no
+private key material ever leaves the hardware wallet or touches disk.
+Signing later requires the same physical device and an explicit on-device
+approval.
+
+**Security notes:**
+- Every signing operation (`wallet sign --hardware`, `tx send --hardware`,
+  `wallet multisig sign --hardware`) requires interactive approval on the
+  device screen; there is no non-interactive/headless signing path.
+- A rejected prompt, a locked device, or an unplugged device all produce a
+  distinct, actionable error (see `map_signing_error` in
+  [src/utils/hardware_wallet.rs](src/utils/hardware_wallet.rs)) rather than
+  hanging or failing silently.
+- An outdated Stellar app on the device (or the wrong app open) surfaces as
+  an "unsupported envelope" error — update the app on the device rather
+  than retrying blindly.
+- **Trezor transaction signing is not yet implemented.** Trezor's Stellar
+  protocol requires the transaction to be sent as structured per-operation
+  fields rather than a raw XDR envelope; `wallet sign --hardware trezor` and
+  `tx send --hardware trezor` return a clear "not supported" error instead of
+  hanging or mis-signing. Use a Ledger device to sign, or sign locally.
+
+**Compatibility:** Ledger signing is tested against the Stellar Ledger app's
+APDU protocol; other HD paths beyond the default `m/44'/148'/0'` are
+supported but must follow standard BIP-44 (`m/44'/148'/<account>'`) —
+non-hardened or malformed segments are rejected before any device
+round-trip. Trezor currently supports address derivation and status/connect
+checks only (see the transaction-signing note above).
+
+---
+
 ### `starforge wallet multisig`
 
 Multi-signature account management.

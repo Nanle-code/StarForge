@@ -169,6 +169,26 @@ The project includes quick smoke tests to verify basic functionality:
 cargo test --test cli_smoke
 ```
 
+### Run Optional-Feature Tests (hardware wallets)
+
+Ledger and Trezor support lives behind the `hardware-wallet` Cargo feature
+and is skipped by the default `cargo test` above. CI compiles and tests it
+in a dedicated `hardware-wallet` job on every push, so run the same command
+locally before touching `src/utils/hardware_wallet.rs`:
+
+```bash
+# Linux: apt-get install -y libudev-dev libusb-1.0-0-dev first
+cargo build --locked --features hardware-wallet
+cargo test --locked --features hardware-wallet
+```
+
+No physical device is required — the tests assert the approval, rejection,
+unsupported-envelope, and disconnected/no-device paths, either against pure
+APDU-parsing logic or against the real `hidapi`/`trezor-client` backends'
+"no device found" behavior. See
+[BUILD_TROUBLESHOOTING.md](BUILD_TROUBLESHOOTING.md#4-feature-flag-issues)
+for per-OS system dependencies.
+
 ### Check Code Quality
 
 The CI pipeline runs several quality checks. Run them locally:

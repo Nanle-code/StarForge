@@ -728,6 +728,74 @@ pub fn generate_test_priorities(analysis: &ContractAnalysis) -> Vec<TestPriority
     suggestions
 }
 
+pub fn generate_edge_case_descriptions(func: &FunctionInfo) -> Vec<String> {
+    let mut cases = Vec::new();
+    for param in &func.params {
+        match param.param_type.as_str() {
+            t if t.contains("Address") => {
+                cases.push(format!("Zero address for {}", param.name));
+                cases.push(format!("Self-referencing address for {}", param.name));
+                cases.push(format!("Contract address for {}", param.name));
+            }
+            t if t.contains("u64") || t.contains("i64") => {
+                cases.push(format!("Zero value for {}", param.name));
+                cases.push(format!("Maximum value for {}", param.name));
+                cases.push(format!("Minimum positive value for {}", param.name));
+            }
+            t if t.contains("String") => {
+                cases.push(format!("Empty string for {}", param.name));
+                cases.push(format!("Maximum length string for {}", param.name));
+                cases.push(format!("Special characters for {}", param.name));
+            }
+            _ => {
+                cases.push(format!("Default value for {}", param.name));
+            }
+        }
+    }
+    if func.is_mutating {
+        cases.push("Unauthorized caller".to_string());
+        cases.push("Double spend / replay".to_string());
+    }
+    cases
+}
+
+pub fn generate_security_checks(func: &FunctionInfo) -> Vec<String> {
+    let mut checks = Vec::new();
+    if func.is_mutating {
+        checks.push("Authorization required for state changes".to_string());
+        checks.push("Failed auth must not mutate state".to_string());
+        checks.push("Replay protection verified".to_string());
+    }
+    if func
+        .params
+        .iter()
+        .any(|p| p.param_type.contains("i64") || p.param_type.contains("u64"))
+    {
+        checks.push("Overflow/underflow protection".to_string());
+        checks.push("Negative amount handling".to_string());
+    }
+    checks.push("Input validation".to_string());
+    checks
+}
+
+pub fn generate_warnings(analysis: &ContractAnalysis) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if analysis.complex_functions > 3 {
+        warnings.push(format!(
+            "Contract has {} complex functions that may need additional test cases",
+            analysis.complex_functions
+        ));
+    }
+    if analysis.storage_accesses.len() > 5 {
+        warnings
+            .push("Contract has many storage accesses - ensure storage mock coverage".to_string());
+    }
+    if !analysis.external_calls.is_empty() {
+        warnings.push("Contract makes external calls - consider integration tests".to_string());
+    }
+    warnings
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestPrioritySuggestion {
     pub function_name: String,

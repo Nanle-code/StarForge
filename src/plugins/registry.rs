@@ -229,7 +229,12 @@ pub struct InstalledPlugin {
     /// Commands this plugin registers.
     #[serde(default)]
     pub commands: Vec<RegisteredCommand>,
-    /// Verified publisher handle/identity, if verified
+    /// Human-readable description from the plugin manifest, if any. Older
+    /// registry entries (installed before this field existed) default to
+    /// empty; use [`resolve_plugin_description`] to get a display-ready
+    /// value that falls back to the first command's description.
+    /// Description from the plugin manifest. Empty when the plugin does not
+    /// declare one, in which case the first command's description is used.
     #[serde(default)]
     pub publisher: Option<String>,
     /// Verified publisher public key, if signed

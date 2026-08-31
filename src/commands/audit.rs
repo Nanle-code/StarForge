@@ -501,7 +501,6 @@ mod tests {
                 low: 0,
                 info: 0,
             },
-            ci_passed: true,
         };
         let html = render_html_report(&result);
         assert!(html.contains("75.0/100"));

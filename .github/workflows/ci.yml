@@ -85,6 +85,21 @@ jobs:
       - name: Fail when cheat sheet is stale
         run: git diff --exit-code -- docs/COMMAND_CHEATSHEET.md
 
+  hardware-wallet:
+    name: Hardware Wallet (optional backends)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install system dependencies
+        # libudev-dev: hidapi's Linux HID backend (Ledger)
+        # libusb-1.0-0-dev: trezor-client's rusb transport (Trezor)
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev libusb-1.0-0-dev
+      - name: Build with hardware-wallet feature
+        run: cargo build --locked --features hardware-wallet
+      - name: Test with hardware-wallet feature
+        run: cargo test --locked --features hardware-wallet -- --test-threads=1
+
   clippy:
     name: Clippy Lint
     runs-on: ubuntu-latest
@@ -94,7 +109,7 @@ jobs:
         with:
           components: clippy
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev libusb-1.0-0-dev
       - name: Run Clippy
         run: cargo clippy --all-features --locked -- -D warnings
 
