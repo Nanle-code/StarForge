@@ -6,12 +6,13 @@
 //! this command reports, forecasts, and enforces budgets against.
 
 use crate::utils::{
-    config, cost_estimation as ce, cost_management as cm, print as p, simulation_resources as sr,
+    batch_forecast as bf, config, cost_estimation as ce, cost_management as cm, print as p,
+    simulation_resources as sr,
 };
 use anyhow::Result;
 use clap::Subcommand;
 use colored::*;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Subcommand)]
 pub enum CostCommands {
@@ -41,6 +42,27 @@ pub enum CostCommands {
         /// Number of future deployments to project
         #[arg(long, default_value = "3")]
         periods: usize,
+    },
+    /// Forecast aggregate fees for a batch of planned invokes BEFORE any of
+    /// them are submitted, so the batch can be vetted against a budget and
+    /// avoid running out of XLM mid-batch
+    ForecastBatch {
+        /// Path to the batch manifest (JSON or YAML) of invoke intents
+        #[arg(value_name = "MANIFEST")]
+        manifest: PathBuf,
+        /// Default network when the manifest does not specify one
+        #[arg(long, default_value = "testnet")]
+        network: String,
+        /// Safety margin, in percent, applied to simulated resource fees
+        #[arg(long, default_value_t = sr::DEFAULT_FEE_MARGIN_PERCENT)]
+        margin: u32,
+        /// Per-operation inclusion (base) fee in stroops
+        #[arg(long, default_value_t = sr::DEFAULT_INCLUSION_FEE_STROOPS)]
+        inclusion_fee: u64,
+        /// Exit with a non-zero status if the forecast exceeds the manifest
+        /// budget or any per-invoke fee cap (suitable for gating CI/CD)
+        #[arg(long)]
+        enforce: bool,
     },
     /// Compare estimated deployment cost for the same wasm across networks
     CompareNetworks {
@@ -121,6 +143,13 @@ pub async fn handle(cmd: CostCommands) -> Result<()> {
             enforce,
         } => check(wasm, network, enforce),
         CostCommands::Forecast { network, periods } => forecast(network, periods),
+        CostCommands::ForecastBatch {
+            manifest,
+            network,
+            margin,
+            inclusion_fee,
+            enforce,
+        } => forecast_batch(&manifest, &network, margin, inclusion_fee, enforce).await,
         CostCommands::CompareNetworks { wasm, networks } => compare_networks(wasm, networks),
         CostCommands::Report { network } => report(network),
         CostCommands::Resources {
@@ -409,6 +438,127 @@ fn forecast(network: String, periods: usize) -> Result<()> {
     if forecast.confidence == cm::ForecastConfidence::Low {
         println!();
         p::warn("Low confidence: fewer than 3 historical deployments for this network.");
+    }
+
+    Ok(())
+}
+
+/// Forecast the aggregate fee for a batch of planned invokes from a manifest,
+/// printing per-item estimates plus the batch total.
+async fn forecast_batch(
+    manifest_path: &Path,
+    default_network: &str,
+    margin: u32,
+    inclusion_fee: u64,
+    enforce: bool,
+) -> Result<()> {
+    let manifest = bf::load_manifest(manifest_path)?;
+
+    p::header("Batch Invoke Cost Forecast");
+    p::kv("Manifest", &manifest_path.display().to_string());
+    p::kv("Default network", default_network);
+    if let Some(budget) = manifest.budget_xlm {
+        p::kv("Budget", &format!("{:.7} XLM", budget));
+    }
+    p::kv("Invokes", &manifest.invokes.len().to_string());
+
+    if manifest.invokes.is_empty() {
+        println!();
+        p::warn("Manifest contains no invokes — nothing to forecast.");
+        return Ok(());
+    }
+
+    println!();
+    let forecast =
+        bf::estimate_batch_forecast(&manifest, default_network, margin, inclusion_fee).await?;
+
+    let headers = &[
+        "#",
+        "Call",
+        "Network",
+        "Fee (stroops)",
+        "Fee (XLM)",
+        "Source",
+        "Variance",
+    ];
+    let rows: Vec<Vec<String>> = forecast
+        .items
+        .iter()
+        .map(|item| {
+            vec![
+                (item.index + 1).to_string(),
+                item.label().to_string(),
+                item.network.clone(),
+                item.fee_stroops.to_string(),
+                format!("{:.7}", item.fee_xlm),
+                format!("{:?}", item.source).to_lowercase(),
+                if item.high_variance {
+                    "HIGH".to_string()
+                } else {
+                    "ok".to_string()
+                },
+            ]
+        })
+        .collect();
+    p::table(headers, &rows);
+
+    println!();
+    p::kv("Simulated", &forecast.simulated_count.to_string());
+    p::kv(
+        "Heuristic (not simulated)",
+        &forecast.heuristic_count.to_string(),
+    );
+    p::kv(
+        "Min / Max / Median",
+        &format!(
+            "{} / {} / {} stroops",
+            forecast.min_fee_stroops, forecast.max_fee_stroops, forecast.median_fee_stroops
+        ),
+    );
+    p::kv(
+        "Average per invoke",
+        &format!("{} stroops", forecast.avg_fee_stroops),
+    );
+    p::kv_accent(
+        "Estimated batch total",
+        &format!(
+            "{} stroops ({:.7} XLM)",
+            forecast.total_fee_stroops, forecast.total_fee_xlm
+        ),
+    );
+
+    if forecast.would_exceed_budget {
+        println!();
+        p::warn("The batch would exceed the manifest budget.");
+    }
+
+    if forecast.high_variance_count > 0 {
+        println!();
+        p::info("High-variance calls:");
+        for item in forecast.items.iter().filter(|item| item.high_variance) {
+            println!(
+                "  [{}] {} — {}",
+                item.index + 1,
+                item.label(),
+                item.variance_reasons.join("; ")
+            );
+            for error in &item.errors {
+                println!("      error: {}", error);
+            }
+        }
+    }
+
+    for warning in &forecast.warnings {
+        println!();
+        p::warn(warning);
+    }
+
+    if enforce
+        && (forecast.would_exceed_budget || forecast.items.iter().any(|e| e.would_exceed_cap))
+    {
+        anyhow::bail!(
+            "Batch forecast exceeds the configured budget or a per-invoke fee cap (--enforce)"
+        );
     }
 
     Ok(())

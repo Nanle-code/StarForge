@@ -820,6 +820,14 @@ mod tests {
         fs::write(dir.join("contract-dependencies.toml"), contents).unwrap();
     }
 
+    /// Render a path for embedding in a TOML basic string.
+    ///
+    /// Windows paths contain backslashes, which TOML reads as escape
+    /// sequences; forward slashes are accepted as separators on every platform.
+    fn toml_path(path: &Path) -> String {
+        path.display().to_string().replace('\\', "/")
+    }
+
     #[test]
     fn test_detect_conflicts_disjoint_requirements() {
         let root = tempdir().unwrap();
@@ -829,7 +837,7 @@ mod tests {
             root.path(),
             &format!(
                 "[dependencies]\na = {{ version = \"^1.0.0\", path = \"{}\" }}\n",
-                dep.path().display()
+                toml_path(dep.path())
             ),
         );
 
@@ -841,15 +849,15 @@ mod tests {
             sibling.path(),
             &format!(
                 "[dependencies]\na = {{ version = \"^2.0.0\", path = \"{}\" }}\n",
-                dep.path().display()
+                toml_path(dep.path())
             ),
         );
         write_deps(
             root.path(),
             &format!(
                 "[dependencies]\na = {{ version = \"^1.0.0\", path = \"{}\" }}\nb = {{ path = \"{}\" }}\n",
-                dep.path().display(),
-                sibling.path().display()
+                toml_path(dep.path()),
+                toml_path(sibling.path())
             ),
         );
 
@@ -867,7 +875,7 @@ mod tests {
             root.path(),
             &format!(
                 "[dependencies]\na = {{ version = \"^1.0.0\", path = \"{}\" }}\n",
-                dep.path().display()
+                toml_path(dep.path())
             ),
         );
         let conflicts = detect_conflicts(root.path()).unwrap();
@@ -887,7 +895,7 @@ mod tests {
             root.path(),
             &format!(
                 "[dependencies]\ntoken = {{ version = \"^1.0.0\", path = \"{}\" }}\n",
-                dep.path().display()
+                toml_path(dep.path())
             ),
         );
 

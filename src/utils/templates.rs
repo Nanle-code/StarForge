@@ -1,5 +1,7 @@
 use crate::utils::http_client;
+use crate::utils::template_schema;
 use anyhow::{Context, Result};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -76,56 +78,14 @@ impl MaintenanceStatus {
     }
 }
 
-fn deserialize_findings_opt<'de, D>(
-    deserializer: D,
-) -> std::result::Result<Option<String>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    struct FindingsVisitor;
-
-    impl<'de> serde::de::Visitor<'de> for FindingsVisitor {
-        type Value = Option<String>;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-            formatter.write_str("a string, integer, or null")
-        }
-
-        fn visit_none<E>(self) -> std::result::Result<Self::Value, E> {
-            Ok(None)
-        }
-
-        fn visit_unit<E>(self) -> std::result::Result<Self::Value, E> {
-            Ok(None)
-        }
-
-        fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E> {
-            Ok(Some(value.to_string()))
-        }
-
-        fn visit_string<E>(self, value: String) -> std::result::Result<Self::Value, E> {
-            Ok(Some(value))
-        }
-
-        fn visit_i64<E>(self, value: i64) -> std::result::Result<Self::Value, E> {
-            Ok(Some(value.to_string()))
-        }
-
-        fn visit_u64<E>(self, value: u64) -> std::result::Result<Self::Value, E> {
-            Ok(Some(value.to_string()))
-        }
-    }
-
-    deserializer.deserialize_any(FindingsVisitor)
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecurityReview {
     pub status: String,
     pub auditor: Option<String>,
     pub audited_at: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_findings_opt")]
-    pub findings: Option<String>,
+    /// Number of findings raised by the audit. Integer to match the registry
+    /// schema and the published registry, which report a count.
+    pub findings: Option<u32>,
     pub score: Option<f64>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -672,12 +632,30 @@ const DEFAULT_REGISTRY: &str = include_str!("../../templates/registry.json");
 const DEFAULT_REGISTRY_URL: &str =
     "https://starforge-protocol.github.io/starforge/templates/registry.json";
 
-fn registry_path() -> Result<PathBuf> {
-    let dir = crate::utils::config::config_dir().join("templates");
+/// Directory holding the local registry cache. Honors
+/// `STARFORGE_TEMPLATE_REGISTRY_DIR` (primarily used by tests to avoid
+/// touching a real home directory) before falling back to
+/// `~/.starforge/templates`.
+fn registry_dir() -> Result<PathBuf> {
+    let dir = match std::env::var_os("STARFORGE_TEMPLATE_REGISTRY_DIR") {
+        Some(dir) => PathBuf::from(dir),
+        None => crate::utils::config::config_dir().join("templates"),
+    };
     if !dir.exists() {
         fs::create_dir_all(&dir).with_context(|| format!("Failed to create {}", dir.display()))?;
     }
-    Ok(dir.join("registry.json"))
+    Ok(dir)
+}
+
+fn registry_path() -> Result<PathBuf> {
+    Ok(registry_dir()?.join("registry.json"))
+}
+
+/// Path to the sidecar file that stores the `ETag` of the last successfully
+/// fetched remote registry, used to make conditional (`If-None-Match`)
+/// requests on subsequent refreshes.
+fn registry_etag_path() -> Result<PathBuf> {
+    Ok(registry_path()?.with_extension("etag"))
 }
 
 /// Verify that the SHA-256 checksum of `bytes` matches `expected_hex`.
@@ -892,6 +870,139 @@ pub async fn template_source_content(name: &str, force_refresh: bool) -> Result<
     }
 }
 
+const REGISTRY_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
+/// Whether the locally cached registry file is still within its TTL window.
+fn is_cache_fresh(cache_path: &Path) -> bool {
+    fs::metadata(cache_path)
+        .and_then(|m| m.modified())
+        .map(|modified| {
+            std::time::SystemTime::now()
+                .duration_since(modified)
+                .unwrap_or(REGISTRY_CACHE_TTL)
+                < REGISTRY_CACHE_TTL
+        })
+        .unwrap_or(false)
+}
+
+/// Read and parse the locally cached registry file, if present and valid.
+fn read_cached_registry(cache_path: &Path) -> Option<TemplateRegistry> {
+    let contents = fs::read_to_string(cache_path).ok()?;
+    parse_registry_checked(
+        &contents,
+        &format!("cached registry {}", cache_path.display()),
+    )
+    .ok()
+}
+
+/// Reset a file's modification time to now without changing its contents.
+///
+/// Used after a `304 Not Modified` response to restart the cache's TTL
+/// window without re-downloading or re-writing the (unchanged) body.
+fn touch(path: &Path) {
+    if let Ok(contents) = fs::read(path) {
+        let _ = fs::write(path, contents);
+    }
+}
+
+/// Read the ETag stored alongside the cached registry, if any.
+fn read_stored_etag() -> Option<String> {
+    let etag_path = registry_etag_path().ok()?;
+    let etag = fs::read_to_string(etag_path).ok()?;
+    let etag = etag.trim();
+    if etag.is_empty() {
+        None
+    } else {
+        Some(etag.to_string())
+    }
+}
+
+/// Parse a registry document and check it against `templates/registry.schema.json`
+/// before it is used.
+///
+/// `origin` names what is being validated (a file path or a registry URL) so a
+/// failure says which registry is malformed as well as which field. Validating
+/// up front means a bad entry is reported as
+/// `templates[3].version: 'v1.2' is not valid semver ...` instead of failing
+/// later as an opaque deserialization error — or, worse, only once the template
+/// is scaffolded.
+pub fn parse_registry_checked(raw: &str, origin: &str) -> Result<TemplateRegistry> {
+    let value = template_schema::parse_json(raw, origin)?;
+    template_schema::validate_registry(&value, origin).into_result()?;
+    serde_json::from_value(value)
+        .with_context(|| format!("Failed to read the template registry from {}", origin))
+}
+
+/// Validate a registry file on disk, returning the full report (errors and
+/// warnings) rather than failing on the first problem.
+///
+/// Used by `starforge template validate`.
+pub fn validate_registry_file(path: &Path) -> Result<template_schema::ValidationReport> {
+    let origin = path.display().to_string();
+    let raw = fs::read_to_string(path)
+        .with_context(|| format!("Failed to read template registry at {}", origin))?;
+    let value = template_schema::parse_json(&raw, &origin)?;
+    // A file holding a bare template entry is validated as one, so authors can
+    // check a single template's metadata before submitting it.
+    if value.get("templates").is_none() && value.get("name").is_some() {
+        Ok(template_schema::validate_template_entry(&value, &origin))
+    } else {
+        Ok(template_schema::validate_registry(&value, &origin))
+    }
+}
+
+/// Path of the registry document commands read and write by default.
+pub fn active_registry_path() -> Result<PathBuf> {
+    registry_path()
+}
+
+/// Validate the registry bundled with the binary.
+///
+/// This is the registry used when no local cache exists and the marketplace is
+/// unreachable, so it has to satisfy the schema too.
+pub fn validate_bundled_registry() -> Result<template_schema::ValidationReport> {
+    let value = template_schema::parse_json(DEFAULT_REGISTRY, "bundled registry")?;
+    Ok(template_schema::validate_registry(
+        &value,
+        "bundled registry",
+    ))
+}
+
+/// Check an in-memory entry against the schema before it is written to the
+/// registry, so a malformed template never reaches disk.
+fn validate_entry_before_save(entry: &TemplateEntry) -> Result<()> {
+    let value = serde_json::to_value(entry)
+        .with_context(|| format!("Failed to serialize template '{}'", entry.name))?;
+    template_schema::validate_template_entry(&value, &format!("template '{}'", entry.name))
+        .into_result()
+}
+
+/// Serialize a registry and check it against the schema, returning the JSON to
+/// write. Separated from `save_registry` so the check itself is testable
+/// without touching the user's registry directory.
+fn check_registry_before_save(registry: &TemplateRegistry) -> Result<String> {
+    let contents =
+        serde_json::to_string_pretty(registry).with_context(|| "Failed to serialize registry")?;
+    let value = template_schema::parse_json(&contents, "the template registry")?;
+    template_schema::validate_registry(&value, "the template registry")
+        .into_result()
+        .context("Refusing to write a template registry that does not match the schema")?;
+    Ok(contents)
+}
+
+/// Reject an install name that could not be stored as a registry entry.
+///
+/// Runs before the template is fetched, so an unusable name fails immediately
+/// instead of after files have been copied into the template store.
+fn check_install_name(name: &str) -> Result<()> {
+    template_schema::check_template_name(name).map_err(|issue| {
+        anyhow::anyhow!(
+            "Invalid template name: {}\nPass a different name with --name.",
+            issue.message
+        )
+    })
+}
+
 pub async fn load_registry() -> Result<TemplateRegistry> {
     // Determine remote registry URL, falling back to the default global index.
     let remote_url = std::env::var("STARFORGE_TEMPLATE_REGISTRY_URL")
@@ -904,82 +1015,109 @@ pub async fn load_registry() -> Result<TemplateRegistry> {
     let cache_path = registry_path()?;
 
     // Use cache if it exists and is fresh and we are not forcing a refresh.
-    if !force_refresh {
-        if let Ok(metadata) = fs::metadata(&cache_path) {
-            if let Ok(modified) = metadata.modified() {
-                use std::time::{Duration, SystemTime};
-                let ttl = Duration::from_secs(24 * 60 * 60); // 24 hours
-                if SystemTime::now()
-                    .duration_since(modified)
-                    .unwrap_or_else(|_| ttl)
-                    < ttl
-                {
-                    let contents = fs::read_to_string(&cache_path).with_context(|| {
-                        format!("Failed to read cached registry at {}", cache_path.display())
-                    })?;
-                    let registry: TemplateRegistry = serde_json::from_str(&contents)
-                        .with_context(|| "Failed to parse cached template registry")?;
-                    return Ok(registry);
-                }
-            }
+    if !force_refresh && is_cache_fresh(&cache_path) {
+        if let Some(registry) = read_cached_registry(&cache_path) {
+            return Ok(registry);
         }
     }
 
-    // Either forced refresh or cache is missing/old – attempt to fetch remote.
-    match fetch_and_cache_remote(&remote_url).await {
-        Ok(registry) => Ok(registry),
+    // Either forced refresh or cache is missing/old – attempt a conditional
+    // fetch, sending back any ETag we recorded from a previous fetch so the
+    // server can reply `304 Not Modified` when nothing has changed.
+    let stored_etag = read_stored_etag();
+    match fetch_and_cache_remote(&remote_url, stored_etag.as_deref()).await {
+        Ok(FetchOutcome::Fetched(registry)) => Ok(registry),
+        Ok(FetchOutcome::NotModified) => {
+            touch(&cache_path);
+            read_cached_registry(&cache_path).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Registry server returned 304 Not Modified but no local cache exists"
+                )
+            })
+        }
         Err(_fetch_err) => {
             // If the remote fetch failed but a cached registry exists, fall back to it.
-            if cache_path.exists() {
-                let contents = fs::read_to_string(&cache_path).with_context(|| {
-                    format!("Failed to read cached registry at {}", cache_path.display())
-                })?;
-                let registry: TemplateRegistry = serde_json::from_str(&contents)
-                    .with_context(|| "Failed to parse cached template registry")?;
+            if let Some(registry) = read_cached_registry(&cache_path) {
                 return Ok(registry);
             }
             // No cache available – fall back to the registry bundled with the binary
             // so the marketplace still works offline on a fresh install.
-            let registry: TemplateRegistry = serde_json::from_str(DEFAULT_REGISTRY)
-                .with_context(|| "Failed to parse bundled default template registry")?;
-            Ok(registry)
+            parse_registry_checked(DEFAULT_REGISTRY, "bundled default registry")
         }
     }
 }
 
+/// Write the registry to disk, refusing to persist one that does not satisfy
+/// the registry schema.
+///
+/// This is the single choke point every mutation goes through — install,
+/// publish, update and remove — so a malformed entry is rejected with a
+/// field-level error before it can be written and re-read as a broken registry.
 pub fn save_registry(registry: &TemplateRegistry) -> Result<()> {
+    let contents = check_registry_before_save(registry)?;
+
     let path = registry_path()?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
     }
-    let contents =
-        serde_json::to_string_pretty(registry).with_context(|| "Failed to serialize registry")?;
     fs::write(&path, contents)
         .with_context(|| format!("Failed to write registry to {}", path.display()))?;
     Ok(())
 }
 
-/// Fetches a remote JSON template registry, caches it locally, and returns the parsed registry.
-async fn fetch_and_cache_remote(url: &str) -> Result<TemplateRegistry> {
-    let response = http_client::get_client()
-        .get(url)
+/// Outcome of a conditional fetch against the remote registry.
+enum FetchOutcome {
+    /// The server returned a fresh body (`200 OK`); it has been parsed and cached.
+    Fetched(TemplateRegistry),
+    /// The server confirmed the local cache is still current (`304 Not Modified`).
+    NotModified,
+}
+
+/// Fetches a remote JSON template registry, caches it locally, and returns the
+/// parsed registry.
+///
+/// When `etag` is `Some`, the request is sent as a conditional GET with an
+/// `If-None-Match` header, so an unchanged remote registry can reply
+/// `304 Not Modified` instead of re-sending the full body. The body is
+/// validated against the registry schema *before* it is cached, so a broken
+/// marketplace index is reported field by field and never replaces a working
+/// local cache.
+async fn fetch_and_cache_remote(url: &str, etag: Option<&str>) -> Result<FetchOutcome> {
+    let mut request = http_client::get_client().get(url);
+    if let Some(etag) = etag {
+        request = request.header("If-None-Match", etag);
+    }
+
+    let response = request
         .send()
         .await
         .with_context(|| format!("Failed to fetch remote template registry from {}", url))?;
-    if response.status() != 200 {
+
+    if response.status() == reqwest::StatusCode::NOT_MODIFIED {
+        return Ok(FetchOutcome::NotModified);
+    }
+    if response.status() != reqwest::StatusCode::OK {
         anyhow::bail!(
             "Unexpected HTTP status {} when fetching remote registry",
             response.status()
         );
     }
+
+    // Capture the ETag before consuming the response body.
+    let new_etag = response
+        .headers()
+        .get(reqwest::header::ETAG)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
     let json_str = response
         .text()
         .await
         .with_context(|| "Failed to read response body as string")?;
-    // Parse the JSON into our TemplateRegistry struct.
-    let registry: TemplateRegistry = serde_json::from_str(&json_str)
-        .with_context(|| "Failed to deserialize remote template registry JSON")?;
+    // Validate before caching so an invalid remote registry cannot overwrite a
+    // usable local cache.
+    let registry = parse_registry_checked(&json_str, &format!("remote registry {}", url))?;
     // Cache the fetched registry locally for offline use.
     let cache_path = registry_path()?;
     if let Some(parent) = cache_path.parent() {
@@ -992,7 +1130,22 @@ async fn fetch_and_cache_remote(url: &str) -> Result<TemplateRegistry> {
             cache_path.display()
         )
     })?;
-    Ok(registry)
+
+    // Persist the ETag (if any) for the next conditional request; clear any
+    // stale value when the server no longer sends one.
+    let etag_path = registry_etag_path()?;
+    match &new_etag {
+        Some(tag) => {
+            fs::write(&etag_path, tag).with_context(|| {
+                format!("Failed to write registry ETag to {}", etag_path.display())
+            })?;
+        }
+        None => {
+            fs::remove_file(&etag_path).ok();
+        }
+    }
+
+    Ok(FetchOutcome::Fetched(registry))
 }
 
 /// Filters applied on top of a text query when searching the marketplace.
@@ -1150,6 +1303,93 @@ pub async fn search_templates(query: &str, tags: Option<&[String]>) -> Result<Ve
         .collect())
 }
 
+/// One page of paginated results, plus an opaque cursor for fetching the next page.
+#[derive(Debug, Clone)]
+pub struct Page<T> {
+    pub items: Vec<T>,
+    /// Cursor to pass as `--cursor` to fetch the next page; `None` once the
+    /// last page has been reached.
+    pub next_cursor: Option<String>,
+    /// Total number of items in the unpaginated result set.
+    pub total: usize,
+}
+
+/// Encode a stable pagination cursor from an item's unique key.
+fn encode_cursor(key: &str) -> String {
+    BASE64.encode(key)
+}
+
+/// Decode a pagination cursor back into the item key it was derived from.
+fn decode_cursor(cursor: &str) -> Result<String> {
+    let bytes = BASE64
+        .decode(cursor)
+        .with_context(|| "Invalid pagination cursor: not valid base64")?;
+    String::from_utf8(bytes).with_context(|| "Invalid pagination cursor: not valid UTF-8")
+}
+
+/// Split `items` into a page of at most `limit` entries, starting immediately
+/// after the entry identified by `cursor` (or from the start when `cursor` is
+/// `None`).
+///
+/// Cursors are opaque to callers and are derived from each item's stable key
+/// (as returned by `key_fn`, e.g. a template name) rather than a raw
+/// position, so a page stays anchored to the entry a caller last saw even if
+/// earlier entries are added or removed between requests. If the entry a
+/// cursor points to can no longer be found (e.g. it was removed from the
+/// registry), pagination is aborted with an error rather than silently
+/// returning a misleading page.
+pub fn paginate<T: Clone>(
+    items: &[T],
+    cursor: Option<&str>,
+    limit: usize,
+    key_fn: impl Fn(&T) -> &str,
+) -> Result<Page<T>> {
+    if limit == 0 {
+        anyhow::bail!("--limit must be greater than 0");
+    }
+
+    let start = match cursor {
+        None => 0,
+        Some(raw) => {
+            let key = decode_cursor(raw)?;
+            let idx = items
+                .iter()
+                .position(|item| key_fn(item) == key)
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Cursor does not match any known entry (the registry may have \
+                         changed since the previous page was fetched). Restart pagination \
+                         by omitting --cursor."
+                    )
+                })?;
+            idx + 1
+        }
+    };
+
+    let total = items.len();
+    if start >= total {
+        return Ok(Page {
+            items: Vec::new(),
+            next_cursor: None,
+            total,
+        });
+    }
+
+    let end = (start + limit).min(total);
+    let page_items = items[start..end].to_vec();
+    let next_cursor = if end < total {
+        Some(encode_cursor(key_fn(&items[end - 1])))
+    } else {
+        None
+    };
+
+    Ok(Page {
+        items: page_items,
+        next_cursor,
+        total,
+    })
+}
+
 pub async fn get_template(name: &str) -> Result<TemplateEntry> {
     let versions = get_templates_by_name(name).await?;
     versions
@@ -1279,6 +1519,10 @@ fn semver_cmp(a: &str, b: &str) -> std::cmp::Ordering {
 }
 
 pub async fn add_template(entry: TemplateEntry) -> Result<()> {
+    // Check the entry on its own first: the error then names the template being
+    // added rather than its eventual index in the registry.
+    validate_entry_before_save(&entry)?;
+
     let mut registry = load_registry().await?;
 
     if let Some(existing) = registry
@@ -1799,6 +2043,9 @@ async fn install_from_git_url(
             .trim_end_matches(".git")
             .to_string()
     });
+    // The name becomes a directory under the template store, so check it
+    // before anything is fetched or written.
+    check_install_name(&name)?;
 
     let mut registry = load_registry().await?;
     if registry.templates.iter().any(|t| t.name == name) && !force {
@@ -1872,6 +2119,7 @@ async fn install_from_local_path(
             .unwrap_or("template")
             .to_string()
     });
+    check_install_name(&name)?;
 
     let mut registry = load_registry().await?;
     if registry.templates.iter().any(|t| t.name == name) && !force {
@@ -2121,9 +2369,9 @@ mod tests {
     fn make_entry(name: &str) -> TemplateEntry {
         TemplateEntry {
             name: name.to_string(),
-            changelog: None,
             repository: None,
             security_review: None,
+            changelog: None,
             version: "1.0.0".to_string(),
             description: String::new(),
             author: String::new(),
@@ -2151,6 +2399,91 @@ mod tests {
             repository: None,
             security_review: None,
         }
+    }
+
+    // ── registry schema validation (issue #686) ─────────────────────────────
+
+    #[test]
+    fn a_registry_of_valid_entries_is_accepted_for_saving() {
+        let mut registry = TemplateRegistry::default();
+        registry.templates.push(make_entry("escrow"));
+
+        let contents = check_registry_before_save(&registry).expect("valid registry");
+        assert!(contents.contains("\"escrow\""));
+    }
+
+    /// A locally installed template carries no description, author or
+    /// timestamps; that must stay savable.
+    #[test]
+    fn a_freshly_installed_entry_is_accepted_for_saving() {
+        let mut entry = make_entry("from-local");
+        entry.source = TemplateSource::Local {
+            path: "/srv/templates/from-local".to_string(),
+        };
+        entry.created_at = String::new();
+        entry.updated_at = String::new();
+
+        let mut registry = TemplateRegistry::default();
+        registry.templates.push(entry);
+        assert!(check_registry_before_save(&registry).is_ok());
+    }
+
+    #[test]
+    fn a_malformed_entry_is_refused_before_it_reaches_disk() {
+        let mut entry = make_entry("broken");
+        entry.version = "not-semver".to_string();
+
+        let mut registry = TemplateRegistry::default();
+        registry.templates.push(entry);
+
+        let err = check_registry_before_save(&registry).unwrap_err();
+        let message = format!("{:#}", err);
+        assert!(
+            message.contains("templates[0].version"),
+            "error should name the field: {}",
+            message
+        );
+        assert!(
+            message.contains("Refusing to write"),
+            "error should say the write was refused: {}",
+            message
+        );
+    }
+
+    #[test]
+    fn two_entries_with_the_same_name_and_version_are_refused() {
+        let mut registry = TemplateRegistry::default();
+        registry.templates.push(make_entry("escrow"));
+        registry.templates.push(make_entry("escrow"));
+
+        let err = check_registry_before_save(&registry).unwrap_err();
+        assert!(
+            format!("{:#}", err).contains("duplicate entry"),
+            "{:#}",
+            err
+        );
+    }
+
+    #[test]
+    fn different_versions_of_one_template_may_coexist() {
+        let mut older = make_entry("escrow");
+        older.version = "0.9.0".to_string();
+
+        let mut registry = TemplateRegistry::default();
+        registry.templates.push(older);
+        registry.templates.push(make_entry("escrow"));
+
+        assert!(check_registry_before_save(&registry).is_ok());
+    }
+
+    #[test]
+    fn an_install_name_that_escapes_the_template_store_is_refused() {
+        let err = check_install_name("../../etc/passwd").unwrap_err();
+        let message = err.to_string();
+        assert!(message.contains("Invalid template name"), "{}", message);
+        assert!(message.contains("--name"), "{}", message);
+
+        assert!(check_install_name("soroban-examples").is_ok());
     }
 
     #[test]
@@ -2392,12 +2725,14 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_publish_template_versioned_stores_by_version() {
+    #[tokio::test]
+    async fn test_publish_template_versioned_stores_by_version() {
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
+        let starforge_dir = home.join(".starforge");
+        std::env::set_var("STARFORGE_CONFIG_DIR", starforge_dir.as_os_str());
         std::env::set_var("HOME", home.as_os_str());
-        let registry_dir = home.join(".starforge").join("templates");
+        let registry_dir = starforge_dir.join("templates");
         fs::create_dir_all(&registry_dir).unwrap();
         fs::write(
             registry_dir.join("registry.json"),
@@ -2408,52 +2743,51 @@ mod tests {
         let tpl_dir = tmp.path().join("template");
         make_valid_template(&tpl_dir);
 
-        futures::executor::block_on(async {
-            publish_template_versioned(
-                &tpl_dir,
-                "my-template".to_string(),
-                "A test template".to_string(),
-                "Alice".to_string(),
-                vec!["defi".to_string()],
-                "1.0.0".to_string(),
-                Some("0.1.0".to_string()),
-                Some("1.0.0".to_string()),
-                Some("MIT".to_string()),
-                Some("https://example.com".to_string()),
-                Some("https://docs.example.com".to_string()),
-                Some("https://homepage.example.com".to_string()),
-            )
+        publish_template_versioned(
+            &tpl_dir,
+            "my-template".to_string(),
+            "A test template".to_string(),
+            "Alice".to_string(),
+            vec!["defi".to_string()],
+            "1.0.0".to_string(),
+            Some("0.1.0".to_string()),
+            Some("1.0.0".to_string()),
+            Some("MIT".to_string()),
+            Some("https://example.com".to_string()),
+            Some("https://docs.example.com".to_string()),
+            Some("https://homepage.example.com".to_string()),
+        )
+        .await
+        .unwrap();
+
+        let storage = home.join(".starforge").join("templates").join("storage");
+        assert!(storage.join("my-template").join("1.0.0").exists());
+
+        publish_template_versioned(
+            &tpl_dir,
+            "my-template".to_string(),
+            "A test template".to_string(),
+            "Alice".to_string(),
+            vec!["defi".to_string()],
+            "1.1.0".to_string(),
+            Some("0.1.0".to_string()),
+            Some("1.0.0".to_string()),
+            Some("MIT".to_string()),
+            Some("https://example.com".to_string()),
+            Some("https://docs.example.com".to_string()),
+            Some("https://homepage.example.com".to_string()),
+        )
+        .await
+        .unwrap();
+
+        let latest = get_template("my-template").await.unwrap();
+        assert_eq!(latest.version, "1.1.0");
+
+        let older = get_template_by_name_and_version("my-template", Some("1.0.0"))
             .await
             .unwrap();
-
-            let storage = home.join(".starforge").join("templates").join("storage");
-            assert!(storage.join("my-template").join("1.0.0").exists());
-
-            publish_template_versioned(
-                &tpl_dir,
-                "my-template".to_string(),
-                "A test template".to_string(),
-                "Alice".to_string(),
-                vec!["defi".to_string()],
-                "1.1.0".to_string(),
-                Some("0.1.0".to_string()),
-                Some("1.0.0".to_string()),
-                Some("MIT".to_string()),
-                Some("https://example.com".to_string()),
-                Some("https://docs.example.com".to_string()),
-                Some("https://homepage.example.com".to_string()),
-            )
-            .await
-            .unwrap();
-
-            let latest = get_template("my-template").await.unwrap();
-            assert_eq!(latest.version, "1.1.0");
-
-            let older = get_template_by_name_and_version("my-template", Some("1.0.0"))
-                .await
-                .unwrap();
-            assert_eq!(older.version, "1.0.0");
-        });
+        assert_eq!(older.version, "1.0.0");
+        std::env::remove_var("STARFORGE_CONFIG_DIR");
     }
 
     #[test]
@@ -2461,9 +2795,9 @@ mod tests {
         let mut registry = TemplateRegistry::default();
         registry.templates.push(TemplateEntry {
             name: "uniswap-v2".to_string(),
-            changelog: None,
             repository: None,
             security_review: None,
+            changelog: None,
             version: "1.0.0".to_string(),
             description: "Uniswap V2 DEX implementation".to_string(),
             author: "DeFi Team".to_string(),
@@ -2518,9 +2852,9 @@ mod tests {
 
         let entry = TemplateEntry {
             name: "my-template".to_string(),
-            changelog: None,
             repository: None,
             security_review: None,
+            changelog: None,
             source: TemplateSource::Git {
                 url: "https://example.com/repo.git".to_string(),
                 branch: None,
@@ -2578,9 +2912,9 @@ mod tests {
     fn sample_entry() -> TemplateEntry {
         TemplateEntry {
             name: "sample".to_string(),
-            changelog: None,
             repository: None,
             security_review: None,
+            changelog: None,
             version: "1.0.0".to_string(),
             description: String::new(),
             author: String::new(),
@@ -3021,5 +3355,211 @@ mod tests {
             msg.contains("malformed") || msg.contains("bad-version"),
             "error should describe the problem"
         );
+    }
+
+    // ---- Cursor pagination -------------------------------------------------
+
+    #[test]
+    fn paginate_walks_all_pages_in_order() {
+        let items: Vec<TemplateEntry> = (1..=5).map(|i| make_entry(&format!("tpl-{i}"))).collect();
+
+        let mut cursor: Option<String> = None;
+        let mut collected = Vec::new();
+        loop {
+            let page = paginate(&items, cursor.as_deref(), 2, |t| t.name.as_str()).unwrap();
+            collected.extend(page.items.iter().map(|t| t.name.clone()));
+            assert_eq!(page.total, 5);
+            match page.next_cursor {
+                Some(next) => cursor = Some(next),
+                None => break,
+            }
+        }
+
+        assert_eq!(collected, vec!["tpl-1", "tpl-2", "tpl-3", "tpl-4", "tpl-5"]);
+    }
+
+    #[test]
+    fn paginate_cursor_past_last_item_returns_empty_page() {
+        let items: Vec<TemplateEntry> = (1..=3).map(|i| make_entry(&format!("tpl-{i}"))).collect();
+        let last_cursor = encode_cursor("tpl-3");
+
+        let page = paginate(&items, Some(&last_cursor), 2, |t| t.name.as_str()).unwrap();
+        assert!(page.items.is_empty());
+        assert!(page.next_cursor.is_none());
+        assert_eq!(page.total, 3);
+    }
+
+    #[test]
+    fn paginate_rejects_zero_limit() {
+        let items = vec![make_entry("tpl-1")];
+        let err = paginate(&items, None, 0, |t| t.name.as_str()).unwrap_err();
+        assert!(err.to_string().contains("greater than 0"));
+    }
+
+    #[test]
+    fn paginate_rejects_cursor_for_unknown_entry() {
+        let items = vec![make_entry("tpl-1")];
+        let ghost_cursor = encode_cursor("does-not-exist");
+        let err = paginate(&items, Some(&ghost_cursor), 10, |t| t.name.as_str()).unwrap_err();
+        assert!(err.to_string().contains("Cursor does not match"));
+    }
+
+    #[test]
+    fn paginate_rejects_malformed_cursor() {
+        let items = vec![make_entry("tpl-1")];
+        let err =
+            paginate(&items, Some("not-valid-base64!!"), 10, |t| t.name.as_str()).unwrap_err();
+        assert!(err.to_string().to_lowercase().contains("cursor"));
+    }
+
+    // ---- ETag / conditional-request caching --------------------------------
+
+    static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Isolates a test's registry cache directory and registry-related env
+    /// vars so concurrent tests don't clobber each other or the real user's
+    /// `~/.starforge` directory. Uses `STARFORGE_TEMPLATE_REGISTRY_DIR`
+    /// rather than overriding `HOME`, since `dirs::home_dir()` ignores
+    /// `HOME`/`USERPROFILE` overrides on some platforms (notably Windows).
+    struct RegistryTestEnv {
+        _env_lock: std::sync::MutexGuard<'static, ()>,
+        _cache_dir: tempfile::TempDir,
+        original_dir: Option<String>,
+        original_url: Option<String>,
+        original_force_refresh: Option<String>,
+    }
+
+    impl RegistryTestEnv {
+        fn new(remote_url: &str) -> Self {
+            let env_lock = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            let cache_dir = tempdir().expect("temp registry cache dir");
+            let original_dir = std::env::var("STARFORGE_TEMPLATE_REGISTRY_DIR").ok();
+            let original_url = std::env::var("STARFORGE_TEMPLATE_REGISTRY_URL").ok();
+            let original_force_refresh =
+                std::env::var("STARFORGE_TEMPLATE_REGISTRY_FORCE_REFRESH").ok();
+
+            std::env::set_var("STARFORGE_TEMPLATE_REGISTRY_DIR", cache_dir.path());
+            std::env::set_var("STARFORGE_TEMPLATE_REGISTRY_URL", remote_url);
+            std::env::remove_var("STARFORGE_TEMPLATE_REGISTRY_FORCE_REFRESH");
+
+            Self {
+                _env_lock: env_lock,
+                _cache_dir: cache_dir,
+                original_dir,
+                original_url,
+                original_force_refresh,
+            }
+        }
+
+        fn force_refresh(&self) {
+            std::env::set_var("STARFORGE_TEMPLATE_REGISTRY_FORCE_REFRESH", "1");
+        }
+    }
+
+    impl Drop for RegistryTestEnv {
+        fn drop(&mut self) {
+            match &self.original_dir {
+                Some(v) => std::env::set_var("STARFORGE_TEMPLATE_REGISTRY_DIR", v),
+                None => std::env::remove_var("STARFORGE_TEMPLATE_REGISTRY_DIR"),
+            }
+            match &self.original_url {
+                Some(v) => std::env::set_var("STARFORGE_TEMPLATE_REGISTRY_URL", v),
+                None => std::env::remove_var("STARFORGE_TEMPLATE_REGISTRY_URL"),
+            }
+            match &self.original_force_refresh {
+                Some(v) => std::env::set_var("STARFORGE_TEMPLATE_REGISTRY_FORCE_REFRESH", v),
+                None => std::env::remove_var("STARFORGE_TEMPLATE_REGISTRY_FORCE_REFRESH"),
+            }
+        }
+    }
+
+    const MOCK_TEMPLATE_BODY: &str = r#"{"templates":[{"name":"demo","author":"StarForge","tags":[],"repository":null,"security_review":null,"changelog":null,"description":"d","version":"1.0.0","source":{"type":"builtin","id":"demo"}}]}"#;
+
+    #[tokio::test]
+    async fn fetch_and_cache_remote_stores_and_sends_etag() {
+        let mut server = mockito::Server::new_async().await;
+        let _env = RegistryTestEnv::new(&server.url());
+
+        let _first_mock = server
+            .mock("GET", "/")
+            .match_header("if-none-match", mockito::Matcher::Missing)
+            .with_status(200)
+            .with_header("ETag", "\"abc123\"")
+            .with_header("content-type", "application/json")
+            .with_body(MOCK_TEMPLATE_BODY)
+            .create_async()
+            .await;
+
+        let outcome = fetch_and_cache_remote(&server.url(), None)
+            .await
+            .expect("first fetch");
+        match outcome {
+            FetchOutcome::Fetched(registry) => assert_eq!(registry.templates.len(), 1),
+            FetchOutcome::NotModified => panic!("expected a fresh fetch on first request"),
+        }
+
+        let stored = read_stored_etag().expect("etag should have been cached");
+        assert_eq!(stored, "\"abc123\"");
+
+        let _second_mock = server
+            .mock("GET", "/")
+            .match_header("if-none-match", "\"abc123\"")
+            .with_status(304)
+            .create_async()
+            .await;
+
+        let outcome = fetch_and_cache_remote(&server.url(), Some(&stored))
+            .await
+            .expect("conditional fetch");
+        assert!(
+            matches!(outcome, FetchOutcome::NotModified),
+            "server should have short-circuited with 304"
+        );
+    }
+
+    #[tokio::test]
+    async fn load_registry_reuses_cache_on_304_after_forced_refresh() {
+        let mut server = mockito::Server::new_async().await;
+        let env = RegistryTestEnv::new(&server.url());
+
+        let _first_mock = server
+            .mock("GET", "/")
+            .match_header("if-none-match", mockito::Matcher::Missing)
+            .with_status(200)
+            .with_header("ETag", "\"v1\"")
+            .with_header("content-type", "application/json")
+            .with_body(MOCK_TEMPLATE_BODY)
+            .create_async()
+            .await;
+
+        let first = load_registry().await.expect("initial fetch");
+        assert_eq!(first.templates.len(), 1);
+
+        let _second_mock = server
+            .mock("GET", "/")
+            .match_header("if-none-match", "\"v1\"")
+            .with_status(304)
+            .create_async()
+            .await;
+
+        env.force_refresh();
+        let second = load_registry()
+            .await
+            .expect("conditional refresh should reuse cache");
+        assert_eq!(second.templates.len(), 1);
+        assert_eq!(second.templates[0].name, "demo");
+    }
+
+    #[tokio::test]
+    async fn load_registry_falls_back_to_bundled_default_when_remote_unreachable() {
+        // Nothing listens on this address, so the request fails fast with a
+        // connection error rather than a slow timeout.
+        let _env = RegistryTestEnv::new("http://127.0.0.1:1");
+
+        let registry = load_registry()
+            .await
+            .expect("should fall back instead of erroring");
+        let bundled: TemplateRegistry = serde_json::from_str(DEFAULT_REGISTRY).unwrap();
+        assert_eq!(registry.templates.len(), bundled.templates.len());
     }
 }

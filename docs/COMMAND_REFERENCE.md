@@ -248,6 +248,7 @@ When downloading template archives from a remote registry, the CLI automatically
 | `simulate resources --file <JSON>` | Report CPU, memory, footprint, and minimum resource fee from a saved `simulateTransaction` response |
 | `simulate resources --contract <ID> --function <NAME>` | The same, simulated live against Soroban RPC |
 | `cost resources --file <JSON>` | Price a simulation and check it against configured budgets (`--enforce` to gate CI) |
+| `cost forecast-batch <MANIFEST>` | Forecast aggregate fees for a batch of planned invokes before submission (per-item estimates + totals, high-variance calls highlighted) |
 
 Shared flags: `--margin <PERCENT>` (default `20`), `--inclusion-fee <STROOPS>`
 (default `100`). `simulate resources` also takes `--json`.
@@ -256,9 +257,11 @@ Shared flags: `--margin <PERCENT>` (default `20`), `--inclusion-fee <STROOPS>`
 starforge simulate resources --file simulation.json --json
 starforge simulate resources --contract CCPYZ... --function balance --network testnet
 starforge cost resources --file simulation.json --network mainnet --enforce
+starforge cost forecast-batch batch-invoke-manifest.json --network testnet --enforce
 ```
 
-Full reference: [SIMULATION_RESOURCES.md](SIMULATION_RESOURCES.md).
+Full reference: [SIMULATION_RESOURCES.md](SIMULATION_RESOURCES.md) and
+[BATCH_FORECAST.md](BATCH_FORECAST.md).
 
 ---
 

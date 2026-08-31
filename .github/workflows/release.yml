@@ -79,6 +79,23 @@ jobs:
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }}
 
+      # RELEASE-BLOCKING for Windows: the publish job depends on this build
+      # job, so a Windows binary that cannot start or whose --help/doctor
+      # surface is broken stops the release here, before packaging.
+      - name: Smoke test Windows binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File tests/installer/windows_smoke.ps1 -Binary "target\${{ matrix.target }}\release\${{ matrix.binary_name }}"
+
+      - name: Upload Windows smoke logs
+        if: failure() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release-smoke-logs-${{ matrix.target }}
+          path: windows-smoke.log
+          retention-days: 14
+          if-no-files-found: ignore
+
       # Linux and macOS produce .tar.gz
       - name: Package binary (Linux / macOS)
         if: runner.os != 'Windows'

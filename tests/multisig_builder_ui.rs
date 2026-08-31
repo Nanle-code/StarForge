@@ -21,6 +21,9 @@ fn templates_create_proposals_with_metadata() {
         ]
     );
     assert_eq!(proposal.network, "testnet");
+    // The template it came from and the kind of transaction it represents are
+    // separate fields: the "escrow" template proposes an "escrow_release".
+    assert_eq!(proposal.metadata.template.as_deref(), Some("escrow"));
     assert_eq!(
         proposal.metadata.transaction_type.as_deref(),
         Some("escrow_release")

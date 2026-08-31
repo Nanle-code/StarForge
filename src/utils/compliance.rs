@@ -1275,8 +1275,22 @@ pub fn perform_risk_assessment(
     });
     total_score += id_risk as u32;
 
-    // Calculate overall score (0-100, weighted)
-    let max_possible = 5u32 * 100; // 5 factors, max 100 each
+    // Calculate overall score (0-100, weighted).
+    //
+    // The denominator is the score that is actually reachable, not a notional
+    // 100 per factor: no factor above scores anywhere near 100, so dividing by
+    // 500 would leave even a wholly non-compliant mainnet deployment below the
+    // Critical threshold.
+    const MAX_NETWORK_RISK: u32 = 70;
+    const MAX_POLICY_RISK: u32 = 80;
+    const MAX_REGULATORY_RISK: u32 = 75;
+    const MAX_BEST_PRACTICE_RISK: u32 = 40;
+    const MAX_ID_RISK: u32 = 25;
+    let max_possible = MAX_NETWORK_RISK
+        + MAX_POLICY_RISK
+        + MAX_REGULATORY_RISK
+        + MAX_BEST_PRACTICE_RISK
+        + MAX_ID_RISK;
     let overall_score = ((total_score as f64 / max_possible as f64) * 100.0).round() as u8;
 
     // Determine risk level. A blocking policy violation is a hard stop

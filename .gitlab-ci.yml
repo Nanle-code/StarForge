@@ -1,6 +1,9 @@
 stages:
   - quality
+  - test
   - deploy
+  - monitor
+  - notify
 
 default:
   image: rust:latest
@@ -17,29 +20,54 @@ quality:
     - cargo clippy --all-features --locked -- -D warnings
     - cargo test --test cli_smoke --locked
 
+contract_test:
+  stage: test
+  needs: [quality]
+  before_script:
+    - apt-get update -y && apt-get install -y libudev-dev
+    - cargo build --locked --release
+    - cp target/release/starforge /usr/local/bin/starforge
+  script:
+    - cargo test --locked -- --test-threads=1
+    - |
+      if [ -n "${STARFORGE_WASM_PATH:-}" ]; then
+        starforge lint --wasm "$STARFORGE_WASM_PATH" || true
+        starforge gas analyze --wasm "$STARFORGE_WASM_PATH" --network testnet || true
+        starforge audit --wasm "$STARFORGE_WASM_PATH" --output json > audit-results.json || true
+      fi
+  artifacts:
+    paths:
+      - audit-results.json
+    expire_in: 30 days
+    when: always
+
 deploy_staging:
   stage: deploy
-  needs: [quality]
+  needs: [contract_test]
   environment: staging
   resource_group: deployment-staging
   when: manual
   script:
     - export STARFORGE_DEPLOY_ENVIRONMENT=staging
     - bash scripts/ci-deploy.sh
+  variables:
+    STARFORGE_NOTIFY_ACTOR: $GITLAB_USER_LOGIN
 
 rollback_staging:
   stage: deploy
-  needs: [quality]
+  needs: [contract_test]
   environment: staging
   resource_group: deployment-staging
   when: manual
   script:
     - export STARFORGE_DEPLOY_ENVIRONMENT=staging
     - bash scripts/ci-rollback.sh
+  variables:
+    STARFORGE_NOTIFY_ACTOR: $GITLAB_USER_LOGIN
 
 deploy_production:
   stage: deploy
-  needs: [quality]
+  needs: [contract_test]
   environment: production
   resource_group: deployment-production
   when: manual
@@ -48,10 +76,12 @@ deploy_production:
   script:
     - export STARFORGE_DEPLOY_ENVIRONMENT=production STARFORGE_DEPLOY_APPROVED=true
     - bash scripts/ci-deploy.sh
+  variables:
+    STARFORGE_NOTIFY_ACTOR: $GITLAB_USER_LOGIN
 
 rollback_production:
   stage: deploy
-  needs: [quality]
+  needs: [contract_test]
   environment: production
   resource_group: deployment-production
   when: manual
@@ -60,3 +90,38 @@ rollback_production:
   script:
     - export STARFORGE_DEPLOY_ENVIRONMENT=production STARFORGE_ROLLBACK_APPROVED=true
     - bash scripts/ci-rollback.sh
+  variables:
+    STARFORGE_NOTIFY_ACTOR: $GITLAB_USER_LOGIN
+
+monitor_contract:
+  stage: monitor
+  needs: [deploy_staging]
+  when: on_success
+  before_script:
+    - apt-get update -y && apt-get install -y libudev-dev
+    - cargo build --locked --release
+    - cp target/release/starforge /usr/local/bin/starforge
+  script:
+    - |
+      if [ -n "${STARFORGE_CONTRACT_ID:-}" ]; then
+        starforge inspect state "$STARFORGE_CONTRACT_ID" \
+          --network "${STARFORGE_NETWORK:-testnet}" \
+          --json > monitor-snapshot.json || true
+      fi
+  artifacts:
+    paths:
+      - monitor-snapshot.json
+    expire_in: 90 days
+    when: always
+  allow_failure: true
+
+notify_failure:
+  stage: notify
+  when: on_failure
+  script:
+    - |
+      STARFORGE_NOTIFY_STATUS=failure \
+      STARFORGE_NOTIFY_ENV="$CI_ENVIRONMENT_NAME" \
+      STARFORGE_NOTIFY_ACTOR="$GITLAB_USER_LOGIN" \
+      STARFORGE_NOTIFY_URL="$CI_PIPELINE_URL" \
+      bash scripts/ci-notify.sh || true

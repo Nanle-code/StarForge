@@ -155,6 +155,47 @@ the duplicate silently shadowed the other on lookup.
 
 ---
 
+## Atomic writes
+
+Every config-directory file StarForge writes by itself — migration backups
+(`config.backup.v*.toml`), a restored `config.toml`, and `save_config_file`
+exports — goes through `config::atomic_write`:
+
+1. Bytes are written to a uniquely named temporary file **in the same
+   directory** as the destination (`.starforge-<pid>-<nanos>-<n>.tmp`), never
+   to a temp dir on another filesystem.
+2. The temporary file is flushed and **fsynced**.
+3. The temporary file is **renamed over the destination**, which is atomic on
+   the same filesystem: a reader (or a crashed process) sees either the old
+   complete file or the new complete file, never a truncated one.
+4. On Unix the parent directory is fsynced afterwards so the rename itself is
+   durable. On any error the temporary file is removed, so no stray `.tmp`
+   files accumulate.
+
+### Compatibility and platform notes
+
+- **Windows** has no safe, portable way to fsync a directory handle, so the
+  directory fsync is skipped there; the per-file fsync still guarantees no torn
+  contents can be observed. `std::fs::rename` normally replaces an existing
+  destination on Windows (`MOVEFILE_REPLACE_EXISTING`); for a locked or
+  read-only destination StarForge falls back to remove-then-rename rather than
+  failing the save.
+- The TOML config file is a **legacy/export format**. The primary persistence
+  path is the SQLite store (`save()`); only `save_config_file`, migration
+  backups, and `rollback_config` write `config.toml` itself.
+- `atomic_write` creates missing parent directories and fails cleanly when a
+  path's parent is actually a file, leaving the previous file untouched.
+
+### Migration/behavioral changes
+
+- `rollback_config` previously restored backups with a non-atomic `fs::copy`.
+  It now reads the backup and writes it through `atomic_write`, so an
+  interrupted rollback can no longer leave a half-written `config.toml`.
+- `write_config_backup` previously wrote backups with a non-atomic `fs::write`.
+  It now uses `atomic_write`. Existing backup files remain valid and unchanged.
+
+---
+
 ## See also
 
 - [docs/COMMAND_REFERENCE.md](COMMAND_REFERENCE.md) — the `config` command

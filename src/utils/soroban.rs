@@ -213,6 +213,7 @@ pub async fn submit_transaction(
     wallet: &WalletEntry,
     signing: Option<&SigningRequest>,
 ) -> Result<TransactionResult> {
+    crate::utils::network_guard::verify(network).await?;
     let rpc_url = get_rpc_url(network)?;
 
     // Convert arguments to XDR ScVal format

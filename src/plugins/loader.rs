@@ -114,6 +114,16 @@ impl std::fmt::Display for PluginLoadError {
 
 impl std::error::Error for PluginLoadError {}
 
+fn format_panic_detail(payload: &dyn std::any::Any) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "Unknown panic origin".to_string()
+    }
+}
+
 pub struct PluginManager {
     /// Maps plugin name → (plugin, core_version it was built against).
     plugins: HashMap<String, (Box<dyn Plugin>, String)>,
@@ -237,13 +247,7 @@ impl PluginManager {
             }));
 
             if let Err(panic_payload) = register_result {
-                let detail = if let Some(s) = panic_payload.downcast_ref::<&str>() {
-                    s.to_string()
-                } else if let Some(s) = panic_payload.downcast_ref::<String>() {
-                    s.clone()
-                } else {
-                    "Unknown closure panic origin".to_string()
-                };
+                let detail = format_panic_detail(panic_payload.as_ref());
                 return Err(PluginLoadError::RegistrationRuntimePanic {
                     path: path_display,
                     detail,
@@ -253,7 +257,16 @@ impl PluginManager {
             let plugin_core_version = decl.core_version.to_string();
             for plugin in registrar.plugins {
                 let name = plugin.name().to_string();
-                plugin.on_load();
+                let on_load_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    plugin.on_load();
+                }));
+                if let Err(panic_payload) = on_load_result {
+                    let detail = format_panic_detail(panic_payload.as_ref());
+                    return Err(PluginLoadError::RegistrationRuntimePanic {
+                        path: path_display.clone(),
+                        detail,
+                    });
+                }
                 self.plugins
                     .insert(name, (plugin, plugin_core_version.clone()));
             }
@@ -332,10 +345,22 @@ impl PluginManager {
     }
 
     pub fn execute(&self, name: &str, args: &[String]) -> Result<(), String> {
-        if let Some((plugin, _)) = self.plugins.get(name) {
-            plugin.execute(args)
-        } else {
-            return Err(format!("Plugin '{}' not found", name));
+        let (plugin, _) = self
+            .plugins
+            .get(name)
+            .ok_or_else(|| format!("Plugin '{}' not found", name))?;
+
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| plugin.execute(args)));
+
+        match result {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(err)) => Err(format!("Plugin '{}' failed to execute: {}", name, err)),
+            Err(panic_payload) => Err(format!(
+                "Plugin '{}' panicked during execution: {}",
+                name,
+                format_panic_detail(panic_payload.as_ref())
+            )),
         }
     }
 }
@@ -533,5 +558,47 @@ mod tests {
             }
             other => panic!("Expected InvalidLibrary, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn plugin_execute_panics_are_isolated() {
+        struct PanicPlugin;
+
+        impl Plugin for PanicPlugin {
+            fn name(&self) -> &'static str {
+                "panic-plugin"
+            }
+            fn version(&self) -> &'static str {
+                "0.1.0"
+            }
+            fn description(&self) -> &'static str {
+                "panic plugin"
+            }
+            fn execute(&self, _args: &[String]) -> Result<(), String> {
+                panic!("forced execution panic");
+            }
+        }
+
+        let mut pm = PluginManager::new();
+        pm.plugins.insert(
+            "panic-plugin".to_string(),
+            (Box::new(PanicPlugin), "0.1.0".to_string()),
+        );
+
+        let result = pm.execute("panic-plugin", &[]);
+        assert!(result.is_err(), "plugin execution panic should be caught");
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("panicked during execution") || err.contains("forced execution panic")
+        );
+    }
+
+    #[test]
+    fn unknown_plugin_execution_reports_clear_error() {
+        let pm = PluginManager::new();
+        let result = pm.execute("missing-plugin", &[]);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("not found"));
     }
 }

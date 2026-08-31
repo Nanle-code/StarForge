@@ -40,6 +40,17 @@ jobs:
           command: check
           arguments: --all-features
 
+  doctests:
+    name: Documentation Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+      - name: Run doctests
+        run: cargo test --doc --locked
+
   build-and-test:
     name: Build and Test
     runs-on: ubuntu-latest
@@ -125,3 +136,17 @@ jobs:
         run: cargo test --test cli_cross_platform --locked
       - name: Rust smoke tests
         run: cargo test --test cli_smoke --locked
+      # Required on every push/PR: verifies the Windows binary starts and the
+      # core --help / doctor surface behaves. Mirrors the installer-focused
+      # release job in installer-tests.yml.
+      - name: Windows binary startup smoke tests
+        shell: pwsh
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File tests/installer/windows_smoke.ps1 -Binary "target\debug\starforge.exe"
+      - name: Upload Windows smoke logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-cli-smoke-logs
+          path: windows-smoke.log
+          retention-days: 14
+          if-no-files-found: ignore

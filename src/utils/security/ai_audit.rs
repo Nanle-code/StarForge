@@ -160,9 +160,13 @@ impl SecurityPatterns {
                 let mut found_storage_after = false;
                 for j in (i + 1)..std::cmp::min(i + 10, lines.len()) {
                     let candidate = lines[j].trim();
-                    if (candidate.contains("storage") || candidate.contains("set_"))
-                        && candidate.contains("set")
-                    {
+                    // The write may be a direct storage call or a setter
+                    // helper such as `set_balance(...)`; both settle state
+                    // after the external call and so violate CEI.
+                    let writes_state = (candidate.contains("storage") && candidate.contains("set"))
+                        || candidate.contains(".set(")
+                        || candidate.contains("set_");
+                    if writes_state {
                         found_storage_after = true;
                         break;
                     }

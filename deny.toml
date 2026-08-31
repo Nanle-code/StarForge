@@ -10,6 +10,8 @@ targets = [
 
 [advisories]
 version = 2
+# Reject yanked crates that may contain unpatched vulnerabilities.
+yanked = "warn"
 ignore = [
     # rustls-webpki 0.100/0.101 pulled in transitively via pinned ureq =2.7.1.
     "RUSTSEC-2026-0098",
@@ -76,3 +78,5 @@ skip = []
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

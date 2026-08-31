@@ -95,6 +95,49 @@ fn template_list_exits_zero() {
 }
 
 #[test]
+fn template_validate_accepts_the_bundled_registry() {
+    let home = isolated_home();
+    let output = starforge(home.path())
+        .args(["template", "validate", "templates/registry.json"])
+        .output()
+        .expect("spawn template validate");
+    assert_success(&output, "starforge template validate");
+}
+
+#[test]
+fn template_validate_reports_the_offending_field() {
+    let home = isolated_home();
+    let bad = home.path().join("bad-registry.json");
+    std::fs::write(
+        &bad,
+        r#"{"templates":[{"name":"broken","version":"v1","description":"d",
+            "author":"a","tags":[],"source":{"type":"builtin","id":"broken"}}]}"#,
+    )
+    .expect("write bad registry");
+
+    let output = starforge(home.path())
+        .args(["template", "validate"])
+        .arg(&bad)
+        .output()
+        .expect("spawn template validate");
+
+    assert!(
+        !output.status.success(),
+        "an invalid registry should exit non-zero"
+    );
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("templates[0].version"),
+        "output should name the offending field, got: {}",
+        combined
+    );
+}
+
+#[test]
 fn deploy_help_documents_flags() {
     let home = isolated_home();
     let output = starforge(home.path())

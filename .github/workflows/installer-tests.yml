@@ -46,3 +46,35 @@ jobs:
 
       - name: Lint installer tests
         run: shellcheck -S warning tests/installer/test_install.sh
+
+  installer-windows:
+    name: Installer Smoke Tests (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # Windows is distributed as a .zip release artifact (see release.yml), so
+      # there is no shell installer to stub like install.sh. Instead we build
+      # the exact release binary that ships in that .zip and smoke test its
+      # startup plus core help/doctor commands.
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      # Release-blocking: the shipped Windows .zip (release.yml) contains
+      # exactly this binary. If it cannot start or its --help/doctor surface is
+      # broken, the release must not proceed.
+      - name: Run Windows smoke tests
+        shell: pwsh
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File tests/installer/windows_smoke.ps1 -Binary "target\release\starforge.exe"
+
+      - name: Upload Windows smoke logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-smoke-logs
+          path: windows-smoke.log
+          retention-days: 14
+          if-no-files-found: ignore

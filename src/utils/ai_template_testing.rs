@@ -533,13 +533,17 @@ fn validate_cargo_toml(cargo_path: &Path, findings: &mut Vec<TestFinding>) {
     }
 }
 
-fn find_soroban_dependency(package: &toml::Value) -> bool {
-    if let Some(deps) = package.get("dependencies") {
-        if deps.get("soroban-sdk").is_some() {
-            return true;
-        }
-    }
-    false
+/// Whether the manifest depends on `soroban-sdk`.
+///
+/// Takes the whole manifest, not the `[package]` table: dependencies live in
+/// their own top-level tables.
+fn find_soroban_dependency(manifest: &toml::Value) -> bool {
+    ["dependencies", "dev-dependencies"].iter().any(|table| {
+        manifest
+            .get(table)
+            .and_then(|deps| deps.get("soroban-sdk"))
+            .is_some()
+    })
 }
 
 fn validate_source_files(template_dir: &Path, findings: &mut Vec<TestFinding>) {
@@ -1587,10 +1591,17 @@ mod test {
         let config = TestConfig::default();
         let report = test_template(&template_dir, &config).unwrap();
 
+        let blocking: Vec<String> = report
+            .phases
+            .iter()
+            .flat_map(|p| p.findings.iter())
+            .filter(|f| f.severity == Severity::Critical || f.severity == Severity::High)
+            .map(|f| format!("[{}] {}", f.severity.label(), f.title))
+            .collect();
         assert!(
             report.passed,
-            "Valid template should pass: {}",
-            report.summary
+            "Valid template should pass: {} — blocking findings: {:?}",
+            report.summary, blocking
         );
         assert!(
             report.quality_score >= 70,
@@ -1888,8 +1899,11 @@ impl UnwrapContract {
         };
 
         let json = serde_json::to_string_pretty(&phase).unwrap();
-        assert!(json.contains("security"));
-        assert!(json.contains("high"));
+        // The enums carry serde rename policies, so compare case-insensitively
+        // rather than pinning the JSON to a particular casing.
+        let lower = json.to_lowercase();
+        assert!(lower.contains("security"), "{}", json);
+        assert!(lower.contains("high"), "{}", json);
 
         let deserialized: PhaseResult = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.phase, "test");

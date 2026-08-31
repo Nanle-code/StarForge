@@ -7,6 +7,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
 
 /// Validates that a string is a well-formed Stellar Ed25519 public key.
@@ -932,6 +933,144 @@ fn is_version_newer(a: &str, b: &str) -> bool {
     false
 }
 
+// ── Atomic file writes ────────────────────────────────────────────────────────
+//
+// Config-directory files (backup TOMLs, a restored `config.toml`) are written
+// atomically: bytes go to a uniquely named temporary file in the *same*
+// directory as the destination, the file is fsynced, and only then is it
+// renamed over the destination. A reader always sees either the old complete
+// file or the new complete file — never a torn, half-written one.
+
+/// Atomically write `contents` to `path`.
+///
+/// The parent directory is created if needed. Data is written to a temporary
+/// file in the same directory as `path`, flushed, fsynced, and then renamed
+/// over `path`, so a crash mid-write leaves the previous contents intact.
+/// On any failure the temporary file is removed — no stray `.tmp` files
+/// accumulate on error paths.
+///
+/// # Compatibility notes
+///
+/// - Unix: `rename(2)` replaces the destination atomically, and the parent
+///   directory is fsynced afterwards so the replacement is durable.
+/// - Windows: [`std::fs::rename`] normally replaces an existing destination via
+///   `MOVEFILE_REPLACE_EXISTING`; if the OS still refuses (locked or
+///   read-only target), this falls back to remove-then-rename rather than
+///   failing a legitimate save. Directory-level fsync is skipped on Windows —
+///   there is no safe way to fsync a directory handle there without FFI — but
+///   the file fsync before the swap still guarantees no torn contents.
+///
+/// # Errors
+///
+/// Fails (leaving the previous file untouched) when the path has no parent,
+/// the parent exists but is not a directory, or any of create/write/fsync/
+/// rename fails. `path` may be a path with `.tmp`-suffixed siblings only while
+/// the write is in progress; the temporary file is removed on error.
+pub fn atomic_write(path: &std::path::Path, contents: &[u8]) -> Result<()> {
+    let dir = path.parent().ok_or_else(|| {
+        anyhow::anyhow!(
+            "cannot atomically write to {}: path has no parent directory",
+            path.display()
+        )
+    })?;
+    if dir.as_os_str().is_empty() {
+        anyhow::bail!(
+            "cannot atomically write to {}: path is relative and has no parent directory",
+            path.display()
+        );
+    }
+    if dir.exists() && !dir.is_dir() {
+        anyhow::bail!(
+            "cannot atomically write to {}: parent {} is not a directory",
+            path.display(),
+            dir.display()
+        );
+    }
+    if !dir.exists() {
+        fs::create_dir_all(dir)
+            .with_context(|| format!("Failed to create directory {}", dir.display()))?;
+    }
+
+    let temp_path = unique_temp_path(dir);
+    let result = (|| -> Result<()> {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_path)
+            .with_context(|| format!("Failed to create temporary file {:?}", temp_path))?;
+        file.write_all(contents)
+            .with_context(|| format!("Failed to write temporary file {:?}", temp_path))?;
+        file.flush()
+            .with_context(|| format!("Failed to flush temporary file {:?}", temp_path))?;
+        file.sync_all()
+            .with_context(|| format!("Failed to fsync temporary file {:?}", temp_path))?;
+        drop(file);
+
+        replace_file_atomically(&temp_path, path)?;
+        fsync_directory(dir);
+        Ok(())
+    })();
+
+    if result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+    result
+}
+
+/// A unique temporary-file name under `dir`, distinct across threads and
+/// processes. `create_new` in [`atomic_write`] turns any (vanishingly unlikely)
+/// collision into an error instead of silently truncating someone else's file.
+fn unique_temp_path(dir: &std::path::Path) -> PathBuf {
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    dir.join(format!(".starforge-{}-{}-{}.tmp", std::process::id(), nanos, n))
+}
+
+/// Rename `source` over `target`.
+///
+/// Unix `rename(2)` replaces the destination atomically. Windows `MoveFileExW`
+/// normally does too, but can surface `AlreadyExists`/`PermissionDenied` for a
+/// locked or read-only destination; fall back to remove-then-rename rather than
+/// failing the save.
+fn replace_file_atomically(source: &std::path::Path, target: &std::path::Path) -> Result<()> {
+    match fs::rename(source, target) {
+        Ok(()) => Ok(()),
+        Err(e)
+            if cfg!(windows)
+                && matches!(
+                    e.kind(),
+                    std::io::ErrorKind::AlreadyExists | std::io::ErrorKind::PermissionDenied
+                ) =>
+        {
+            fs::remove_file(target)
+                .with_context(|| format!("Failed to replace {}", target.display()))?;
+            fs::rename(source, target)
+                .with_context(|| format!("Failed to replace {}", target.display()))
+        }
+        Err(e) => Err(e).with_context(|| format!("Failed to replace {}", target.display())),
+    }
+}
+
+/// Persist the rename by fsyncing the parent directory. Best-effort: some
+/// filesystems and restricted sandboxes refuse directory fsyncs, so failures
+/// are ignored.
+#[cfg(not(windows))]
+fn fsync_directory(dir: &std::path::Path) {
+    if let Ok(dir_handle) = fs::File::open(dir) {
+        let _ = dir_handle.sync_all();
+    }
+}
+
+/// Windows has no safe, portable way to fsync a directory handle, so the
+/// directory fsync is skipped there. The file fsync in [`atomic_write`] still
+/// guarantees no torn contents are ever observable.
+#[cfg(windows)]
+fn fsync_directory(_dir: &std::path::Path) {}
+
 fn write_config_backup(config: &Config) -> Result<std::path::PathBuf> {
     let dir = config_dir();
     if !dir.exists() {
@@ -945,7 +1084,7 @@ fn write_config_backup(config: &Config) -> Result<std::path::PathBuf> {
     ));
     let contents =
         toml::to_string_pretty(config).with_context(|| "Failed to serialize config for backup")?;
-    fs::write(&backup_path, contents)
+    atomic_write(&backup_path, contents.as_bytes())
         .with_context(|| format!("Failed to write backup to {:?}", backup_path))?;
     Ok(backup_path)
 }
@@ -980,7 +1119,9 @@ pub fn rollback_config(version: &str) -> Result<()> {
     let latest_backup = &backups[0];
     let backup_path = latest_backup.path();
 
-    fs::copy(&backup_path, config_path())
+    let contents = fs::read(&backup_path)
+        .with_context(|| format!("Failed to read backup from {:?}", backup_path))?;
+    atomic_write(&config_path(), &contents)
         .with_context(|| format!("Failed to restore backup from {:?}", backup_path))?;
 
     Ok(())
@@ -1503,6 +1644,106 @@ telemetry_enabled = true
             findings
         );
     }
+
+    // ── Atomic writes ────────────────────────────────────────────────────────
+
+    fn assert_no_stray_temps(dir: &std::path::Path) {
+        let leftovers: Vec<_> = fs::read_dir(dir)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "stray tmp files left behind: {leftovers:?}");
+    }
+
+    #[test]
+    fn save_config_file_is_atomic_and_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        set_test_config_dir(dir.path().to_path_buf());
+
+        let cfg = Config::default();
+        save_config_file(&cfg).unwrap();
+
+        let parsed = parse_config_file().unwrap();
+        assert_eq!(parsed, cfg);
+        assert_no_stray_temps(dir.path());
+    }
+
+    #[test]
+    fn atomic_write_replaces_existing_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(&path, b"old contents").unwrap();
+
+        atomic_write(&path, b"new contents").unwrap();
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "new contents");
+        assert_no_stray_temps(dir.path());
+    }
+
+    #[test]
+    fn atomic_write_creates_the_parent_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested/deeper/config.toml");
+
+        atomic_write(&path, b"fresh").unwrap();
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "fresh");
+        assert_no_stray_temps(dir.path());
+    }
+
+    #[test]
+    fn atomic_write_rejects_a_path_with_no_parent() {
+        let err = atomic_write(std::path::Path::new(""), b"data").unwrap_err();
+        assert!(err.to_string().contains("no parent"));
+    }
+
+    #[test]
+    fn atomic_write_fails_cleanly_when_parent_is_not_a_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let parent_file = dir.path().join("not-a-dir");
+        fs::write(&parent_file, b"i am a file, not a directory").unwrap();
+
+        let err = atomic_write(&parent_file.join("config.toml"), b"data").unwrap_err();
+
+        assert!(err.to_string().contains("not a directory"));
+        assert_no_stray_temps(dir.path());
+    }
+
+    #[test]
+    fn write_config_backup_writes_a_parseable_file() {
+        let dir = tempfile::tempdir().unwrap();
+        set_test_config_dir(dir.path().to_path_buf());
+
+        let backup_path = write_config_backup(&Config::default()).unwrap();
+
+        let contents = fs::read_to_string(&backup_path).unwrap();
+        let parsed: Config = toml::from_str(&contents).unwrap();
+        assert_eq!(parsed, Config::default());
+        assert_no_stray_temps(dir.path());
+    }
+
+    #[test]
+    fn rollback_config_restores_the_backup_atomically() {
+        let dir = tempfile::tempdir().unwrap();
+        set_test_config_dir(dir.path().to_path_buf());
+
+        let cfg = Config::default();
+        save_config_file(&cfg).unwrap();
+
+        let backup_path = dir.path().join("config.backup.v1.9999999999.toml");
+        fs::write(
+            &backup_path,
+            "version = \"1\"\nnetwork = \"testnet\"\nwallets = []\n# restored by test\n",
+        )
+        .unwrap();
+
+        rollback_config("1").unwrap();
+
+        let restored = fs::read_to_string(config_path()).unwrap();
+        assert!(restored.contains("# restored by test"));
+        assert_no_stray_temps(dir.path());
+    }
 }
 
 /// Returns the network passphrase for transaction signing.
@@ -1555,6 +1796,19 @@ pub fn save(config: &Config) -> Result<()> {
     let db = database::Database::open()?;
     db.save_config(config)?;
     Ok(())
+}
+
+/// Atomically write `config` to the on-disk `config.toml`.
+///
+/// Unlike [`save`] — which persists to the SQLite store — this writes the
+/// classic TOML file, used for exports and legacy file-based setups. The write
+/// goes through [`atomic_write`], so a crash mid-write can never leave a
+/// truncated `config.toml` behind: readers see either the old complete file or
+/// the new complete file.
+pub fn save_config_file(config: &Config) -> Result<()> {
+    validate_config(config)?;
+    let contents = to_toml_string(config)?;
+    atomic_write(&config_path(), contents.as_bytes())
 }
 
 pub fn get_network_config(cfg: &Config, network: &str) -> Result<NetworkConfig> {

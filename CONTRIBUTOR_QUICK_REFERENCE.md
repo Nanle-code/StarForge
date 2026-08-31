@@ -23,9 +23,11 @@ cargo test
 
 | Task | Command |
 |------|---------|
+| Run preflight gates | `./scripts/preflight-pr.sh` |
 | Build (debug) | `cargo build` |
 | Build (release) | `cargo build --release` |
 | Run tests | `cargo test` |
+| Run doctests | `cargo test --doc` |
 | Run with output | `cargo test -- --nocapture` |
 | Format code | `cargo fmt --all` |
 | Lint code | `cargo clippy -- -D warnings` |
@@ -35,42 +37,55 @@ cargo test
 
 ## Before Submitting a PR
 
-The CI pipeline checks these things. Verify locally first:
+StarForge requires all CI status checks to pass and branches to be conflict-free against `master`.
+
+### Fast Path: Local Preflight Script
+
+Run the automated preflight script to verify all merge gates locally:
 
 ```bash
-# 1. Format your code (required)
+# Standard merge gates (formatting, compilation, clippy, JSON contracts, unit & smoke tests)
+./scripts/preflight-pr.sh
+
+# Quick mode during development
+./scripts/preflight-pr.sh --quick
+
+# Full workspace test suite
+./scripts/preflight-pr.sh --all
+```
+
+### Manual Step-by-Step Verification
+
+```bash
+# 1. Ensure branch is rebased on master (conflict-free)
+git fetch origin
+git rebase origin/master
+
+# 2. Format your code (required)
 cargo fmt --all
 
-# 2. Run all tests (required)
+# 3. Run all tests (required)
 cargo test --locked
 
-# 3. Check for linting issues (required)
+# 4. Run doctests (required — verifies documentation examples)
+cargo test --doc --locked
+
+# 5. Check for linting issues (required)
 cargo clippy --locked -- -D warnings
 
-# 4. Check dependency security (required in CI)
+# 6. Check dependency security (required in CI)
 cargo deny check
 
-# 5. Verify smoke tests pass
+# 7. Verify smoke tests pass
 cargo test --test cli_smoke --locked
 
-# 6. Verify the app runs
+# 8. Verify the app runs
 cargo run -- --version
 
-# 7. Commit and push
+# 9. Commit and push
 git add .
 git commit -m "feat: your change"
 git push origin feat/issue-XXX-description
-```
-
-All together (simulates CI):
-```bash
-cargo fmt --all --check && \
-  cargo deny check && \
-  cargo build --locked && \
-  cargo test --locked && \
-  cargo clippy --locked -- -D warnings && \
-  cargo test --test cli_smoke --locked && \
-  echo "✅ All CI checks passed!"
 ```
 
 ## Project Structure
@@ -254,8 +269,9 @@ The GitHub Actions pipeline runs on every push and PR:
 
 1. **Rustfmt** — Code formatting check
 2. **Cargo Deny** — Dependency security audit
-3. **Build, Test & Clippy** — Compilation, tests, and linting
-4. **CLI Smoke Tests** — End-to-end functionality tests
+3. **Documentation Tests** — Doc examples compile and pass
+4. **Build, Test & Clippy** — Compilation, tests, and linting
+5. **CLI Smoke Tests** — End-to-end functionality tests
 
 All must pass for a PR to be mergeable.
 

@@ -221,9 +221,6 @@ pub struct InstalledPlugin {
     /// Plugin version from manifest.
     #[serde(default)]
     pub plugin_version: String,
-    /// Optional description from manifest.
-    #[serde(default)]
-    pub description: String,
     /// RFC3339 timestamp of when the plugin was installed.
     #[serde(default)]
     pub installed_at: Option<String>,
@@ -234,32 +231,33 @@ pub struct InstalledPlugin {
     /// registry entries (installed before this field existed) default to
     /// empty; use [`resolve_plugin_description`] to get a display-ready
     /// value that falls back to the first command's description.
+    /// Description from the plugin manifest. Empty when the plugin does not
+    /// declare one, in which case the first command's description is used.
     #[serde(default)]
     pub description: String,
 }
 
-/// Resolve the description to display for a plugin: prefer the registry's
-/// own `description` field, falling back to the first command's description.
-pub fn resolve_plugin_description(plugin: &InstalledPlugin) -> String {
+/// The description to show for a plugin: its own, or the first command's when
+/// the plugin does not declare one.
+pub fn resolve_plugin_description(plugin: &InstalledPlugin) -> &str {
     if !plugin.description.is_empty() {
-        return plugin.description.clone();
+        return &plugin.description;
     }
     plugin
         .commands
         .first()
-        .map(|c| c.description.clone())
-        .unwrap_or_default()
+        .map(|cmd| cmd.description.as_str())
+        .unwrap_or("")
 }
 
-/// Return registry entries with `description` resolved for display (see
-/// [`resolve_plugin_description`]).
-pub fn plugin_list_entries(reg: &PluginRegistry) -> Vec<InstalledPlugin> {
-    reg.plugins
+/// Registry entries prepared for display, with each description resolved.
+pub fn plugin_list_entries(registry: &PluginRegistry) -> Vec<InstalledPlugin> {
+    registry
+        .plugins
         .iter()
-        .cloned()
-        .map(|mut p| {
-            p.description = resolve_plugin_description(&p);
-            p
+        .map(|plugin| InstalledPlugin {
+            description: resolve_plugin_description(plugin).to_string(),
+            ..plugin.clone()
         })
         .collect()
 }
