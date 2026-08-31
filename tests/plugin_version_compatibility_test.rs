@@ -14,6 +14,9 @@ fn test_primary_flow_compatible_manifest() {
         starforge_version_min: None,
         starforge_version_max: None,
         required_capabilities: vec![],
+        publisher: None,
+        publisher_key: None,
+        signature: None,
     };
 
     assert!(manifest.validate().is_ok());
@@ -30,6 +33,9 @@ fn test_boundary_exact_min_max_version_bounds() {
         starforge_version_min: Some(CORE_VERSION.to_string()),
         starforge_version_max: None,
         required_capabilities: vec![],
+        publisher: None,
+        publisher_key: None,
+        signature: None,
     };
     assert!(min_manifest.validate().is_ok());
 
@@ -42,6 +48,9 @@ fn test_boundary_exact_min_max_version_bounds() {
         starforge_version_min: None,
         starforge_version_max: Some(CORE_VERSION.to_string()),
         required_capabilities: vec![],
+        publisher: None,
+        publisher_key: None,
+        signature: None,
     };
     assert!(max_manifest.validate().is_ok());
 
@@ -54,6 +63,9 @@ fn test_boundary_exact_min_max_version_bounds() {
         starforge_version_min: Some(CORE_VERSION.to_string()),
         starforge_version_max: Some(CORE_VERSION.to_string()),
         required_capabilities: vec![],
+        publisher: None,
+        publisher_key: None,
+        signature: None,
     };
     assert!(strict_manifest.validate().is_ok());
 }
@@ -84,6 +96,9 @@ fn test_failure_incompatible_major_version() {
         starforge_version_min: None,
         starforge_version_max: None,
         required_capabilities: vec![],
+        publisher: None,
+        publisher_key: None,
+        signature: None,
     };
 
     let err = manifest.validate().unwrap_err();
@@ -101,6 +116,9 @@ fn test_failure_min_version_violation() {
         starforge_version_min: Some("99.0.0".to_string()),
         starforge_version_max: None,
         required_capabilities: vec![],
+        publisher: None,
+        publisher_key: None,
+        signature: None,
     };
 
     let err = manifest.validate().unwrap_err();
@@ -118,6 +136,9 @@ fn test_failure_max_version_violation() {
         starforge_version_min: None,
         starforge_version_max: Some("0.0.1".to_string()),
         required_capabilities: vec![],
+        publisher: None,
+        publisher_key: None,
+        signature: None,
     };
 
     let err = manifest.validate().unwrap_err();
@@ -135,6 +156,9 @@ fn test_failure_missing_required_manifest_fields() {
         starforge_version_min: None,
         starforge_version_max: None,
         required_capabilities: vec![],
+        publisher: None,
+        publisher_key: None,
+        signature: None,
     };
     assert!(empty_name.validate().is_err());
 
@@ -146,6 +170,9 @@ fn test_failure_missing_required_manifest_fields() {
         starforge_version_min: None,
         starforge_version_max: None,
         required_capabilities: vec![],
+        publisher: None,
+        publisher_key: None,
+        signature: None,
     };
     assert!(empty_version.validate().is_err());
 }

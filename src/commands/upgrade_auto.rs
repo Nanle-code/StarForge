@@ -1251,77 +1251,7 @@ mod tests {{
     )
 }
 
-fn read_spec_entries(wasm: &[u8]) -> Result<Vec<ScSpecEntry>> {
-    let spec = contract_spec_section(wasm)?;
-    let cursor = Cursor::new(spec);
-    let entries = ScSpecEntry::read_xdr_iter(&mut Limited::new(
-        cursor,
-        Limits {
-            depth: 500,
-            len: 0x1000000,
-        },
-    ))
-    .collect::<std::result::Result<Vec<_>, _>>()
-    .context("Failed to decode contractspecv0 XDR metadata")?;
-    Ok(entries)
-}
-
-fn contract_spec_section(wasm: &[u8]) -> Result<&[u8]> {
-    if wasm.len() < 8 || &wasm[0..4] != b"\0asm" {
-        anyhow::bail!("Input is not a valid WASM binary");
-    }
-
-    let mut offset = 8;
-    while offset < wasm.len() {
-        let section_id = wasm[offset];
-        offset += 1;
-        let section_len = read_var_u32(wasm, &mut offset)? as usize;
-        let section_end = offset
-            .checked_add(section_len)
-            .filter(|end| *end <= wasm.len())
-            .ok_or_else(|| anyhow::anyhow!("Malformed WASM section length"))?;
-
-        if section_id == 0 {
-            let mut section_offset = offset;
-            let name_len = read_var_u32(wasm, &mut section_offset)? as usize;
-            let name_end = section_offset
-                .checked_add(name_len)
-                .filter(|end| *end <= section_end)
-                .ok_or_else(|| anyhow::anyhow!("Malformed WASM custom section name"))?;
-            let name = std::str::from_utf8(&wasm[section_offset..name_end])
-                .context("WASM custom section name is not UTF-8")?;
-            if name == "contractspecv0" {
-                return Ok(&wasm[name_end..section_end]);
-            }
-        }
-
-        offset = section_end;
-    }
-
-    anyhow::bail!("No contractspecv0 metadata section found in WASM")
-}
-
-fn read_var_u32(bytes: &[u8], offset: &mut usize) -> Result<u32> {
-    let mut result = 0u32;
-    let mut shift = 0;
-
-    loop {
-        let byte = *bytes
-            .get(*offset)
-            .ok_or_else(|| anyhow::anyhow!("Unexpected end of WASM while reading LEB128"))?;
-        *offset += 1;
-        result |= ((byte & 0x7f) as u32) << shift;
-
-        if byte & 0x80 == 0 {
-            return Ok(result);
-        }
-
-        shift += 7;
-        if shift >= 35 {
-            anyhow::bail!("Invalid u32 LEB128 value in WASM");
-        }
-    }
-}
+use crate::utils::bindings::read_spec_entries;
 
 fn spec_type_name(type_def: &ScSpecTypeDef) -> String {
     match type_def {

@@ -545,9 +545,13 @@ impl Database {
             cfg.telemetry_enabled = telemetry.parse::<bool>().ok();
         }
         if let Some(plugin_trust) = self.get_config_kv("plugin_trust.trusted_sources")? {
-            cfg.plugin_trust = PluginTrustConfig {
-                trusted_sources: serde_json::from_str(&plugin_trust)?,
-            };
+            cfg.plugin_trust.trusted_sources = serde_json::from_str(&plugin_trust)?;
+        }
+        if let Some(trusted_pubs) = self.get_config_kv("plugin_trust.trusted_publishers")? {
+            cfg.plugin_trust.trusted_publishers = serde_json::from_str(&trusted_pubs)?;
+        }
+        if let Some(req_sigs) = self.get_config_kv("plugin_trust.require_signatures")? {
+            cfg.plugin_trust.require_signatures = req_sigs.parse::<bool>().unwrap_or(false);
         }
         if let Some(wallet_encryption) = self.get_config_kv("wallet_encryption")? {
             cfg.wallet_encryption = Some(serde_json::from_str(&wallet_encryption)?);
@@ -648,6 +652,14 @@ impl Database {
         self.insert_config_kv(
             "plugin_trust.trusted_sources",
             &serde_json::to_string(&cfg.plugin_trust.trusted_sources)?,
+        )?;
+        self.insert_config_kv(
+            "plugin_trust.trusted_publishers",
+            &serde_json::to_string(&cfg.plugin_trust.trusted_publishers)?,
+        )?;
+        self.insert_config_kv(
+            "plugin_trust.require_signatures",
+            &cfg.plugin_trust.require_signatures.to_string(),
         )?;
         if let Some(kdf) = &cfg.wallet_encryption {
             self.insert_config_kv("wallet_encryption", &serde_json::to_string(kdf)?)?;

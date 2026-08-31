@@ -229,6 +229,15 @@ pub struct InstalledPlugin {
     /// Commands this plugin registers.
     #[serde(default)]
     pub commands: Vec<RegisteredCommand>,
+    /// Verified publisher handle/identity, if verified
+    #[serde(default)]
+    pub publisher: Option<String>,
+    /// Verified publisher public key, if signed
+    #[serde(default)]
+    pub publisher_key: Option<String>,
+    /// Verification status
+    #[serde(default)]
+    pub verification_status: crate::plugins::verifier::VerificationStatus,
 }
 
 fn registry_path() -> Result<PathBuf> {
@@ -307,6 +316,9 @@ pub fn install_plugin(
     plugin_version: &str,
     description: &str,
     commands: Vec<RegisteredCommand>,
+    publisher: Option<String>,
+    publisher_key: Option<String>,
+    verification_status: crate::plugins::verifier::VerificationStatus,
 ) -> Result<()> {
     if !library_path.exists() {
         anyhow::bail!("Plugin library not found: {}", library_path.display());
@@ -327,6 +339,10 @@ pub fn install_plugin(
         description: description.to_string(),
         installed_at: Some(now),
         commands,
+        description: description.to_string(),
+        publisher,
+        publisher_key,
+        verification_status,
     });
     reg.plugins.sort_by(|a, b| a.name.cmp(&b.name));
     save_registry(&reg)?;
@@ -571,7 +587,18 @@ mod tests {
     fn install_missing_library_fails() {
         let tmp = TempDir::new().unwrap();
         let missing = tmp.path().join("nonexistent.so");
-        let result = install_plugin("test", &missing, "", "0.1.0", "1.0.0", "", vec![]);
+        let result = install_plugin(
+            "test",
+            &missing,
+            "",
+            "0.1.0",
+            "1.0.0",
+            "",
+            vec![],
+            None,
+            None,
+            crate::plugins::verifier::VerificationStatus::Unsigned,
+        );
         assert!(result.is_err(), "installing a missing library must fail");
         assert!(result.unwrap_err().to_string().contains("not found"));
     }

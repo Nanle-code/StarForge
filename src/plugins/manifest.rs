@@ -115,6 +115,15 @@ pub struct PluginManifest {
     /// Capabilities this AI plugin requires.
     #[serde(default)]
     pub required_capabilities: Vec<String>,
+    /// Optional publisher name or identifier.
+    #[serde(default)]
+    pub publisher: Option<String>,
+    /// Optional publisher public key (Stellar G-address or 32-byte hex key).
+    #[serde(default)]
+    pub publisher_key: Option<String>,
+    /// Optional Ed25519 cryptographic signature (hex or base64).
+    #[serde(default)]
+    pub signature: Option<String>,
 }
 
 impl PluginManifest {
@@ -307,6 +316,9 @@ mod tests {
             starforge_version_min: None,
             starforge_version_max: None,
             required_capabilities: vec![],
+            publisher: None,
+            publisher_key: None,
+            signature: None,
         };
         assert!(manifest.validate().is_ok());
     }
@@ -328,6 +340,9 @@ mod tests {
             starforge_version_min: None,
             starforge_version_max: None,
             required_capabilities: vec![],
+            publisher: None,
+            publisher_key: None,
+            signature: None,
         };
         assert!(manifest.validate().is_err());
     }

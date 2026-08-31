@@ -289,6 +289,13 @@ pub fn validate_config(cfg: &Config) -> Result<()> {
         validate_plugin_trust_source(source)?;
     }
 
+    for pubkey in &cfg.plugin_trust.trusted_publishers {
+        if !pubkey.trim().is_empty() {
+            crate::plugins::verifier::parse_public_key_bytes(pubkey)
+                .with_context(|| format!("Invalid trusted_publishers key '{}'", pubkey))?;
+        }
+    }
+
     Ok(())
 }
 
@@ -572,12 +579,20 @@ pub struct PluginTrustConfig {
     /// (`plugins.example.com`) or URL prefixes (`https://plugins.example.com/releases/`).
     #[serde(default = "default_trusted_plugin_sources")]
     pub trusted_sources: Vec<String>,
+    /// Trusted plugin publisher keys (Stellar G-addresses or 32-byte hex keys).
+    #[serde(default)]
+    pub trusted_publishers: Vec<String>,
+    /// Require valid publisher signatures for all installed and loaded plugins.
+    #[serde(default)]
+    pub require_signatures: bool,
 }
 
 impl Default for PluginTrustConfig {
     fn default() -> Self {
         Self {
             trusted_sources: default_trusted_plugin_sources(),
+            trusted_publishers: Vec::new(),
+            require_signatures: false,
         }
     }
 }

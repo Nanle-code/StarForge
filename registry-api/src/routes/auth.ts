@@ -2,11 +2,10 @@ import express, { Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { v4 as uuid } from "uuid";
-import { UserStore, IUser } from "../models/User";
+import { IUser, userStore } from "../models/User";
 import logger from "../utils/logger";
 
 const router = express.Router();
-const userStore = new UserStore();
 
 // Signup
 router.post("/signup", async (req: Request, res: Response) => {
@@ -52,7 +51,7 @@ router.post("/signup", async (req: Request, res: Response) => {
       { id: user.id, email: user.email },
       process.env.JWT_SECRET || "secret",
       {
-        expiresIn: process.env.JWT_EXPIRATION || "7d",
+        expiresIn: (process.env.JWT_EXPIRATION as any) || "7d",
       },
     );
 
@@ -93,7 +92,7 @@ router.post("/login", async (req: Request, res: Response) => {
       { id: user.id, email: user.email },
       process.env.JWT_SECRET || "secret",
       {
-        expiresIn: process.env.JWT_EXPIRATION || "7d",
+        expiresIn: (process.env.JWT_EXPIRATION as any) || "7d",
       },
     );
 
