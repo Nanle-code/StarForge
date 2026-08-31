@@ -445,14 +445,15 @@ fn score_best_practices(source: &str, metrics: &CodeMetrics) -> QualityCategory 
         );
     }
 
-    if source.contains("Map<") || source.contains("Vec<") {
-        if !source.contains("enum DataKey") && !source.contains("enum StorageKey") {
-            score -= 2;
-            findings.push(
+    if (source.contains("Map<") || source.contains("Vec<"))
+        && !source.contains("enum DataKey")
+        && !source.contains("enum StorageKey")
+    {
+        score -= 2;
+        findings.push(
                 "No dedicated storage-key enum (DataKey/StorageKey) — consider one for type-safe storage access"
                     .to_string(),
             );
-        }
     }
 
     QualityCategory {

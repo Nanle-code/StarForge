@@ -34,8 +34,11 @@ pub enum SkillLevel {
 }
 
 impl SkillLevel {
-    /// Parse from a case-insensitive string.
-    pub fn from_str(s: &str) -> Option<Self> {
+    /// Parse from a case-insensitive string, accepting common shorthand aliases.
+    ///
+    /// Not `FromStr::from_str` — this returns `Option`, not `Result`, since
+    /// there's no meaningful error type for "unrecognized skill level".
+    pub fn parse_lenient(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "beginner" | "b" | "novice" => Some(Self::Beginner),
             "intermediate" | "i" | "mid" | "medium" => Some(Self::Intermediate),
@@ -307,9 +310,11 @@ fn skill_fit(entry: &templates::TemplateEntry, skill_level: SkillLevel) -> (&'st
         SkillLevel::Advanced => {
             if has_advanced {
                 ("Excellent for advanced use", 15.0)
-            } else if entry.security_review.as_ref().map_or(false, |sr| {
-                sr.status == "audited" && sr.score.unwrap_or(0.0) >= 90.0
-            }) {
+            } else if entry
+                .security_review
+                .as_ref()
+                .is_some_and(|sr| sr.status == "audited" && sr.score.unwrap_or(0.0) >= 90.0)
+            {
                 ("Production-grade quality", 10.0)
             } else {
                 ("Suitable", 0.0)
@@ -518,7 +523,7 @@ mod tests {
             categories: vec![],
             featured: false,
             security_review: None,
-            changelog: None,
+            changelog: Some(vec![]),
         }
     }
 
@@ -659,12 +664,18 @@ mod tests {
 
     #[test]
     fn test_skill_level_from_str() {
-        assert_eq!(SkillLevel::from_str("beginner"), Some(SkillLevel::Beginner));
         assert_eq!(
-            SkillLevel::from_str("INTERMEDIATE"),
+            SkillLevel::parse_lenient("beginner"),
+            Some(SkillLevel::Beginner)
+        );
+        assert_eq!(
+            SkillLevel::parse_lenient("INTERMEDIATE"),
             Some(SkillLevel::Intermediate)
         );
-        assert_eq!(SkillLevel::from_str("expert"), Some(SkillLevel::Advanced));
-        assert_eq!(SkillLevel::from_str("unknown"), None);
+        assert_eq!(
+            SkillLevel::parse_lenient("expert"),
+            Some(SkillLevel::Advanced)
+        );
+        assert_eq!(SkillLevel::parse_lenient("unknown"), None);
     }
 }

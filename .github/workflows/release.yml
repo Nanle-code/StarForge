@@ -11,8 +11,20 @@ permissions:
   attestations: write
 
 jobs:
+  secure-defaults:
+    name: Secure Defaults Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+      - name: Run secure defaults audit
+        run: cargo test --test secure_defaults_audit --locked
+
   build:
     name: Build (${{ matrix.archive_name }}.${{ matrix.archive_ext }})
+    needs: secure-defaults
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

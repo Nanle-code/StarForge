@@ -155,7 +155,7 @@ async fn handle_scan(
 
 fn print_scan_result(result: &crate::utils::template_security_scanner::TemplateSecurityScanResult) {
     // Overall score
-    let score_color = if result.security_score >= 80.0 {
+    let _score_color = if result.security_score >= 80.0 {
         "green"
     } else if result.security_score >= 60.0 {
         "yellow"
@@ -284,7 +284,7 @@ fn print_scan_result(result: &crate::utils::template_security_scanner::TemplateS
     }
 }
 
-fn handle_history(limit: usize) -> Result<()> {
+fn handle_history(_limit: usize) -> Result<()> {
     p::header("Security Scan History");
     p::separator();
 

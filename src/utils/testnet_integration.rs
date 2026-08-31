@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use reqwest;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 
@@ -173,6 +172,9 @@ pub struct LedgerEntryResult {
 // ── Raw JSON-RPC helpers ───────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
+// Not currently called from any code path in this crate. Kept rather than
+// removed since deleting it is a product decision, not a lint-scoping one.
+#[allow(dead_code)]
 struct RpcRequest<'a> {
     jsonrpc: &'static str,
     id: u64,

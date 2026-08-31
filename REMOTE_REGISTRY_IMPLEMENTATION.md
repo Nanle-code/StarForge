@@ -333,6 +333,26 @@ docker run -d -p 3000:3000 \
 - 10 login attempts/15min per IP
 - 100 searches/hour per IP
 
+### Archive Extraction (Client-Side)
+
+`templates::extract_zip_archive` (used by both `registry install` and local
+`.zip` template sources — see [`src/utils/templates.rs`](src/utils/templates.rs))
+treats every downloaded archive as untrusted before any of its contents
+touch disk. The whole archive is rejected — no partial extraction — if any
+entry:
+
+- uses an **absolute path** (e.g. `/etc/passwd`) or a **`..`
+  parent-traversal component** that would resolve outside the archive root,
+- is a **symlink** (detected via the entry's Unix mode bits), or
+- would still resolve **outside the destination directory** after joining,
+  as a final defense-in-depth check (zip-slip).
+
+A malicious or corrupted archive — from a compromised registry, a
+tampered download, or a hostile third-party `.zip` template — therefore
+fails extraction cleanly with a descriptive error instead of silently
+dropping the dangerous entries or writing files outside the intended
+install location.
+
 ## Database Schema (MongoDB)
 
 ### Users Collection

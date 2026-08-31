@@ -18,11 +18,12 @@ pub struct EventStreamFilters {
 }
 
 /// Transport used for Soroban event streaming.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EventStreamTransport {
     /// Prefer a persistent WebSocket JSON-RPC connection, then fall back to HTTP polling.
     Auto,
     /// Use JSON-RPC over HTTP polling.
+    #[default]
     Http,
     /// Use JSON-RPC over a persistent WebSocket connection.
     WebSocket,
@@ -39,12 +40,6 @@ impl EventStreamTransport {
                 other
             ),
         }
-    }
-}
-
-impl Default for EventStreamTransport {
-    fn default() -> Self {
-        Self::Http
     }
 }
 
@@ -274,9 +269,7 @@ impl SorobanEventStream {
                 .websocket
                 .as_mut()
                 .ok_or_else(|| anyhow::anyhow!("WebSocket connection is not available"))?;
-            websocket
-                .send(Message::Text(request.to_string().into()))
-                .await
+            websocket.send(Message::Text(request.to_string())).await
         };
 
         if let Err(err) = send_result {

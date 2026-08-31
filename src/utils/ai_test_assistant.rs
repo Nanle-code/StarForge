@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -479,12 +478,11 @@ pub struct ParamInfo {
 
 fn extract_functions_with_signatures(source: &str) -> Vec<FunctionInfo> {
     let mut functions = Vec::new();
-    let mut current_line = 1u32;
     let mut in_function = false;
     let mut brace_depth = 0u32;
     let mut body_lines: Vec<&str> = Vec::new();
 
-    for line in source.lines() {
+    for (current_line, line) in (1u32..).zip(source.lines()) {
         let trimmed = line.trim();
 
         if !in_function {
@@ -522,7 +520,6 @@ fn extract_functions_with_signatures(source: &str) -> Vec<FunctionInfo> {
                 in_function = false;
             }
         }
-        current_line += 1;
     }
     functions
 }
@@ -700,7 +697,7 @@ pub fn generate_test_priorities(analysis: &ContractAnalysis) -> Vec<TestPriority
         } else if func.is_mutating {
             TestPriority::High
         } else if func.complexity_score > 5 {
-            TestPriority::High
+            TestPriority::Medium
         } else {
             TestPriority::Low
         };
@@ -1339,7 +1336,7 @@ pub fn find_test_files(project_path: &Path) -> Vec<PathBuf> {
         if let Ok(entries) = fs::read_dir(&tests_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension().map_or(false, |ext| ext == "rs") {
+                if path.extension().is_some_and(|ext| ext == "rs") {
                     test_files.push(path);
                 }
             }
@@ -1352,7 +1349,7 @@ pub fn find_test_files(project_path: &Path) -> Vec<PathBuf> {
         if let Ok(entries) = fs::read_dir(&src_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.extension().map_or(false, |ext| ext == "rs") {
+                if path.extension().is_some_and(|ext| ext == "rs") {
                     if let Ok(content) = fs::read_to_string(&path) {
                         if content.contains("#[cfg(test)]") {
                             test_files.push(path);

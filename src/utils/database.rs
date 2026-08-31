@@ -3,7 +3,6 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
-use std::sync::Arc;
 
 pub fn db_path() -> PathBuf {
     crate::utils::config::config_dir().join("starforge.db")
@@ -47,49 +46,30 @@ pub struct MigrationResult {
     pub migrations_rolled_back: Vec<i64>,
 }
 
-use std::fmt;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Error types for migration operations
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum MigrationError {
+    #[error("Migration version {0} is already applied")]
     AlreadyApplied(i64),
+
+    #[error("Migration version {0} not found")]
     NotFound(i64),
+
+    #[error("Cannot rollback: no migrations applied")]
     NothingToRollback,
+
+    #[error("Migration version {0} depends on unapplied version {1}")]
     MissingDependency(i64, i64),
+
+    #[error("Invalid migration sequence: versions must be consecutive")]
     InvalidSequence,
+
+    #[error("Database schema version {0} is not supported (minimum: {1}, maximum: {2})")]
     UnsupportedVersion(i64, i64, i64),
+
+    #[error("Migration failed: {0}")]
     MigrationFailed(String),
 }
-
-impl fmt::Display for MigrationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::AlreadyApplied(v) => write!(f, "Migration version {v} is already applied"),
-            Self::NotFound(v) => write!(f, "Migration version {v} not found"),
-            Self::NothingToRollback => write!(f, "Cannot rollback: no migrations applied"),
-            Self::MissingDependency(v, dep) => {
-                write!(
-                    f,
-                    "Migration version {v} depends on unapplied version {dep}"
-                )
-            }
-            Self::InvalidSequence => {
-                write!(
-                    f,
-                    "Invalid migration sequence: versions must be consecutive"
-                )
-            }
-            Self::UnsupportedVersion(v, min, max) => {
-                write!(
-                    f,
-                    "Database schema version {v} is not supported (minimum: {min}, maximum: {max})"
-                )
-            }
-            Self::MigrationFailed(msg) => write!(f, "Migration failed: {msg}"),
-        }
-    }
-}
-
-impl std::error::Error for MigrationError {}
 
 pub struct Database {
     pub(crate) conn: Connection,
@@ -217,6 +197,9 @@ impl Database {
     }
 
     /// Remove a migration record from the database
+    // Not currently called from any code path in this crate. Kept rather than
+    // removed since deleting it is a product decision, not a lint-scoping one.
+    #[allow(dead_code)]
     fn remove_migration(&self, version: i64) -> Result<()> {
         self.conn.execute(
             "DELETE FROM schema_migrations WHERE version = ?1",
@@ -302,7 +285,7 @@ impl Database {
     /// Rollback a single migration within a transaction
     pub fn rollback_migration(&self, version: i64) -> Result<()> {
         let applied = self.get_applied_migrations()?;
-        let current_version = self.get_current_schema_version()?;
+        let _current_version = self.get_current_schema_version()?;
 
         // Migrations roll back newest first, so anything below the newest
         // applied version is refused on that ground — whether or not it was
@@ -562,9 +545,13 @@ impl Database {
             cfg.telemetry_enabled = telemetry.parse::<bool>().ok();
         }
         if let Some(plugin_trust) = self.get_config_kv("plugin_trust.trusted_sources")? {
-            cfg.plugin_trust = PluginTrustConfig {
-                trusted_sources: serde_json::from_str(&plugin_trust)?,
-            };
+            cfg.plugin_trust.trusted_sources = serde_json::from_str(&plugin_trust)?;
+        }
+        if let Some(trusted_pubs) = self.get_config_kv("plugin_trust.trusted_publishers")? {
+            cfg.plugin_trust.trusted_publishers = serde_json::from_str(&trusted_pubs)?;
+        }
+        if let Some(req_sigs) = self.get_config_kv("plugin_trust.require_signatures")? {
+            cfg.plugin_trust.require_signatures = req_sigs.parse::<bool>().unwrap_or(false);
         }
         if let Some(wallet_encryption) = self.get_config_kv("wallet_encryption")? {
             cfg.wallet_encryption = Some(serde_json::from_str(&wallet_encryption)?);
@@ -602,6 +589,15 @@ impl Database {
             .map(|wallet| {
                 let rotation_history: Vec<WalletRotationRecord> =
                     serde_json::from_str(&wallet.rotation_history).unwrap_or_default();
+                let kdf_options = wallet
+                    .secret_key
+                    .as_ref()
+                    .and_then(|s| crate::utils::crypto::extract_kdf_metadata(s).ok())
+                    .map(|m| crate::utils::crypto::KdfOptions {
+                        mem: Some(m.mem),
+                        iterations: Some(m.iterations),
+                        parallelism: Some(m.parallelism),
+                    });
                 WalletEntry {
                     name: wallet.name,
                     public_key: wallet.public_key,
@@ -609,6 +605,7 @@ impl Database {
                     network: wallet.network,
                     created_at: wallet.created_at,
                     funded: wallet.funded,
+                    kdf_options,
                     rotation_history,
                 }
             })
@@ -655,6 +652,14 @@ impl Database {
         self.insert_config_kv(
             "plugin_trust.trusted_sources",
             &serde_json::to_string(&cfg.plugin_trust.trusted_sources)?,
+        )?;
+        self.insert_config_kv(
+            "plugin_trust.trusted_publishers",
+            &serde_json::to_string(&cfg.plugin_trust.trusted_publishers)?,
+        )?;
+        self.insert_config_kv(
+            "plugin_trust.require_signatures",
+            &cfg.plugin_trust.require_signatures.to_string(),
         )?;
         if let Some(kdf) = &cfg.wallet_encryption {
             self.insert_config_kv("wallet_encryption", &serde_json::to_string(kdf)?)?;
@@ -942,7 +947,7 @@ impl Database {
             }
             ExportFormat::Csv => {
                 let mut wtr = csv::Writer::from_writer(writer);
-                wtr.write_record(&[
+                wtr.write_record([
                     "id",
                     "event_type",
                     "contract_id",
@@ -953,7 +958,7 @@ impl Database {
                     "network",
                 ])?;
                 for event in events {
-                    wtr.write_record(&[
+                    wtr.write_record([
                         &event.id,
                         &event.event_type,
                         &event.contract_id,
@@ -1201,8 +1206,9 @@ impl Migration for MigrationV1 {
         "initial_schema"
     }
 
-    fn up(&self, conn: &Connection) -> Result<()> {
+    fn up(&self, _conn: &Connection) -> Result<()> {
         // This is a no-op since the initial schema is already applied in SCHEMA
+        let _ = conn;
         Ok(())
     }
 
@@ -1417,7 +1423,6 @@ mod tests {
         let db = in_memory_db();
         // Try to rollback a migration that isn't the latest
         let result = db.rollback_migration(0);
-        assert!(result.is_err());
         assert!(result.is_err());
     }
 

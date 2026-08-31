@@ -217,14 +217,14 @@ impl DeploymentTimeline {
 
     /// True when any phase is in the failed state.
     pub fn failed(&self) -> bool {
-        self.phases.iter().any(|row| row.state == PhaseState::Failed)
+        self.phases
+            .iter()
+            .any(|row| row.state == PhaseState::Failed)
     }
 
     /// True when every phase is done.
     pub fn finalized(&self) -> bool {
-        self.phases
-            .iter()
-            .all(|row| row.state == PhaseState::Done)
+        self.phases.iter().all(|row| row.state == PhaseState::Done)
     }
 }
 
@@ -249,8 +249,12 @@ pub fn poll_with_retries(
 ) -> Result<TxPollOutcome> {
     let max_retries = max_retries.max(1);
     for attempt in 1..=max_retries {
-        let status = poll(tx_hash)
-            .with_context(|| format!("RPC poll attempt {}/{} failed for hash {}", attempt, max_retries, tx_hash))?;
+        let status = poll(tx_hash).with_context(|| {
+            format!(
+                "RPC poll attempt {}/{} failed for hash {}",
+                attempt, max_retries, tx_hash
+            )
+        })?;
 
         if is_terminal(&status) {
             return Ok(TxPollOutcome {
@@ -345,7 +349,9 @@ fn render_tty(timeline: &DeploymentTimeline, opts: &RenderOptions) -> String {
     out.push_str(&format!(
         "\n  {} {}\n",
         marker,
-        format!("Deployment timeline — {}", timeline.deployment_id).white().bold()
+        format!("Deployment timeline — {}", timeline.deployment_id)
+            .white()
+            .bold()
     ));
     if let Some(hash) = &timeline.tx_hash {
         out.push_str(&format!("  {}\n", format!("tx {}", hash).dimmed()));
@@ -361,7 +367,9 @@ fn render_tty(timeline: &DeploymentTimeline, opts: &RenderOptions) -> String {
     let empty_bar: String = "-".repeat(bar_width - filled).dimmed().to_string();
     out.push_str(&format!(
         "  [{}{}] {:3}%\n",
-        filled_bar, empty_bar, timeline.progress_pct()
+        filled_bar,
+        empty_bar,
+        timeline.progress_pct()
     ));
     out.push_str(&format!("  {}\n", "─".repeat(48).dimmed()));
 
@@ -392,7 +400,11 @@ fn render_tty(timeline: &DeploymentTimeline, opts: &RenderOptions) -> String {
         }
         out.push('\n');
     }
-    out.push_str(&format!("  {} {}\n", "─".repeat(48).dimmed(), opts.correlation_id.dimmed()));
+    out.push_str(&format!(
+        "  {} {}\n",
+        "─".repeat(48).dimmed(),
+        opts.correlation_id.dimmed()
+    ));
     out.push('\n');
     out
 }
@@ -477,7 +489,7 @@ mod tests {
 
     /// Fixture: the poller yields `PENDING` a fixed number of times before
     /// reporting the terminal status.
-    fn pending_then(statuses: &[&str], times: usize) -> PollFn<'_> {
+    fn pending_then<'a>(statuses: &'a [&'a str], times: usize) -> PollFn<'a> {
         let statuses = statuses.to_vec();
         let mut remaining = times;
         Box::new(move |_hash: &str| {
@@ -509,8 +521,14 @@ mod tests {
 
     #[test]
     fn poll_succeeds_on_first_attempt() {
-        let outcome = poll_with_retries("z9", 5, 1, pending_then(&["SUCCESS"], 0), is_terminal_success)
-            .unwrap();
+        let outcome = poll_with_retries(
+            "z9",
+            5,
+            1,
+            pending_then(&["SUCCESS"], 0),
+            is_terminal_success,
+        )
+        .unwrap();
         assert_eq!(outcome.attempts, 1);
         assert_eq!(outcome.status, "SUCCESS");
     }
@@ -530,20 +548,30 @@ mod tests {
         assert!(msg.contains("still pending"), "got: {}", msg);
         assert!(msg.contains("deadbeef"), "got: {}", msg);
         assert!(msg.contains("3 RPC polls"), "got: {}", msg);
-        assert!(msg.contains("follow-up command"), "msg should be actionable: {}", msg);
+        assert!(
+            msg.contains("follow-up command"),
+            "msg should be actionable: {}",
+            msg
+        );
     }
 
     #[test]
     fn poll_propagates_polling_failures() {
-        let mut poll = Box::new(|_hash: &str| anyhow::bail!("RPC unreachable"));
+        let poll = Box::new(|_hash: &str| anyhow::bail!("RPC unreachable"));
         let err = poll_with_retries("aa", 2, 1, poll, is_terminal_success).unwrap_err();
         assert!(err.to_string().contains("RPC poll attempt 1/2"));
     }
 
     #[test]
     fn poll_with_retries_clamps_max_retries_to_at_least_one() {
-        let outcome = poll_with_retries("aa", 0, 1, pending_then(&["SUCCESS"], 0), is_terminal_success)
-            .unwrap();
+        let outcome = poll_with_retries(
+            "aa",
+            0,
+            1,
+            pending_then(&["SUCCESS"], 0),
+            is_terminal_success,
+        )
+        .unwrap();
         assert_eq!(outcome.attempts, 1);
     }
 
@@ -602,10 +630,14 @@ mod tests {
         // 5 phase events + 1 summary object.
         assert_eq!(parsed.len(), 6, "{}", out);
 
-        let confirm = parsed.iter().find(|v| {
-            v["phase"] == "confirm_rpc" && v["state"] == "running"
-        });
-        assert!(confirm.is_some(), "missing running confirm-rpc event: {}", out);
+        let confirm = parsed
+            .iter()
+            .find(|v| v["phase"] == "confirm_rpc" && v["state"] == "running");
+        assert!(
+            confirm.is_some(),
+            "missing running confirm-rpc event: {}",
+            out
+        );
         assert_eq!(confirm.unwrap()["correlation_id"], "ci-abcdef1234");
         assert_eq!(confirm.unwrap()["poll_attempt"], 2);
 

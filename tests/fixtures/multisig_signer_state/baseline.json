@@ -1,0 +1,9 @@
+{
+  "signers": [
+    { "public_key": "GBUYERSIGNER0001", "weight": 1 },
+    { "public_key": "GSELLERSIGNER001", "weight": 1 },
+    { "public_key": "GARBITERSIGNER01", "weight": 1 }
+  ],
+  "thresholds": { "low": 1, "medium": 2, "high": 2 },
+  "master_weight": 1
+}

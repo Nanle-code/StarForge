@@ -204,6 +204,109 @@ pub fn record_rollback(target: &DeployRecord, wallet: &str) -> Result<String> {
     Ok(id)
 }
 
+// ---------------------------------------------------------------------------
+// Rollback verification (#383 / D-46)
+// ---------------------------------------------------------------------------
+//
+// `record_rollback` (above) writes the rollback's *history* — the part that
+// was already implemented. What it never did was check that what it just
+// wrote is actually correct: that the rollback record really carries the
+// artifact of the deployment it claims to have reverted to, on the same
+// network, with a lineage pointer that resolves to a real prior record.
+// `verify_rollback` closes that gap and persists the result via
+// `set_verified`, so a corrupted or mismatched rollback (e.g. a future bug
+// in `record_rollback`, or a `--wallet` mismatch slipping the wrong artifact
+// in) is caught and flagged rather than silently trusted.
+
+/// Outcome of verifying one rollback record against the deployment it claims
+/// to have reverted to.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RollbackVerification {
+    pub rollback_id: String,
+    pub passed: bool,
+    pub reason: Option<String>,
+}
+
+/// Pure consistency check between a rollback record and the target it claims
+/// to restore. No I/O — the only thing that can make this fail is the data
+/// itself, which is what makes it safe to unit test directly.
+fn check_rollback_consistency(rollback: &DeployRecord, target: &DeployRecord) -> RollbackVerification {
+    let mut mismatches = Vec::new();
+
+    if rollback.previous_id.as_deref() != Some(target.id.as_str()) {
+        mismatches.push("previous_id does not point at the claimed target".to_string());
+    }
+    if rollback.network != target.network {
+        mismatches.push(format!(
+            "network mismatch: rollback={} target={}",
+            rollback.network, target.network
+        ));
+    }
+    if rollback.wasm_hash != target.wasm_hash {
+        mismatches.push(format!(
+            "wasm_hash mismatch: rollback={} target={}",
+            rollback.wasm_hash, target.wasm_hash
+        ));
+    }
+    if rollback.contract_id != target.contract_id {
+        mismatches.push(format!(
+            "contract_id mismatch: rollback={:?} target={:?}",
+            rollback.contract_id, target.contract_id
+        ));
+    }
+    if rollback.status != DeployStatus::Success {
+        mismatches.push(format!(
+            "rollback record status is {} (expected success)",
+            rollback.status
+        ));
+    }
+
+    RollbackVerification {
+        rollback_id: rollback.id.clone(),
+        passed: mismatches.is_empty(),
+        reason: if mismatches.is_empty() {
+            None
+        } else {
+            Some(mismatches.join("; "))
+        },
+    }
+}
+
+/// Verifies `rollback_id` against the history it was derived from, and
+/// persists the result on the record via `set_verified`.
+///
+/// Returns a failed [`RollbackVerification`] (rather than an error) when the
+/// rollback record or its target can't be found — that's itself a real,
+/// reportable verification failure, not an I/O error.
+pub fn verify_rollback(rollback_id: &str) -> Result<RollbackVerification> {
+    let history = load_history()?;
+
+    let Some(rollback) = history.iter().find(|r| r.id == rollback_id) else {
+        return Ok(RollbackVerification {
+            rollback_id: rollback_id.to_string(),
+            passed: false,
+            reason: Some("no rollback record found for this id".to_string()),
+        });
+    };
+
+    let target = rollback
+        .previous_id
+        .as_deref()
+        .and_then(|target_id| history.iter().find(|r| r.id == target_id));
+
+    let verification = match target {
+        Some(target) => check_rollback_consistency(rollback, target),
+        None => RollbackVerification {
+            rollback_id: rollback.id.clone(),
+            passed: false,
+            reason: Some("rollback record has no resolvable previous_id target".to_string()),
+        },
+    };
+
+    set_verified(&verification.rollback_id, verification.passed)?;
+    Ok(verification)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -240,5 +343,104 @@ mod tests {
         assert_eq!(rb.status, DeployStatus::Success);
         assert_eq!(rb.previous_id.as_deref(), Some(target.id.as_str()));
         assert_eq!(rb.wallet, "bob");
+    }
+
+    // -----------------------------------------------------------------------
+    // check_rollback_consistency (#383 rollback verification)
+    // -----------------------------------------------------------------------
+
+    fn sample_target() -> DeployRecord {
+        let mut target = DeployRecord::new("v1.wasm", "hash-v1", "testnet", "alice", None);
+        target.contract_id = Some("CABC".to_string());
+        target.status = DeployStatus::Success;
+        target
+    }
+
+    #[test]
+    fn consistency_check_passes_for_a_correctly_built_rollback() {
+        let target = sample_target();
+        let rb = DeployRecord::rollback_of(&target, "bob");
+
+        let result = check_rollback_consistency(&rb, &target);
+        assert!(result.passed);
+        assert!(result.reason.is_none());
+        assert_eq!(result.rollback_id, rb.id);
+    }
+
+    #[test]
+    fn consistency_check_fails_on_wasm_hash_mismatch() {
+        let target = sample_target();
+        let mut rb = DeployRecord::rollback_of(&target, "bob");
+        rb.wasm_hash = "corrupted-hash".to_string();
+
+        let result = check_rollback_consistency(&rb, &target);
+        assert!(!result.passed);
+        assert!(result.reason.unwrap().contains("wasm_hash mismatch"));
+    }
+
+    #[test]
+    fn consistency_check_fails_on_network_mismatch() {
+        let target = sample_target();
+        let mut rb = DeployRecord::rollback_of(&target, "bob");
+        rb.network = "mainnet".to_string();
+
+        let result = check_rollback_consistency(&rb, &target);
+        assert!(!result.passed);
+        assert!(result.reason.unwrap().contains("network mismatch"));
+    }
+
+    #[test]
+    fn consistency_check_fails_on_contract_id_mismatch() {
+        let target = sample_target();
+        let mut rb = DeployRecord::rollback_of(&target, "bob");
+        rb.contract_id = Some("CDIFFERENT".to_string());
+
+        let result = check_rollback_consistency(&rb, &target);
+        assert!(!result.passed);
+        assert!(result.reason.unwrap().contains("contract_id mismatch"));
+    }
+
+    #[test]
+    fn consistency_check_fails_when_previous_id_does_not_point_at_target() {
+        let target = sample_target();
+        let mut rb = DeployRecord::rollback_of(&target, "bob");
+        rb.previous_id = Some("some-other-id".to_string());
+
+        let result = check_rollback_consistency(&rb, &target);
+        assert!(!result.passed);
+        assert!(result.reason.unwrap().contains("previous_id"));
+    }
+
+    #[test]
+    fn consistency_check_fails_when_rollback_record_is_not_marked_success() {
+        let target = sample_target();
+        let mut rb = DeployRecord::rollback_of(&target, "bob");
+        rb.status = DeployStatus::Failed;
+
+        let result = check_rollback_consistency(&rb, &target);
+        assert!(!result.passed);
+        assert!(result.reason.unwrap().contains("status is failed"));
+    }
+
+    #[test]
+    fn consistency_check_reports_every_mismatch_at_once() {
+        // Boundary: everything is wrong simultaneously — the reason string
+        // must surface all of it, not just the first mismatch found.
+        let target = sample_target();
+        let mut rb = DeployRecord::rollback_of(&target, "bob");
+        rb.wasm_hash = "wrong".to_string();
+        rb.network = "mainnet".to_string();
+        rb.contract_id = None;
+        rb.previous_id = None;
+        rb.status = DeployStatus::Pending;
+
+        let result = check_rollback_consistency(&rb, &target);
+        assert!(!result.passed);
+        let reason = result.reason.unwrap();
+        assert!(reason.contains("previous_id"));
+        assert!(reason.contains("network mismatch"));
+        assert!(reason.contains("wasm_hash mismatch"));
+        assert!(reason.contains("contract_id mismatch"));
+        assert!(reason.contains("status is pending"));
     }
 }

@@ -28,6 +28,27 @@ If the above works, you're good! Otherwise, continue below.
 
 ## Common Issues and Solutions
 
+### 0. Cargo.lock Reproducibility or Mutation Failures
+
+**Problem**: CI fails with `git diff --exit-code Cargo.lock` or `starforge verify lockfile` reports violations.
+
+**Cause**: `Cargo.toml` dependencies were modified without updating `Cargo.lock`, or platform-specific dependencies caused lockfile drift across operating systems.
+
+**Solutions**:
+
+```bash
+# 1. Run starforge verify lockfile locally to inspect exact resolution errors or diffs
+starforge verify lockfile
+
+# 2. Update Cargo.lock to match Cargo.toml definitions
+cargo check
+
+# 3. Verify Cargo.lock immutability again
+git diff --exit-code Cargo.lock
+```
+
+---
+
 ### 1. Network Connection Issues
 
 **Problem**: `error: failed to get <crate> as a dependency...`

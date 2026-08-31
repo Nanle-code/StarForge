@@ -63,7 +63,7 @@ pub fn is_enabled() -> bool {
         Err(_) => return true,
     };
 
-    if !cfg.telemetry_enabled.unwrap_or(true) {
+    if !cfg.telemetry_enabled.unwrap_or(false) {
         return false;
     }
     cfg.ai_telemetry.enabled

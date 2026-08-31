@@ -24,6 +24,7 @@ pipeline {
           cargo build --locked
           cargo clippy --all-features --locked -- -D warnings
           cargo test --test cli_smoke --locked
+          git diff --exit-code Cargo.lock
         '''
       }
     }

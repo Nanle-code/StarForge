@@ -4,9 +4,9 @@
 //! with comprehensive coverage and minimal false positives.
 
 use crate::utils::print as p;
-use crate::utils::security::{AiAuditService, AuditLevel, AuditRequest};
+use crate::utils::security::{AuditLevel, AuditRequest};
 use anyhow::Result;
-use clap::{Args, Subcommand};
+use clap::Args;
 use colored::*;
 use std::fs;
 use std::path::{Path, PathBuf};

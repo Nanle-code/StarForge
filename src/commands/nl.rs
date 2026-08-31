@@ -132,6 +132,9 @@ struct Pattern {
     keywords: &'static [&'static str],
     intent_factory: fn(&ExtractedEntities) -> Intent,
     confidence: f64,
+    // Not currently called from any code path in this crate. Kept rather than
+    // removed since deleting it is a product decision, not a lint-scoping one.
+    #[allow(dead_code)]
     explanation: &'static str,
 }
 
@@ -323,14 +326,12 @@ fn extract_entities(input: &str) -> ExtractedEntities {
 
     // Extract wallet name (after "named", "called", "as", "name", or directly after "wallet")
     for i in 0..words.len() {
-        if matches!(words[i], "named" | "called" | "as" | "name") {
-            if i + 1 < words.len() {
-                let name = words[i + 1]
-                    .trim_matches(|c: char| !c.is_alphanumeric() && c != '_' && c != '-');
-                if !name.is_empty() {
-                    entities.wallet_name = Some(name.to_string());
-                    break;
-                }
+        if matches!(words[i], "named" | "called" | "as" | "name") && i + 1 < words.len() {
+            let name =
+                words[i + 1].trim_matches(|c: char| !c.is_alphanumeric() && c != '_' && c != '-');
+            if !name.is_empty() {
+                entities.wallet_name = Some(name.to_string());
+                break;
             }
         }
     }
@@ -391,13 +392,12 @@ fn extract_entities(input: &str) -> ExtractedEntities {
 
     // Extract amount (numbers after "fund", "send", etc.)
     for i in 0..words.len() {
-        if matches!(words[i], "fund" | "send" | "pay") {
-            if i + 1 < words.len() {
-                if words[i + 1].parse::<f64>().is_ok() {
-                    entities.amount = Some(words[i + 1].to_string());
-                    break;
-                }
-            }
+        if matches!(words[i], "fund" | "send" | "pay")
+            && i + 1 < words.len()
+            && words[i + 1].parse::<f64>().is_ok()
+        {
+            entities.amount = Some(words[i + 1].to_string());
+            break;
         }
     }
 
@@ -406,15 +406,13 @@ fn extract_entities(input: &str) -> ExtractedEntities {
     // "invoke" is not in this list: it introduces the *contract*, as in
     // "invoke contract <id> call <function>".
     for i in 0..words.len() {
-        if matches!(words[i], "call" | "run" | "execute") {
-            if i + 1 < words.len() {
-                let func = words[i + 1].trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
-                if func == "contract" {
-                    continue;
-                }
-                if !func.is_empty() {
-                    entities.function_name = Some(func.to_string());
-                }
+        if matches!(words[i], "call" | "run" | "execute") && i + 1 < words.len() {
+            let func = words[i + 1].trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+            if func == "contract" {
+                continue;
+            }
+            if !func.is_empty() {
+                entities.function_name = Some(func.to_string());
             }
         }
     }

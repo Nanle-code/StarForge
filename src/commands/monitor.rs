@@ -8,7 +8,7 @@ use crate::utils::{
 };
 use anyhow::Result;
 use clap::Args;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -162,6 +162,10 @@ pub async fn handle(args: MonitorArgs) -> Result<()> {
     }
 }
 
+// Each parameter is an independent, named input (CLI flags / distinct config
+// values); bundling them into a struct here would add indirection without
+// reducing real complexity.
+#[allow(clippy::too_many_arguments)]
 async fn monitor_contract(
     contract_id: &str,
     events_filter: Option<&str>,
@@ -312,10 +316,14 @@ async fn monitor_contract(
     Ok(())
 }
 
+// Each parameter is an independent, named input (CLI flags / distinct config
+// values); bundling them into a struct here would add indirection without
+// reducing real complexity.
+#[allow(clippy::too_many_arguments)]
 fn replay_contract_events(
     contract_id: &str,
     network: &str,
-    replay_path: &PathBuf,
+    replay_path: &Path,
     legacy_filter_set: &Option<Vec<String>>,
     stream_filters: &EventStreamFilters,
     router: &EventRouter,
@@ -323,7 +331,7 @@ fn replay_contract_events(
     triggers: &[EventTrigger],
     dashboard: bool,
 ) -> Result<()> {
-    let store = EventStore::new(replay_path.clone());
+    let store = EventStore::new(replay_path.to_path_buf());
     let events = store.replay()?;
     notifications::info(&format!(
         "Replaying {} persisted event(s) from {}.",
@@ -365,6 +373,10 @@ fn replay_contract_events(
     Ok(())
 }
 
+// Each parameter is an independent, named input (CLI flags / distinct config
+// values); bundling them into a struct here would add indirection without
+// reducing real complexity.
+#[allow(clippy::too_many_arguments)]
 fn process_contract_event(
     network: &str,
     contract_id: &str,

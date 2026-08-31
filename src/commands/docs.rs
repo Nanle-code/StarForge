@@ -293,6 +293,10 @@ fn maintain(
     Ok(())
 }
 
+// Each parameter is an independent, named input (CLI flags / distinct config
+// values); bundling them into a struct here would add indirection without
+// reducing real complexity.
+#[allow(clippy::too_many_arguments)]
 fn generate(
     contract: String,
     name: Option<String>,

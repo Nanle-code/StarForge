@@ -207,15 +207,9 @@ impl ConversationManager {
 
         // Trim context if too large
         if context.messages.len() > self.max_context_messages {
-            let remove_count = context.messages.len() - self.max_context_messages;
+            let _remove_count = context.messages.len() - self.max_context_messages;
             // Keep system messages, remove oldest user/assistant messages
-            context.messages.retain(|m| {
-                if m.role == MessageRole::System {
-                    true
-                } else {
-                    false
-                }
-            });
+            context.messages.retain(|m| m.role == MessageRole::System);
 
             // Add back recent messages up to limit
             let recent_messages: Vec<_> = context
@@ -371,20 +365,17 @@ impl ConversationManager {
 
         // Workflow-based suggestions
         if let Some(workflow) = &context.workflow_state {
-            match workflow.workflow_type {
-                WorkflowType::ContractDeployment => {
-                    if !workflow.completed_steps.contains(&"compile".to_string()) {
-                        suggestions.push(Suggestion {
-                            title: "Compile contract".to_string(),
-                            description: "Build the WASM file".to_string(),
-                            action_type: SuggestionAction::Command(
-                                "cargo build --target wasm32-unknown-unknown --release".to_string(),
-                            ),
-                            confidence: 0.95,
-                        });
-                    }
-                }
-                _ => {}
+            if workflow.workflow_type == WorkflowType::ContractDeployment
+                && !workflow.completed_steps.contains(&"compile".to_string())
+            {
+                suggestions.push(Suggestion {
+                    title: "Compile contract".to_string(),
+                    description: "Build the WASM file".to_string(),
+                    action_type: SuggestionAction::Command(
+                        "cargo build --target wasm32-unknown-unknown --release".to_string(),
+                    ),
+                    confidence: 0.95,
+                });
             }
         }
 

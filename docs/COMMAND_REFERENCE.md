@@ -100,7 +100,15 @@ starforge multisig notify proposal.json --message "Please sign the treasury paym
 | `inspect storage` | Deep storage inspection |
 | `deploy --wasm <FILE>` | Prepare Soroban deployment |
 
-**`deploy` flags:** `--network`, `--wallet`, `--optimize`, `--simulate`, `--yes`, `--execute`
+**`deploy` flags:** `--network`, `--wallet`, `--optimize`, `--simulate`, `--yes`, `--execute`, `--policy`, `--checklist`
+
+Deploy policy files (`starforge-deploy-policy.toml`) gate allowed networks,
+required reviewers, and checklist items. Validate in CI with
+`starforge deploy-policy check`. See [DEPLOY_POLICY.md](DEPLOY_POLICY.md).
+
+Destructive confirmations (mainnet deploy, secret reveal) require typed
+challenge phrases; automation bypass needs `STARFORGE_UNSAFE_SKIP_CONFIRMATION=1`.
+See [CONFIRMATION_UX.md](CONFIRMATION_UX.md).
 
 `--simulate` and `--dry-run` print the simulated CPU, memory, and ledger
 footprint alongside the minimum resource fee and a recommended fee that
@@ -114,6 +122,15 @@ starforge deploy --wasm ./token.wasm --optimize --yes --execute
 
 starforge contract generate-bindings ./token.wasm --lang rust
 ```
+
+## `deploy-policy`
+
+| Subcommand | Purpose |
+|------------|---------|
+| `init [FILE]` | Write a documented default policy (TOML or YAML) |
+| `check --config <FILE>` | Validate policy schema and simulate deploy context (CI-friendly) |
+
+See [DEPLOY_POLICY.md](DEPLOY_POLICY.md).
 
 ### Invocation scripts
 
@@ -401,7 +418,7 @@ See [GOVERNANCE.md](GOVERNANCE.md) for the full workflow.
 | `test` | Soroban WASM test runner |
 | `lint <PATH>` | Static Soroban source lint |
 | `plugin install/list/run` | Dynamic plugin management |
-| `completions <SHELL>` | bash/zsh/fish completions |
+| `completions <SHELL>` | bash/zsh/fish/powershell completions |
 
 ### `monitor`
 

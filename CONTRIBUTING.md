@@ -200,6 +200,8 @@ cargo fmt --all --check
 # Linter check
 cargo clippy -- -D warnings
 
+# Secure defaults audit
+cargo test --test secure_defaults_audit
 # Doctests (compiles examples in doc comments)
 cargo test --doc
 

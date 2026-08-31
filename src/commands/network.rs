@@ -1,4 +1,4 @@
-use crate::utils::{config, http_client, output, print as p};
+use crate::utils::{config, output, print as p};
 use anyhow::Result;
 use clap::Subcommand;
 use std::time::Duration;
@@ -173,11 +173,14 @@ pub fn validate_url(label: &str, url: &str) -> Result<()> {
     if trimmed.is_empty() {
         anyhow::bail!("{} URL cannot be empty", label);
     }
-    let parsed = reqwest::Url::parse(trimmed).map_err(|e| {
-        anyhow::anyhow!("Invalid {} URL '{}': {}", label, url, e)
-    })?;
+    let parsed = reqwest::Url::parse(trimmed)
+        .map_err(|e| anyhow::anyhow!("Invalid {} URL '{}': {}", label, url, e))?;
     if parsed.scheme() != "http" && parsed.scheme() != "https" {
-        anyhow::bail!("{} URL scheme must be http or https, got '{}'", label, parsed.scheme());
+        anyhow::bail!(
+            "{} URL scheme must be http or https, got '{}'",
+            label,
+            parsed.scheme()
+        );
     }
     if parsed.host_str().is_none() {
         anyhow::bail!("{} URL missing valid host", label);
@@ -407,10 +410,7 @@ async fn test_network(network_name: Option<String>, json: bool) -> Result<()> {
         let fb_res = client.get(f_url).send().await;
         let fb_latency = start_fb.elapsed().as_millis() as u64;
 
-        let reachable = match fb_res {
-            Ok(_) => true,
-            Err(_) => false,
-        };
+        let reachable = fb_res.is_ok();
         friendbot_health = Some(EndpointHealth {
             url: f_url.clone(),
             reachable,
@@ -499,9 +499,10 @@ mod tests {
     #[test]
     fn test_validate_passphrase() {
         assert!(validate_passphrase(&None).is_ok());
-        assert!(validate_passphrase(&Some("Test SDF Network ; September 2015".to_string())).is_ok());
+        assert!(
+            validate_passphrase(&Some("Test SDF Network ; September 2015".to_string())).is_ok()
+        );
         assert!(validate_passphrase(&Some("".to_string())).is_err());
         assert!(validate_passphrase(&Some("   ".to_string())).is_err());
     }
 }
-

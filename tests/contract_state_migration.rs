@@ -1,5 +1,5 @@
-use tempfile::TempDir;
 use std::fs;
+use tempfile::TempDir;
 
 #[test]
 fn test_migration_snapshot_serialization_and_diffing() {

@@ -127,11 +127,21 @@ pub struct DataProtectionSummary {
     pub integrity_score: f64,
 }
 
+// Fields not currently read from any code path in this crate. Kept rather
+// than removed since deleting them is a product decision, not a
+// lint-scoping one.
+#[allow(dead_code)]
 pub struct DataProtectionEngine {
     encryption_policy: EncryptionPolicy,
     access_policy: AccessPolicy,
     keys: Vec<KeyRecord>,
     classifications: HashMap<String, DataClassification>,
+}
+
+impl Default for DataProtectionEngine {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DataProtectionEngine {
@@ -347,7 +357,7 @@ impl DataProtectionEngine {
     }
 
     fn check_key_management(&self, source: &str) -> DataProtectionCheck {
-        let has_key_ops =
+        let _has_key_ops =
             source.contains("key") || source.contains("secret") || source.contains("private");
         let has_hardcoded = source.contains("\"sk1\"")
             || source.contains("\"secret_key\"")

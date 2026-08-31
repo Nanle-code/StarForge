@@ -332,13 +332,13 @@ async fn fetch_pr_readiness(repo_slug: &str, pr_number: u32) -> Result<PrReadine
         blocking_reasons.push(format!("Check '{}' is still pending", check.name));
     }
 
-    if matches!(merge_state, "BLOCKED" | "BEHIND") {
-        if !blocking_reasons.iter().any(|r| r.contains("merge")) {
-            blocking_reasons.push(format!(
-                "Merge state is '{}' — branch may need a rebase",
-                merge_state
-            ));
-        }
+    if matches!(merge_state, "BLOCKED" | "BEHIND")
+        && !blocking_reasons.iter().any(|r| r.contains("merge"))
+    {
+        blocking_reasons.push(format!(
+            "Merge state is '{}' — branch may need a rebase",
+            merge_state
+        ));
     }
 
     let is_ready = blocking_reasons.is_empty();

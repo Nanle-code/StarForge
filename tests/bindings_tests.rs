@@ -1,5 +1,4 @@
 use starforge::utils::bindings::{self, BindingLanguage};
-use std::path::Path;
 use tempfile::NamedTempFile;
 
 // Create a minimal valid WASM with contract metadata section for testing

@@ -115,16 +115,20 @@ mod wallet_encryption_tests {
     fn test_encrypted_bundle_format_consistency() {
         // Test various bundle formats
         let test_cases = vec![
-            ("a:b:c", 3, true),        // Valid 3-part
-            ("a:b:c:1:2", 5, true),    // Valid 5-part
-            ("a:b", 2, false),         // Invalid 2-part
-            ("a:b:c:d", 4, false),     // Invalid 4-part
-            ("a:b:c:d:e:f", 6, false), // Invalid 6-part
+            ("a:b:c", 3, true),          // Valid 3-part
+            ("a:b:c:1:2", 5, true),      // Valid 5-part
+            ("a:b:c:1:2:3", 6, true),    // Valid 6-part
+            ("v1:a:b:c:1:2:3", 7, true), // Valid 7-part (v1 versioned)
+            ("a:b", 2, false),           // Invalid 2-part
+            ("a:b:c:d", 4, false),       // Invalid 4-part
         ];
 
         for (bundle, expected_parts, should_be_valid) in test_cases {
             let parts: Vec<&str> = bundle.split(':').collect();
-            let is_valid = parts.len() == 3 || parts.len() == 5;
+            let is_valid = parts.len() == 3
+                || parts.len() == 5
+                || parts.len() == 6
+                || (parts.len() == 7 && parts[0] == "v1");
 
             assert_eq!(
                 is_valid,

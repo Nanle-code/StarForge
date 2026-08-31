@@ -819,27 +819,30 @@ fn analyze_security_patterns(content: &str, file_name: &str, findings: &mut Vec<
 
         if is_pub || is_priv {
             // Process previous function
-            if in_pub_fn && fn_has_state_write && !fn_has_require_auth {
-                if current_fn != "initialize" && current_fn != "init" {
-                    findings.push(TestFinding {
-                        category: FindingCategory::Security,
-                        severity: Severity::High,
-                        title: format!(
-                            "Function '{}' writes state without require_auth()",
-                            current_fn
-                        ),
-                        description: format!(
-                            "Function '{}' modifies contract state but does not call require_auth(). \
-                             This may allow unauthorized state changes.",
-                            current_fn
-                        ),
-                        file: Some(file_name.to_string()),
-                        line: Some(fn_line),
-                        suggestion: Some(
-                            "Add caller.require_auth() or equivalent authorization check before state mutations.".to_string(),
-                        ),
-                    });
-                }
+            if in_pub_fn
+                && fn_has_state_write
+                && !fn_has_require_auth
+                && current_fn != "initialize"
+                && current_fn != "init"
+            {
+                findings.push(TestFinding {
+                    category: FindingCategory::Security,
+                    severity: Severity::High,
+                    title: format!(
+                        "Function '{}' writes state without require_auth()",
+                        current_fn
+                    ),
+                    description: format!(
+                        "Function '{}' modifies contract state but does not call require_auth(). \
+                         This may allow unauthorized state changes.",
+                        current_fn
+                    ),
+                    file: Some(file_name.to_string()),
+                    line: Some(fn_line),
+                    suggestion: Some(
+                        "Add caller.require_auth() or equivalent authorization check before state mutations.".to_string(),
+                    ),
+                });
             }
 
             if is_pub {
@@ -875,24 +878,27 @@ fn analyze_security_patterns(content: &str, file_name: &str, findings: &mut Vec<
     }
 
     // Check last function
-    if in_pub_fn && fn_has_state_write && !fn_has_require_auth {
-        if current_fn != "initialize" && current_fn != "init" {
-            findings.push(TestFinding {
-                category: FindingCategory::Security,
-                severity: Severity::High,
-                title: format!(
-                    "Function '{}' writes state without require_auth()",
-                    current_fn
-                ),
-                description: format!(
-                    "Function '{}' modifies contract state but does not call require_auth().",
-                    current_fn
-                ),
-                file: Some(file_name.to_string()),
-                line: Some(fn_line),
-                suggestion: Some("Add caller.require_auth() before state mutations.".to_string()),
-            });
-        }
+    if in_pub_fn
+        && fn_has_state_write
+        && !fn_has_require_auth
+        && current_fn != "initialize"
+        && current_fn != "init"
+    {
+        findings.push(TestFinding {
+            category: FindingCategory::Security,
+            severity: Severity::High,
+            title: format!(
+                "Function '{}' writes state without require_auth()",
+                current_fn
+            ),
+            description: format!(
+                "Function '{}' modifies contract state but does not call require_auth().",
+                current_fn
+            ),
+            file: Some(file_name.to_string()),
+            line: Some(fn_line),
+            suggestion: Some("Add caller.require_auth() before state mutations.".to_string()),
+        });
     }
 
     // Check for reentrancy patterns

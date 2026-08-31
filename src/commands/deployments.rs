@@ -1,5 +1,5 @@
 use crate::utils::deploy_history::{
-    get_record, last_successful, load_history, set_verified, update_status, DeployStatus,
+    get_record, last_successful, load_history, set_verified, DeployStatus,
 };
 use crate::utils::deployment_monitor;
 use crate::utils::deployment_monitoring_service::{
@@ -477,7 +477,7 @@ fn handle_monitor(args: MonitorArgs) -> Result<()> {
 
         // Populate tracker with history for visual status
         let records = load_history().unwrap_or_default();
-        for (idx, r) in records.iter().enumerate().take(5) {
+        for (_idx, r) in records.iter().enumerate().take(5) {
             let tr_id = format!("dep-{}", &r.id[..8.min(r.id.len())]);
             tracker.start_tracking(&tr_id, &r.network, &r.wallet);
             if r.status == DeployStatus::Success {
@@ -554,8 +554,8 @@ async fn handle_status(args: StatusArgs) -> Result<()> {
     p::header("Deployment Status Timeline");
     crate::utils::config::validate_network(&args.network)?;
 
-    let mut timeline = deployment_timeline::DeploymentTimeline::new(&args.id)
-        .with_max_retries(args.max_retries);
+    let mut timeline =
+        deployment_timeline::DeploymentTimeline::new(&args.id).with_max_retries(args.max_retries);
     if let Some(hash) = &args.tx_hash {
         timeline = timeline.with_tx_hash(hash);
     }

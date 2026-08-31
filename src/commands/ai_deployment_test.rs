@@ -99,10 +99,7 @@ fn resolve_phases(value: &str) -> Result<Vec<Phase>> {
         return Ok(vec![Phase::Pre, Phase::Post]);
     }
 
-    let phases: Vec<Phase> = value
-        .split(',')
-        .filter_map(|part| Phase::parse(part))
-        .collect();
+    let phases: Vec<Phase> = value.split(',').filter_map(Phase::parse).collect();
 
     if phases.is_empty() {
         anyhow::bail!("Unknown phase '{}'. Use pre, post, or all", value);

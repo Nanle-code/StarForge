@@ -3679,6 +3679,7 @@ dependencies = [
  "uuid",
  "wasm-bindgen",
  "wasm-bindgen-test",
+ "zeroize",
  "zip",
  "zxcvbn",
 ]

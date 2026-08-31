@@ -480,7 +480,7 @@ fn write_counts(out: &mut String, title: &str, counts: &HashMap<String, usize>) 
     }
 
     let mut items: Vec<_> = counts.iter().collect();
-    items.sort_by(|(left, _), (right, _)| left.cmp(right));
+    items.sort_by_key(|(left, _)| *left);
     for (key, count) in items {
         let _ = writeln!(out, "  - {}: {}", key, count);
     }

@@ -1,0 +1,28 @@
+# Organization deploy policy — see docs/DEPLOY_POLICY.md
+organization = "example-org"
+
+allowed_networks = ["testnet"]
+require_execute_flag = true
+
+[[required_reviewers]]
+username = "security-lead"
+role = "security"
+
+[[required_reviewers]]
+username = "release-manager"
+role = "ops"
+
+[[checklist]]
+id = "audit-passed"
+description = "Run `starforge audit` with no critical findings"
+required = true
+
+[[checklist]]
+id = "changelog-updated"
+description = "Update CHANGELOG for this release"
+required = true
+
+[[checklist]]
+id = "staging-verified"
+description = "Verify the build on staging/testnet"
+required = false

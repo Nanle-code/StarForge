@@ -1,6 +1,5 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -161,7 +160,10 @@ impl DocumentationGenerator {
         Ok(documentation)
     }
 
-    fn extract_functions_from_wasm(&self, wasm_bytes: &[u8]) -> Result<Vec<FunctionDoc>> {
+    // Multi-field struct literals read more clearly as sequential pushes
+    // than as one large `vec![]` literal.
+    #[allow(clippy::vec_init_then_push)]
+    fn extract_functions_from_wasm(&self, _wasm_bytes: &[u8]) -> Result<Vec<FunctionDoc>> {
         // Simplified function extraction - in production would use proper WASM parsing
         let mut functions = Vec::new();
 
@@ -228,7 +230,7 @@ impl DocumentationGenerator {
         };
 
         // Check if contract already exists in index
-        if let Some(existing) = index
+        if let Some(_existing) = index
             .contracts
             .iter()
             .find(|c| c.contract_id == documentation.contract_id)
@@ -589,7 +591,7 @@ impl DocumentationVersionManager {
             let entry = entry?;
             let path = entry.path();
 
-            if path.extension().map_or(false, |ext| ext == "json") {
+            if path.extension().is_some_and(|ext| ext == "json") {
                 let content = fs::read_to_string(&path)?;
                 let version: DocumentationVersion = serde_json::from_str(&content)?;
                 versions.push(version);

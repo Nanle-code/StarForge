@@ -72,7 +72,7 @@ impl<W: Write> Write for RedactingWriter<W> {
 
     fn flush(&mut self) -> io::Result<()> {
         if !self.buffer.is_empty() {
-            let remaining: Vec<u8> = self.buffer.drain(..).collect();
+            let remaining: Vec<u8> = std::mem::take(&mut self.buffer);
             if let Ok(line_str) = std::str::from_utf8(&remaining) {
                 let redacted = redact_secrets(line_str);
                 self.inner.write_all(redacted.as_bytes())?;

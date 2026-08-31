@@ -17,6 +17,7 @@
 //! - `cache`           – manage AI request cache (stats, clear, export, etc.)
 
 use crate::utils::ai_cache;
+use crate::utils::ai_offline::{self, OfflineSupport};
 use crate::utils::{
     contract_profiler,
     ollama::{self, GenerateOptions},
@@ -225,6 +226,33 @@ pub enum AiCommands {
     /// Test analytics
     #[command(subcommand)]
     Analytics(crate::commands::ai_test_analytics_cmd::AiTestAnalyticsCommands),
+
+    /// Offline-first AI mode and cloud-provider feature-parity matrix
+    #[command(subcommand)]
+    Offline(AiOfflineCommands),
+}
+
+/// Sub-commands for offline-first AI mode and parity reporting.
+#[derive(Subcommand)]
+pub enum AiOfflineCommands {
+    /// Show the current AI mode, backend, and provider-parity matrix
+    Show {
+        /// Override the AI mode for this report (offline | online | auto)
+        #[arg(long)]
+        mode: Option<String>,
+    },
+
+    /// Check that a model is present in the local Ollama store
+    CheckModel {
+        /// Model name to check, e.g. `codellama:7b`
+        model: String,
+    },
+
+    /// Check that a command is available in offline mode
+    Check {
+        /// Command path to check, e.g. `ai audit` or `generate`
+        command: String,
+    },
 }
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
@@ -300,7 +328,115 @@ pub async fn handle(cmd: AiCommands) -> Result<()> {
         AiCommands::Analytics(analytics_cmd) => {
             crate::commands::ai_test_analytics_cmd::handle(analytics_cmd).await
         }
+        AiCommands::Offline(offline_cmd) => handle_offline(offline_cmd).await,
     }
+}
+
+// ─── Offline-first AI mode & parity matrix ──────────────────────────────────
+
+async fn handle_offline(cmd: AiOfflineCommands) -> Result<()> {
+    match cmd {
+        AiOfflineCommands::Show { mode } => handle_offline_show(mode.as_deref()).await,
+        AiOfflineCommands::CheckModel { model } => handle_offline_check_model(&model).await,
+        AiOfflineCommands::Check { command } => handle_offline_check(&command),
+    }
+}
+
+/// Renders the effective AI mode and the provider-parity matrix.
+async fn handle_offline_show(mode_override: Option<&str>) -> Result<()> {
+    let preferred = match mode_override {
+        Some(m) => ai_offline::parse_ai_mode(m)?,
+        None => ai_offline::configured_mode(),
+    };
+
+    let backend = ai_offline::detect_local_backend().await;
+    let resolved = ai_offline::resolve_mode(preferred, backend.ollama_running);
+
+    p::header("Offline-First AI Mode & Parity");
+    p::separator();
+    p::kv("Configured mode", &preferred.to_string());
+    p::kv("Effective mode", &resolved.to_string());
+    p::kv(
+        "Ollama running",
+        if backend.ollama_running { "yes" } else { "no" },
+    );
+    p::kv(
+        "Cloud access allowed",
+        if resolved.allows_cloud() { "yes" } else { "no" },
+    );
+    p::separator();
+
+    let (local, hybrid, cloud) = ai_offline::parity_summary();
+    println!();
+    p::info(&format!(
+        "AI feature parity: {local} offline, {hybrid} hybrid, {cloud} cloud-only ({} total).",
+        ai_offline::AI_PARITY.len()
+    ));
+    p::info("Commands that work without any cloud provider:");
+
+    let headers = &["Command", "Support", "Providers"];
+    let rows: Vec<Vec<String>> = ai_offline::AI_PARITY
+        .iter()
+        .filter(|e| e.support.works_offline())
+        .map(|e| {
+            vec![
+                e.command.to_string(),
+                match e.support {
+                    OfflineSupport::Local => "local".into(),
+                    OfflineSupport::Hybrid => "hybrid".into(),
+                    OfflineSupport::CloudOnly => "cloud-only".into(),
+                },
+                e.providers.join(","),
+            ]
+        })
+        .collect();
+    p::table(headers, &rows);
+
+    let cloud_rows: Vec<Vec<String>> = ai_offline::AI_PARITY
+        .iter()
+        .filter(|e| e.support == OfflineSupport::CloudOnly)
+        .map(|e| vec![e.command.to_string(), e.providers.join(",")])
+        .collect();
+    if !cloud_rows.is_empty() {
+        println!();
+        p::info("Cloud-only features (fail clearly in offline mode):");
+        let cloud_headers = &["Command", "Providers"];
+        p::table(cloud_headers, &cloud_rows);
+    }
+
+    if !resolved.allows_cloud() {
+        println!();
+        p::info(&format!(
+            "Running in offline mode — cloud providers are never contacted. \
+             Set $STARFORGE_AI_MODE (or run with --mode) to switch modes."
+        ));
+    }
+
+    p::separator();
+    Ok(())
+}
+
+/// Ensures the requested model is present locally, failing clearly otherwise.
+async fn handle_offline_check_model(model: &str) -> Result<()> {
+    let models = ollama::list_models()
+        .await
+        .context("Failed to list Ollama models — is `ollama serve` running?")?;
+    ai_offline::ensure_model_available(&models, model)?;
+    p::success(&format!("Model '{model}' is available locally."));
+    Ok(())
+}
+
+/// Fails clearly when a cloud-only command is requested in offline mode.
+fn handle_offline_check(command: &str) -> Result<()> {
+    let entry = ai_offline::parity_entry(command)
+        .ok_or_else(|| anyhow::anyhow!("Unknown command '{command}' in the AI parity matrix."))?;
+    let resolved = ai_offline::resolve_configured_mode_sync();
+    ai_offline::require_offline_compatible(entry.command, resolved)?;
+    p::success(&format!(
+        "'{}' is available in mode {resolved}.",
+        entry.command
+    ));
+    Ok(())
 }
 
 // ─── Existing handlers (unchanged) ──────────────────────────────────────────
@@ -475,6 +611,9 @@ async fn handle_ask(question: &str, model: &str, temperature: f32, max_tokens: u
     Ok(())
 }
 
+// Not currently called from any code path in this crate. Kept rather than
+// removed since deleting it is a product decision, not a lint-scoping one.
+#[allow(dead_code)]
 async fn handle_translate(text: &str, target: &str, model: &str) -> Result<()> {
     if text.trim().is_empty() {
         anyhow::bail!("Please provide text to translate.");

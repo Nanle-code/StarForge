@@ -7,7 +7,9 @@ A centralized remote template registry API that allows global template sharing, 
 - ✓ Remote template search with filters (tags, verified, quality score)
 - ✓ Template download and installation from remote
 - ✓ User authentication with JWT tokens
-- ✓ Template publishing with versioning
+- ✓ Publisher authentication and strict template name ownership enforcement
+- ✓ Rate-limited publish and mutation operations
+- ✓ Auditable template ownership history log and ownership transfer capabilities
 - ✓ Template rating and review system
 - ✓ Web interface for template browsing
 - ✓ RESTful API for CLI integration
@@ -30,6 +32,26 @@ docker-compose up
 
 Starts Registry API + MongoDB
 
+## Rate Limiting & Security
+
+All template mutation operations (`POST /api/templates/publish`, `POST /api/templates/:name/transfer-ownership`) are rate-limited per publisher/IP.
+
+- **Environment Configuration:**
+  - `PUBLISH_RATE_LIMIT_WINDOW_MS`: Rate limit window in milliseconds (default: `60000` ms / 1 minute).
+  - `PUBLISH_RATE_LIMIT_MAX`: Maximum mutation requests allowed per window (default: `10`).
+- **Response Headers:**
+  - `X-RateLimit-Limit`: Maximum allowable requests per window.
+  - `X-RateLimit-Remaining`: Remaining allowable requests in the current window.
+  - `X-RateLimit-Reset`: UTC epoch timestamp in seconds when the rate limit window resets.
+  - `Retry-After`: Seconds to wait before retrying when HTTP `429 Too Many Requests` is returned.
+
+### Ownership Enforcement & Migration Notes
+
+- **Publisher Authentication**: When publishing a template name for the first time, the publisher's user identity (`publisherId`) is bound to the template name.
+- **Ownership Verification**: Subsequent version releases under an existing template name are restricted to the registered owner (HTTP `403 Forbidden` if attempted by a non-owner).
+- **Ownership Transfers**: The registered owner may transfer template ownership to another registered user (`POST /api/templates/:name/transfer-ownership`).
+- **Auditable Audit Log**: All publish events and ownership transfers are appended to an immutable audit trail (`GET /api/templates/:name/ownership-history`).
+
 ## API Endpoints
 
 ### Authentication
@@ -41,8 +63,10 @@ Starts Registry API + MongoDB
 ### Templates
 
 - `POST /api/templates/search` - Search registry
+- `GET /api/templates/:name/ownership-history` - Query template ownership audit history
+- `POST /api/templates/:name/transfer-ownership` - Transfer template ownership (auth required, rate-limited)
 - `GET /api/templates/:name/:version` - Get template details
-- `POST /api/templates/publish` - Publish template (auth required)
+- `POST /api/templates/publish` - Publish template (publisher auth required, rate-limited)
 - `GET /api/templates/:name/:version/download` - Download template
 
 ### Reviews
@@ -66,15 +90,20 @@ curl -X POST http://localhost:3000/api/templates/search \
   }'
 ```
 
-### Signup
+### Get Ownership History
 
 ```bash
-curl -X POST http://localhost:3000/api/auth/signup \
+curl http://localhost:3000/api/templates/my-template/ownership-history
+```
+
+### Transfer Ownership
+
+```bash
+curl -X POST http://localhost:3000/api/templates/my-template/transfer-ownership \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" \
   -d '{
-    "email": "user@example.com",
-    "username": "user",
-    "password": "password123"
+    "new_username": "new_owner"
   }'
 ```
 

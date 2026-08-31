@@ -4,7 +4,6 @@
 //! simulator to test how contracts and clients handle errors.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 // ── Failure Modes ─────────────────────────────────────────────────────────────
 

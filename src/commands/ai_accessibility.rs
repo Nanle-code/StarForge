@@ -243,9 +243,9 @@ fn handle_configure(args: ConfigureArgs) -> Result<()> {
     })?;
 
     p::success("Accessibility settings updated.");
-    if !args.screen_reader.is_none()
-        || !args.simplified_text.is_none()
-        || !args.high_contrast.is_none()
+    if args.screen_reader.is_some()
+        || args.simplified_text.is_some()
+        || args.high_contrast.is_some()
     {
         p::kv("Screen reader", &cfg.screen_reader_mode.to_string());
         p::kv("Simplified text", &cfg.simplified_text_mode.to_string());

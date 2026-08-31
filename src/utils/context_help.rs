@@ -29,20 +29,15 @@ use crate::utils::history::HistoryEntry;
 // ── Public types ──────────────────────────────────────────────────────────────
 
 /// A coarse expertise tier used to tune tip verbosity.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Expertise {
     /// Few or no prior commands in this area — keep tips short and concrete.
+    #[default]
     Beginner,
     /// Some prior commands — surface intermediate tips and best practices.
     Intermediate,
     /// Many recent commands — prefer concise, power-user pointers.
     Advanced,
-}
-
-impl Default for Expertise {
-    fn default() -> Self {
-        Expertise::Beginner
-    }
 }
 
 impl Expertise {
@@ -78,13 +73,13 @@ pub struct HelpContext<'a> {
 impl<'a> HelpContext<'a> {
     /// True when category `cat` should be considered enabled.
     pub fn category_enabled(&self, cat: &str) -> bool {
-        if self.disabled_categories.iter().any(|c| *c == cat) {
+        if self.disabled_categories.contains(&cat) {
             return false;
         }
         if self.enabled_categories.is_empty() {
             true
         } else {
-            self.enabled_categories.iter().any(|c| *c == cat)
+            self.enabled_categories.contains(&cat)
         }
     }
 }
@@ -397,7 +392,7 @@ pub const PROACTIVE_BLOCKLIST: &[&str] = &["help", "info", "completions", "versi
 /// worth saying OR if the command is on the [[PROACTIVE_BLOCKLIST]].
 pub fn proactive_tip(command: &str, history: &[HistoryEntry]) -> Option<String> {
     let cmd = command.trim().to_lowercase();
-    if PROACTIVE_BLOCKLIST.iter().any(|c| *c == cmd.as_str()) {
+    if PROACTIVE_BLOCKLIST.contains(&cmd.as_str()) {
         return None;
     }
 

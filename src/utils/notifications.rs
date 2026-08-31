@@ -150,9 +150,9 @@ pub fn send_notification(
     Ok(())
 }
 
-fn send_email(destination: &str, _template: &str, data: &HashMap<String, String>) -> Result<()> {
+fn send_email(destination: &str, _template: &str, _data: &HashMap<String, String>) -> Result<()> {
     info(&format!("Email notification queued to {}", destination));
-    return Ok(());
+    Ok(())
 }
 
 fn send_slack(destination: &str, _template: &str, data: &HashMap<String, String>) -> Result<()> {
@@ -268,6 +268,122 @@ pub fn send_approval_completed_notification(
     )
 }
 
+// ---------------------------------------------------------------------------
+// Rollback notifications (#383 / D-46)
+// ---------------------------------------------------------------------------
+//
+// Mirrors the `send_approval_*` pair above: a plain-language line printed
+// immediately via `alert`/`info` (so a human watching the terminal sees it
+// without needing a configured channel), fanned out to whatever channels
+// are configured via `send_notification`, and — either way — recorded in
+// notification history so "was anyone told about this rollback?" has an
+// auditable answer even when no channel is configured yet.
+//
+// Called for every automatic-rollback outcome, not just the successful
+// path: an operator needs to know just as urgently that a deployment
+// failed with *nothing* to roll back to, or that a rollback was recorded
+// but failed its consistency check, as they do that a rollback succeeded.
+
+fn rollback_notification_data(
+    network: &str,
+    wallet: &str,
+    rollback_id: Option<&str>,
+    rolled_back_to: Option<&str>,
+    contract_id: Option<&str>,
+    reason: &str,
+    verified: Option<bool>,
+) -> HashMap<String, String> {
+    let mut data = HashMap::new();
+    data.insert("network".to_string(), network.to_string());
+    data.insert("wallet".to_string(), wallet.to_string());
+    if let Some(id) = rollback_id {
+        data.insert("rollback_id".to_string(), id.to_string());
+    }
+    if let Some(id) = rolled_back_to {
+        data.insert("rolled_back_to".to_string(), id.to_string());
+    }
+    if let Some(id) = contract_id {
+        data.insert("contract_id".to_string(), id.to_string());
+    }
+    data.insert("reason".to_string(), reason.to_string());
+    if let Some(v) = verified {
+        data.insert("verified".to_string(), v.to_string());
+    }
+    data.insert(
+        "message".to_string(),
+        rollback_notification_message(network, rolled_back_to, reason, verified),
+    );
+    data
+}
+
+/// Builds the human-readable summary line shared by the terminal alert and
+/// every dispatched channel. Pure and separated out from `data` construction
+/// specifically so it's directly unit-testable without touching
+/// `~/.starforge/notifications`.
+fn rollback_notification_message(
+    network: &str,
+    rolled_back_to: Option<&str>,
+    reason: &str,
+    verified: Option<bool>,
+) -> String {
+    match rolled_back_to {
+        Some(target) => {
+            let verification = match verified {
+                Some(true) => "verified",
+                Some(false) => "verification FAILED",
+                None => "verification pending",
+            };
+            format!(
+                "Automatic rollback engaged on {network}: reverted to deployment {target} ({reason}) — {verification}."
+            )
+        }
+        None => {
+            format!(
+                "Automatic rollback skipped on {network}: {reason}."
+            )
+        }
+    }
+}
+
+/// Notify about an automatic-rollback outcome — engaged (with or without a
+/// passing verification) or skipped, e.g. because there was nothing to roll
+/// back to, or automatic rollback was disabled for this deploy.
+#[allow(clippy::too_many_arguments)]
+pub fn send_rollback_notification(
+    network: &str,
+    wallet: &str,
+    rollback_id: Option<&str>,
+    rolled_back_to: Option<&str>,
+    contract_id: Option<&str>,
+    reason: &str,
+    verified: Option<bool>,
+) -> Result<()> {
+    let message =
+        rollback_notification_message(network, rolled_back_to, reason, verified);
+
+    match (rolled_back_to.is_some(), verified) {
+        (true, Some(false)) => alert(&message),
+        (true, _) => warn(&message),
+        (false, _) => info(&message),
+    }
+
+    let data = rollback_notification_data(
+        network,
+        wallet,
+        rollback_id,
+        rolled_back_to,
+        contract_id,
+        reason,
+        verified,
+    );
+    let severity = match (rolled_back_to.is_some(), verified) {
+        (true, Some(false)) => "high",
+        (true, _) => "medium",
+        (false, _) => "low",
+    };
+    send_notification("rollback", &data, severity)
+}
+
 pub fn list_notification_history(limit: usize) -> Result<Vec<NotificationEvent>> {
     let path = notifications_dir()?.join("history.json");
     if !path.exists() {
@@ -277,4 +393,99 @@ pub fn list_notification_history(limit: usize) -> Result<Vec<NotificationEvent>>
     let mut history: Vec<NotificationEvent> = serde_json::from_str(&data).unwrap_or_default();
     history.reverse();
     Ok(history.into_iter().take(limit).collect())
+}
+
+#[cfg(test)]
+mod rollback_notification_tests {
+    use super::*;
+
+    #[test]
+    fn message_for_engaged_rollback_with_passing_verification() {
+        let msg = rollback_notification_message(
+            "testnet",
+            Some("abcd1234"),
+            "deployment failed",
+            Some(true),
+        );
+        assert!(msg.contains("testnet"));
+        assert!(msg.contains("abcd1234"));
+        assert!(msg.contains("deployment failed"));
+        assert!(msg.contains("verified"));
+        assert!(!msg.contains("FAILED"));
+    }
+
+    #[test]
+    fn message_for_engaged_rollback_with_failing_verification() {
+        let msg = rollback_notification_message(
+            "mainnet",
+            Some("target-1"),
+            "post-deployment verification failed",
+            Some(false),
+        );
+        assert!(msg.contains("verification FAILED"));
+    }
+
+    #[test]
+    fn message_for_engaged_rollback_pending_verification() {
+        let msg = rollback_notification_message("testnet", Some("target-1"), "reason", None);
+        assert!(msg.contains("verification pending"));
+    }
+
+    #[test]
+    fn message_for_skipped_rollback_has_no_target_language() {
+        let msg = rollback_notification_message(
+            "testnet",
+            None,
+            "no previous successful deployment on this network",
+            None,
+        );
+        assert!(msg.contains("skipped"));
+        assert!(msg.contains("no previous successful deployment"));
+        // A skipped rollback must never claim a revert happened.
+        assert!(!msg.contains("reverted to"));
+    }
+
+    #[test]
+    fn data_includes_all_provided_fields() {
+        let data = rollback_notification_data(
+            "testnet",
+            "alice",
+            Some("rb-1"),
+            Some("target-1"),
+            Some("CABC"),
+            "deployment failed",
+            Some(true),
+        );
+        assert_eq!(data.get("network").map(String::as_str), Some("testnet"));
+        assert_eq!(data.get("wallet").map(String::as_str), Some("alice"));
+        assert_eq!(data.get("rollback_id").map(String::as_str), Some("rb-1"));
+        assert_eq!(
+            data.get("rolled_back_to").map(String::as_str),
+            Some("target-1")
+        );
+        assert_eq!(data.get("contract_id").map(String::as_str), Some("CABC"));
+        assert_eq!(data.get("verified").map(String::as_str), Some("true"));
+        assert!(data.contains_key("message"));
+    }
+
+    #[test]
+    fn data_omits_optional_fields_that_are_none() {
+        // Boundary: a skipped rollback has no rollback_id, target, contract,
+        // or verification result — the data map must not fabricate any of
+        // those keys.
+        let data = rollback_notification_data(
+            "testnet",
+            "alice",
+            None,
+            None,
+            None,
+            "no previous successful deployment",
+            None,
+        );
+        assert!(!data.contains_key("rollback_id"));
+        assert!(!data.contains_key("rolled_back_to"));
+        assert!(!data.contains_key("contract_id"));
+        assert!(!data.contains_key("verified"));
+        assert_eq!(data.get("network").map(String::as_str), Some("testnet"));
+    }
 }

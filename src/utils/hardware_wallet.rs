@@ -1,3 +1,11 @@
+// The Ledger APDU constants and codec helpers below (build_apdu,
+// frame_apdu_for_hid, parse_hd_path, encode_hd_path, extract_*_bytes) are
+// exercised by the `hardware-wallet` feature's transport implementation and
+// by this module's own unit tests, but not by a default build with the
+// feature off and no tests compiled — that's the one configuration where
+// they're genuinely unused, not a sign anything here is actually dead.
+#![cfg_attr(not(any(test, feature = "hardware-wallet")), allow(dead_code))]
+
 use anyhow::{Context, Result};
 use clap::ValueEnum;
 

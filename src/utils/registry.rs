@@ -2,7 +2,6 @@ use crate::utils::http_client;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
 
 /// Configuration for the remote template registry.
 #[derive(Debug, Clone, Serialize, Deserialize)]

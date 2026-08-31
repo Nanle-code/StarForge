@@ -316,7 +316,7 @@ fn handle_show_workflow(args: ShowWorkflowArgs) -> Result<()> {
     p::kv("Active", if workflow.active { "yes" } else { "no" });
     p::kv(
         "Created",
-        &workflow
+        workflow
             .created_at
             .get(..19)
             .unwrap_or(&workflow.created_at),
@@ -522,14 +522,14 @@ fn handle_show_request(args: ShowRequestArgs) -> Result<()> {
     p::kv("Level progress", &request.level_progress());
     p::kv(
         "Created",
-        &request.created_at.get(..19).unwrap_or(&request.created_at),
+        request.created_at.get(..19).unwrap_or(&request.created_at),
     );
     p::kv(
         "Updated",
-        &request.updated_at.get(..19).unwrap_or(&request.updated_at),
+        request.updated_at.get(..19).unwrap_or(&request.updated_at),
     );
     if let Some(ref expiry) = request.expires_at {
-        p::kv("Expires", &expiry.get(..19).unwrap_or(expiry));
+        p::kv("Expires", expiry.get(..19).unwrap_or(expiry));
     }
 
     if let Some(ref wf) = workflow {
@@ -701,7 +701,7 @@ fn handle_dashboard() -> Result<()> {
 
     let summary = get_approval_summary()?;
     let requests = list_requests(None, None)?;
-    let workflows = list_workflows(true)?;
+    let _workflows = list_workflows(true)?;
 
     p::separator();
     p::kv("Total requests", &summary.total_requests.to_string());

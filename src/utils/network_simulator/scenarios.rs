@@ -3,7 +3,7 @@
 //! Pre-built, parameterizable test scenarios that set up the simulator
 //! with realistic contract + account states for reproducible testing.
 
-use crate::utils::network_simulator::deterministic::{derive_contract_id, derive_public_key};
+use crate::utils::network_simulator::deterministic::derive_public_key;
 use crate::utils::network_simulator::simulator::{NetworkSimulator, SimulatorConfig};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -314,7 +314,7 @@ impl ScenarioRunner {
         }
     }
 
-    fn load_test(seed: u64) -> Scenario {
+    fn load_test(_seed: u64) -> Scenario {
         let mut accounts = Vec::new();
         for i in 0..10 {
             accounts.push(ScenarioAccount {

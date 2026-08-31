@@ -500,7 +500,7 @@ fn build_and_sign_transaction(
     function: &str,
     args: &[String],
     wallet: &WalletEntry,
-    network: &str,
+    _network: &str,
     signing: Option<&SigningRequest>,
 ) -> Result<String> {
     let tx_xdr = build_transaction_xdr(contract_id, function, args)?;

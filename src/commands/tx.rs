@@ -248,6 +248,12 @@ async fn handle_batch(args: BatchArgs) -> Result<()> {
         dry_run: false,
         prompt: Some("Proceed with batch transaction?".to_string()),
         require_type_confirmation: args.network == "mainnet",
+        destructive_action: if args.network == "mainnet" {
+            Some(confirmation::DestructiveAction::MainnetTransaction)
+        } else {
+            None
+        },
+        challenge_phrase: None,
     };
 
     if !confirmation::confirm_operation(&summary, &confirm_config)? {
@@ -466,6 +472,12 @@ async fn handle_send(args: SendArgs) -> Result<()> {
         dry_run: false,
         prompt: Some("Proceed with payment?".to_string()),
         require_type_confirmation: args.network == "mainnet",
+        destructive_action: if args.network == "mainnet" {
+            Some(confirmation::DestructiveAction::MainnetTransaction)
+        } else {
+            None
+        },
+        challenge_phrase: None,
     };
 
     if !confirmation::confirm_operation(&summary, &confirm_config)? {

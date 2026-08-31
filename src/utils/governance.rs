@@ -707,8 +707,10 @@ mod tests {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let home = test_home();
+        let config_dir = home.path().join(".starforge");
         env::set_var("HOME", home.path());
         env::set_var("USERPROFILE", home.path());
+        env::set_var(crate::utils::config::CONFIG_DIR_ENV, &config_dir);
         f();
     }
 

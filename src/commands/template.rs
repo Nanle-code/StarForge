@@ -1,6 +1,6 @@
 use crate::utils::template_integration;
 use crate::utils::template_performance;
-use crate::utils::{output, print as p, registry, template_customization_ai, templates};
+use crate::utils::{output, print as p, template_customization_ai, templates};
 use anyhow::{Context, Result};
 use clap::Subcommand;
 use colored::Colorize;
@@ -302,6 +302,9 @@ pub async fn handle(cmd: TemplateCommands) -> Result<()> {
     }
 }
 
+// Not currently called from any code path in this crate. Kept rather than
+// removed since deleting it is a product decision, not a lint-scoping one.
+#[allow(dead_code)]
 async fn template_assist(
     template: String,
     project: PathBuf,
@@ -350,6 +353,10 @@ async fn template_assist(
     }
     Ok(())
 }
+// Each parameter is an independent, named input (CLI flags / distinct config
+// values); bundling them into a struct here would add indirection without
+// reducing real complexity.
+#[allow(clippy::too_many_arguments)]
 async fn import(
     path: PathBuf,
     name: Option<String>,
@@ -380,6 +387,10 @@ async fn import(
     Ok(())
 }
 
+// Each parameter is an independent, named input (CLI flags / distinct config
+// values); bundling them into a struct here would add indirection without
+// reducing real complexity.
+#[allow(clippy::too_many_arguments)]
 async fn publish(
     path: PathBuf,
     name: Option<String>,
@@ -829,6 +840,9 @@ fn init() -> Result<()> {
     Ok(())
 }
 
+// Not currently called from any code path in this crate. Kept rather than
+// removed since deleting it is a product decision, not a lint-scoping one.
+#[allow(dead_code)]
 async fn optimize(path: PathBuf, name: Option<String>) -> Result<()> {
     let analysis = template_performance::analyze_template_directory(&path, name.as_deref())?;
 
@@ -995,6 +1009,9 @@ async fn info(name: String) -> Result<()> {
     Ok(())
 }
 
+// Not currently called from any code path in this crate. Kept rather than
+// removed since deleting it is a product decision, not a lint-scoping one.
+#[allow(dead_code)]
 async fn fetch(
     source: String,
     name: Option<String>,
@@ -1350,7 +1367,6 @@ async fn template_audit(name: Option<String>) -> Result<()> {
             Some(sr) => (
                 sr.status.as_str(),
                 sr.findings
-                    .clone()
                     .map(|f| f.to_string())
                     .unwrap_or_else(|| "—".to_string()),
                 sr.score

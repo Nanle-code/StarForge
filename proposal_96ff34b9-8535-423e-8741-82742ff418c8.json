@@ -1,0 +1,27 @@
+{
+  "id": "e7b10cf2-6dce-4545-b806-fb4be63e8edb",
+  "threshold": 2,
+  "signers": [
+    "alice",
+    "bob"
+  ],
+  "signatures": [],
+  "network": "testnet",
+  "created_at": "2026-08-30T10:42:43.249444900+00:00",
+  "expires_at": null,
+  "metadata": {
+    "title": null,
+    "description": null,
+    "transaction_type": null,
+    "amount": null,
+    "recipient": null,
+    "template": null
+  },
+  "events": [
+    {
+      "event_type": "created",
+      "message": "Proposal created",
+      "at": "2026-08-30T10:42:43.249504500+00:00"
+    }
+  ]
+}

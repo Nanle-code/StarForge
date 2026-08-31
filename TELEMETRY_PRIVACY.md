@@ -4,7 +4,7 @@ StarForge collects telemetry data to help us understand usage patterns and impro
 
 ## Privacy-First Design
 
-- **Opt-out by default**: Telemetry is enabled by default but can be easily disabled
+- **Opt-in by default**: Telemetry is disabled by default until you explicitly enable it
 - **No personal data**: We never collect personal information, credentials, or sensitive data
 - **Anonymous ID**: Usage is tracked with a random UUID, not tied to your identity
 - **Local-first**: Telemetry is stored locally in your machine and only sent with explicit consent (future versions)
@@ -47,10 +47,10 @@ For each CLI command executed, StarForge collects:
 
 ### Option 1: Configuration Command (Recommended)
 
-Disable telemetry permanently using the `config` command:
+Enable telemetry explicitly using the `config` command:
 
 ```bash
-starforge config set telemetry false
+starforge config set telemetry true
 ```
 
 View your current telemetry setting:
@@ -58,25 +58,25 @@ View your current telemetry setting:
 ```bash
 starforge config show
 # or
-starforge config get telemetry
+starforge telemetry status
 ```
 
-Re-enable telemetry:
+Disable telemetry again:
 
 ```bash
-starforge config set telemetry true
+starforge config set telemetry false
 ```
 
 ### Option 2: Environment Variable
 
-Disable telemetry for a single command or session:
+Enable telemetry for a single command or session:
 
 ```bash
-# Disable for a single command
-STARFORGE_TELEMETRY=0 starforge deploy --wasm my_contract.wasm
+# Enable for a single command
+STARFORGE_TELEMETRY=1 starforge deploy --wasm my_contract.wasm
 
-# Disable for the entire shell session
-export STARFORGE_TELEMETRY=0
+# Enable for the entire shell session
+export STARFORGE_TELEMETRY=1
 starforge wallet list
 starforge deploy --wasm my_contract.wasm
 ```
@@ -84,18 +84,21 @@ starforge deploy --wasm my_contract.wasm
 Accepted values to disable telemetry:
 - `0`, `false`, `off`, `disabled`, `no`
 
+Accepted values to enable telemetry:
+- `1`, `true`, `on`, `enabled`, `yes`
+
 ### Option 3: CI/CD Pipelines
 
-For automated environments, set the environment variable:
+For automated environments, set the environment variable explicitly:
 
 ```bash
 # In GitHub Actions
 env:
-  STARFORGE_TELEMETRY: "0"
+  STARFORGE_TELEMETRY: "1"
 
 # In GitLab CI
 script:
-  - export STARFORGE_TELEMETRY=0
+  - export STARFORGE_TELEMETRY=1
   - starforge deploy --wasm my_contract.wasm
 ```
 
@@ -126,7 +129,17 @@ Telemetry logs are stored in:
 ~/.starforge/data/anonymous_id
 ```
 
-These files are created only if telemetry is enabled.
+These files are created only if telemetry is enabled. You can inspect the exact payload with:
+
+```bash
+starforge telemetry payload
+```
+
+And fully wipe the local audit trail with:
+
+```bash
+starforge telemetry reset
+```
 
 ## Future: Remote Telemetry
 
@@ -150,4 +163,5 @@ If you have privacy concerns or questions about telemetry:
 
 - [PRIVACY_POLICY.md](./PRIVACY_POLICY.md) - Full privacy policy
 - [SECURITY_LOGGING_AUDIT.md](./SECURITY_LOGGING_AUDIT.md) - Security logging details
+- [docs/DATA_FLOW_INVENTORY.md](docs/DATA_FLOW_INVENTORY.md) - Full inventory of where secrets and PII can flow across the CLI (config, logs, telemetry, AI prompts, stdout/stderr), the controls in place, and known gaps
 - [GitHub Repository](https://github.com/Josetic224/StarForge) - Open source, fully auditable

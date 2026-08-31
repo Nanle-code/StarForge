@@ -46,4 +46,11 @@ export class UserStore {
     this.users.set(id, updated);
     return updated;
   }
+
+  async clear(): Promise<void> {
+    this.users.clear();
+  }
 }
+
+export const userStore = new UserStore();
+

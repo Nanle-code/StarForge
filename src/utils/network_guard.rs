@@ -17,7 +17,11 @@ pub fn compare_passphrases(configured: &str, observed: &str) -> Result<()> {
     if configured == observed || allow_mismatch() {
         return Ok(());
     }
-    anyhow::bail!("network passphrase mismatch: configured='{}', observed='{}'", configured, observed)
+    anyhow::bail!(
+        "network passphrase mismatch: configured='{}', observed='{}'",
+        configured,
+        observed
+    )
 }
 
 pub async fn verify(network: &str) -> Result<()> {
@@ -35,16 +39,22 @@ pub async fn verify(network: &str) -> Result<()> {
     );
     if allow_mismatch() {
         if crate::utils::output::is_json_mode_enabled() {
-            println!("{}", serde_json::json!({
-                "warning": "network_passphrase_mismatch",
-                "network": network,
-                "configured_passphrase": configured,
-                "observed_passphrase": observed,
-                "endpoint": endpoint,
-                "override": true
-            }));
+            println!(
+                "{}",
+                serde_json::json!({
+                    "warning": "network_passphrase_mismatch",
+                    "network": network,
+                    "configured_passphrase": configured,
+                    "observed_passphrase": observed,
+                    "endpoint": endpoint,
+                    "override": true
+                })
+            );
         } else {
-            crate::utils::print::warn(&format!("{} Signing continues because --allow-network-passphrase-mismatch was supplied.", detail));
+            crate::utils::print::warn(&format!(
+                "{} Signing continues because --allow-network-passphrase-mismatch was supplied.",
+                detail
+            ));
         }
         return Ok(());
     }

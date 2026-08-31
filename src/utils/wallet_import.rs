@@ -189,10 +189,7 @@ impl std::fmt::Display for WalletImportError {
                 write!(f, "recovery shares failed integrity check — data may be corrupted or from different split operations")
             }
             Self::IntegrityCheckFailed => {
-                write!(
-                    f,
-                    "backup integrity check failed: file may have been modified or corrupted"
-                )
+                write!(f, "integrity tag did not match the backup body; the backup may have been tampered with")
             }
         }
     }
@@ -217,6 +214,9 @@ pub struct WalletBackup {
     /// of a single passphrase.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub recovery_shares: Option<Vec<shamir::RecoveryShare>>,
+    /// HMAC-SHA256 integrity tag over the canonical backup body. Version 2
+    /// backups carry this tag so tampering can be detected on import. The
+    /// tag is computed over the JSON with this field forced to `None`.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub integrity_tag: Option<String>,
 }
@@ -266,11 +266,12 @@ pub fn classify_payload(raw: &str) -> PayloadKind {
     }
 
     let parts: Vec<&str> = trimmed.split(':').collect();
-    if matches!(parts.len(), 3 | 5 | 6)
+    if (matches!(parts.len(), 3 | 5 | 6)
         && parts
             .iter()
             .take(3)
-            .all(|part| !part.is_empty() && part.bytes().all(is_base64_byte))
+            .all(|part| !part.is_empty() && part.bytes().all(is_base64_byte)))
+        || (parts.len() == 7 && parts[0] == "v1")
     {
         return PayloadKind::Encrypted;
     }
@@ -316,6 +317,60 @@ pub fn parse_encrypted_envelope(raw: &str) -> Result<EncryptedEnvelope> {
     }
 
     let parts: Vec<&str> = trimmed.split(':').collect();
+    if parts[0] == "v1" {
+        if parts.len() != 7 {
+            return Err(WalletImportError::MalformedEnvelope { parts: parts.len() });
+        }
+        let salt = decode_field(parts[1], "salt")?;
+        let nonce = decode_field(parts[2], "nonce")?;
+        let ciphertext = decode_field(parts[3], "ciphertext")?;
+
+        if salt.len() != SALT_LEN {
+            return Err(WalletImportError::InvalidFieldLength {
+                field: "salt",
+                len: salt.len(),
+                expected: SALT_LEN,
+            });
+        }
+        if nonce.len() != NONCE_LEN {
+            return Err(WalletImportError::InvalidFieldLength {
+                field: "nonce",
+                len: nonce.len(),
+                expected: NONCE_LEN,
+            });
+        }
+        if ciphertext.len() < GCM_TAG_LEN {
+            return Err(WalletImportError::TruncatedCiphertext {
+                len: ciphertext.len(),
+                minimum: GCM_TAG_LEN,
+            });
+        }
+
+        let mem_cost = parse_kdf_param(parts[4], "mem")?;
+        let iterations = parse_kdf_param(parts[5], "iterations")?;
+        let parallelism = parse_kdf_param(parts[6], "parallelism")?;
+
+        if let Err(e) = crate::utils::crypto::validate_kdf_params(
+            Some(mem_cost),
+            Some(iterations),
+            Some(parallelism),
+        ) {
+            return Err(WalletImportError::InvalidKdfParameter {
+                field: "kdf_options",
+                reason: e.to_string(),
+            });
+        }
+
+        return Ok(EncryptedEnvelope {
+            salt,
+            nonce,
+            ciphertext,
+            mem_cost: Some(mem_cost),
+            iterations: Some(iterations),
+            parallelism: Some(parallelism),
+        });
+    }
+
     if !matches!(parts.len(), 3 | 5 | 6) {
         return Err(WalletImportError::MalformedEnvelope { parts: parts.len() });
     }
@@ -358,6 +413,13 @@ pub fn parse_encrypted_envelope(raw: &str) -> Result<EncryptedEnvelope> {
     } else {
         None
     };
+
+    if let Err(e) = crate::utils::crypto::validate_kdf_params(mem_cost, iterations, parallelism) {
+        return Err(WalletImportError::InvalidKdfParameter {
+            field: "kdf_options",
+            reason: e.to_string(),
+        });
+    }
 
     Ok(EncryptedEnvelope {
         salt,

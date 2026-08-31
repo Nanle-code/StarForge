@@ -66,6 +66,12 @@ pub struct TestAnalyticsService {
     analytics: Arc<RwLock<TestAnalyticsData>>,
 }
 
+impl Default for TestAnalyticsService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TestAnalyticsService {
     pub fn new() -> Self {
         TestAnalyticsService {

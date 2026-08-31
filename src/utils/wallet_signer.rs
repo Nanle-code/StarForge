@@ -1,11 +1,12 @@
 use crate::utils::{config, confirmation, crypto, hardware_wallet, print as p};
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose, Engine as _};
+use zeroize::Zeroizing;
 
 /// Describes how a transaction should be signed.
 #[derive(Debug, Clone)]
 pub struct SigningRequest {
-    pub local_secret: Option<String>,
+    pub local_secret: Option<Zeroizing<String>>,
     pub hardware: Option<hardware_wallet::HardwareWalletKind>,
     pub hd_path: String,
     pub network: String,
@@ -56,7 +57,7 @@ impl SigningRequest {
         })
     }
 
-    pub fn local_secret(secret_key: String, network: &str) -> Self {
+    pub fn local_secret(secret_key: Zeroizing<String>, network: &str) -> Self {
         Self {
             local_secret: Some(secret_key),
             hardware: None,
@@ -113,6 +114,7 @@ pub fn prompt_hardware_confirmation(
         dry_run: false,
         prompt: Some("Proceed with hardware wallet signing?".to_string()),
         require_type_confirmation: network == "mainnet",
+        ..Default::default()
     };
 
     if !confirmation::confirm_operation(&summary, &confirm_config)? {
@@ -128,7 +130,10 @@ pub fn prompt_hardware_confirmation(
 }
 
 /// Resolve a plaintext secret key from a wallet entry, decrypting when needed.
-pub fn resolve_local_secret(wallet: &config::WalletEntry, wallet_name: &str) -> Result<String> {
+pub fn resolve_local_secret(
+    wallet: &config::WalletEntry,
+    wallet_name: &str,
+) -> Result<Zeroizing<String>> {
     let sk = wallet.secret_key.as_ref().ok_or_else(|| {
         anyhow::anyhow!(
             "Wallet '{}' has no local secret key. Use --hardware ledger or --hardware trezor.",
@@ -137,19 +142,21 @@ pub fn resolve_local_secret(wallet: &config::WalletEntry, wallet_name: &str) -> 
     })?;
 
     if !sk.contains(':') && sk.starts_with('S') && sk.len() == 56 {
-        return Ok(sk.clone());
+        return Ok(Zeroizing::new(sk.clone()));
     }
 
     let pwd = crypto::prompt_password(
         &format!("Enter password to decrypt wallet '{}'", wallet_name),
         false,
     )?;
-    crypto::decrypt_secret(&pwd, sk).map_err(|_| {
-        anyhow::anyhow!(
-            "Incorrect password or unable to decrypt wallet '{}'.",
-            wallet_name
-        )
-    })
+    Ok(Zeroizing::new(crypto::decrypt_secret(&pwd, sk).map_err(
+        |_| {
+            anyhow::anyhow!(
+                "Incorrect password or unable to decrypt wallet '{}'.",
+                wallet_name
+            )
+        },
+    )?))
 }
 
 /// Sign a base64-encoded transaction XDR using local or hardware credentials.
@@ -170,9 +177,9 @@ pub fn sign_transaction_xdr(transaction_xdr: &str, request: &SigningRequest) -> 
         return Ok(general_purpose::STANDARD.encode(signed));
     }
 
-    let secret_key = request
+    let secret_key: &str = request
         .local_secret
-        .as_ref()
+        .as_deref()
         .context("No local secret key available for signing")?;
 
     let signed_mock = format!(
@@ -211,7 +218,7 @@ mod tests {
     #[test]
     fn local_signing_request_produces_encoded_xdr() {
         let request = SigningRequest::local_secret(
-            "SABCDEFGHIJKLMNOPQRSTUVWXYZ012345678901234567890".to_string(),
+            Zeroizing::new("SABCDEFGHIJKLMNOPQRSTUVWXYZ012345678901234567890".to_string()),
             "testnet",
         );
         let signed = sign_transaction_xdr("mock_tx_payload", &request).unwrap();

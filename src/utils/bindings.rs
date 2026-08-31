@@ -3,7 +3,7 @@ use std::io::Cursor;
 use std::path::Path;
 use stellar_xdr::curr::{
     Limited, Limits, ReadXdr, ScSpecEntry, ScSpecFunctionV0, ScSpecTypeDef, ScSpecUdtEnumV0,
-    ScSpecUdtStructV0, ScSpecUdtUnionV0,
+    ScSpecUdtStructV0,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,6 +95,23 @@ pub fn generate_from_metadata(
         BindingLanguage::Go => Ok(generate_go(metadata)),
     }
 }
+fn read_spec_entries(wasm: &[u8]) -> Result<Vec<ScSpecEntry>> {
+
+/// Generate a language binding from already-parsed contract metadata.
+///
+/// This is the single dispatch point used both by [`generate_bindings`] (which
+/// reads the WASM spec first) and by tests that build metadata directly.
+pub fn generate_from_metadata(
+    metadata: &ContractMetadata,
+    language: BindingLanguage,
+) -> Result<String> {
+    match language {
+        BindingLanguage::Rust => Ok(generate_rust(metadata)),
+        BindingLanguage::TypeScript => Ok(generate_typescript(metadata)),
+        BindingLanguage::Python => Ok(generate_python(metadata)),
+        BindingLanguage::Go => Ok(generate_go(metadata)),
+    }
+}
 
 pub fn read_spec_entries(wasm: &[u8]) -> Result<Vec<ScSpecEntry>> {
     let spec = contract_spec_section(wasm)?;
@@ -109,6 +126,63 @@ pub fn read_spec_entries(wasm: &[u8]) -> Result<Vec<ScSpecEntry>> {
     .collect::<std::result::Result<Vec<_>, _>>()
     .context("Failed to decode contractspecv0 XDR metadata")?;
     Ok(entries)
+}
+
+pub fn contract_spec_section(wasm: &[u8]) -> Result<&[u8]> {
+    if wasm.len() < 8 || &wasm[0..4] != b"\0asm" {
+        anyhow::bail!("Input is not a valid WASM binary");
+    }
+
+    let mut offset = 8;
+    while offset < wasm.len() {
+        let section_id = wasm[offset];
+        offset += 1;
+        let section_len = read_var_u32(wasm, &mut offset)? as usize;
+        let section_end = offset
+            .checked_add(section_len)
+            .filter(|end| *end <= wasm.len())
+            .ok_or_else(|| anyhow::anyhow!("Malformed WASM section length"))?;
+
+        if section_id == 0 {
+            let mut section_offset = offset;
+            let name_len = read_var_u32(wasm, &mut section_offset)? as usize;
+            let name_end = section_offset
+                .checked_add(name_len)
+                .filter(|end| *end <= section_end)
+                .ok_or_else(|| anyhow::anyhow!("Malformed WASM custom section name"))?;
+            let name = std::str::from_utf8(&wasm[section_offset..name_end])
+                .context("WASM custom section name is not UTF-8")?;
+            if name == "contractspecv0" {
+                return Ok(&wasm[name_end..section_end]);
+            }
+        }
+
+        offset = section_end;
+    }
+
+    anyhow::bail!("No contractspecv0 metadata section found in WASM")
+}
+
+pub fn read_var_u32(bytes: &[u8], offset: &mut usize) -> Result<u32> {
+    let mut result = 0u32;
+    let mut shift = 0;
+
+    loop {
+        let byte = *bytes
+            .get(*offset)
+            .ok_or_else(|| anyhow::anyhow!("Unexpected end of WASM while reading LEB128"))?;
+        *offset += 1;
+        result |= ((byte & 0x7f) as u32) << shift;
+
+        if byte & 0x80 == 0 {
+            return Ok(result);
+        }
+
+        shift += 7;
+        if shift >= 35 {
+            anyhow::bail!("LEB128 integer overflow");
+        }
+    }
 }
 
 fn parse_spec_entries(entries: &[ScSpecEntry]) -> ContractMetadata {
@@ -242,63 +316,6 @@ fn spec_type_name(type_def: &ScSpecTypeDef) -> String {
         }
         ScSpecTypeDef::BytesN(inner) => format!("BytesN<{}>", inner.n),
         ScSpecTypeDef::Udt(inner) => inner.name.to_string(),
-    }
-}
-
-fn contract_spec_section(wasm: &[u8]) -> Result<&[u8]> {
-    if wasm.len() < 8 || &wasm[0..4] != b"\0asm" {
-        anyhow::bail!("Input is not a valid WASM binary");
-    }
-
-    let mut offset = 8;
-    while offset < wasm.len() {
-        let section_id = wasm[offset];
-        offset += 1;
-        let section_len = read_var_u32(wasm, &mut offset)? as usize;
-        let section_end = offset
-            .checked_add(section_len)
-            .filter(|end| *end <= wasm.len())
-            .ok_or_else(|| anyhow::anyhow!("Malformed WASM section length"))?;
-
-        if section_id == 0 {
-            let mut section_offset = offset;
-            let name_len = read_var_u32(wasm, &mut section_offset)? as usize;
-            let name_end = section_offset
-                .checked_add(name_len)
-                .filter(|end| *end <= section_end)
-                .ok_or_else(|| anyhow::anyhow!("Malformed WASM custom section name"))?;
-            let name = std::str::from_utf8(&wasm[section_offset..name_end])
-                .context("WASM custom section name is not UTF-8")?;
-            if name == "contractspecv0" {
-                return Ok(&wasm[name_end..section_end]);
-            }
-        }
-
-        offset = section_end;
-    }
-
-    anyhow::bail!("No contractspecv0 metadata section found in WASM")
-}
-
-fn read_var_u32(bytes: &[u8], offset: &mut usize) -> Result<u32> {
-    let mut result = 0u32;
-    let mut shift = 0;
-
-    loop {
-        let byte = *bytes
-            .get(*offset)
-            .ok_or_else(|| anyhow::anyhow!("Unexpected end of WASM while reading LEB128"))?;
-        *offset += 1;
-        result |= ((byte & 0x7f) as u32) << shift;
-
-        if byte & 0x80 == 0 {
-            return Ok(result);
-        }
-
-        shift += 7;
-        if shift >= 35 {
-            anyhow::bail!("Invalid u32 LEB128 value in WASM");
-        }
     }
 }
 

@@ -146,7 +146,11 @@ fn plugin_trust() -> impl Strategy<Value = PluginTrustConfig> {
         ]),
         0..3,
     )
-    .prop_map(|trusted_sources| PluginTrustConfig { trusted_sources })
+    .prop_map(|trusted_sources| PluginTrustConfig {
+        trusted_sources,
+        trusted_publishers: Vec::new(),
+        require_signatures: false,
+    })
 }
 
 /// A configuration that is internally consistent: every referenced network

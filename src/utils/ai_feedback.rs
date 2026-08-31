@@ -12,7 +12,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::utils::config;
 
@@ -266,7 +266,7 @@ pub fn learn_preferences(store: &mut FeedbackStore) {
                 CorrectionCategory::Performance => PreferenceType::PerformancePriority,
                 _ => continue,
             };
-            let map = pref_counts.entry(pref_type).or_insert_with(HashMap::new);
+            let map = pref_counts.entry(pref_type).or_default();
             *map.entry(correction.corrected_output.clone()).or_insert(0) += 1;
         }
     }
@@ -423,7 +423,7 @@ pub fn get_feature_stats(feature: &str) -> Result<FeatureStats> {
 
     let mut top_corrections: Vec<(CorrectionCategory, usize)> =
         correction_counts.into_iter().collect();
-    top_corrections.sort_by(|a, b| b.1.cmp(&a.1));
+    top_corrections.sort_by_key(|a| std::cmp::Reverse(a.1));
     top_corrections.truncate(5);
 
     let metrics = calculate_quality_metrics(feature)?;

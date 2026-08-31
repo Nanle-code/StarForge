@@ -1,5 +1,3 @@
-#![allow(dead_code, unused, clippy::all)]
-
 pub use starforge::commands;
 pub mod curation;
 pub use starforge::plugins;
@@ -123,9 +121,9 @@ enum Commands {
     /// Deployment history, rollback, verification, and dashboard
     #[command(subcommand)]
     Deployments(commands::deployments::DeploymentsCommands),
-    /// Generate CI/CD configuration templates (GitHub Actions, GitLab CI, Jenkins)
+    /// Manage deployment environments (dev/staging/production): configuration, promotion, isolation, and a dashboard
     #[command(subcommand)]
-    Cicd(commands::cicd::CicdCommands),
+    Environment(commands::environment::EnvironmentCommands),
     /// Show starforge config and environment info
     Info,
     /// Manage AI prompt templates and versioning
@@ -150,7 +148,7 @@ enum Commands {
     /// Local Soroban devnet (Docker quickstart)
     #[command(subcommand)]
     Node(commands::node::NodeCommands),
-    /// Generate shell completions for bash, zsh, and fish
+    /// Generate shell completions for bash, zsh, fish, and powershell
     #[command(subcommand)]
     Completions(commands::completions::CompletionShell),
 
@@ -461,7 +459,7 @@ async fn run() {
         Commands::Inspect(_) => "inspect",
         Commands::Deploy(_) => "deploy",
         Commands::Deployments(_) => "deployments",
-        Commands::Cicd(_) => "cicd",
+        Commands::Environment(_) => "environment",
         Commands::Info => "info",
         Commands::Prompts(_) => "prompts",
         Commands::Explain(_) => "explain",
@@ -557,7 +555,7 @@ async fn run() {
         Commands::Debug(cmd) => commands::debug::handle(cmd).await,
         Commands::Deploy(args) => commands::deploy::handle(args).await,
         Commands::Deployments(cmd) => commands::deployments::handle(cmd).await,
-        Commands::Cicd(cmd) => commands::cicd::handle(cmd),
+        Commands::Environment(cmd) => commands::environment::handle(cmd),
         Commands::Info => commands::info::handle().await,
         Commands::Prompts(cmd) => commands::prompts::handle(&cmd).await,
         Commands::Explain(ref cmd) => commands::explain::handle(cmd).await,
@@ -658,6 +656,11 @@ async fn run() {
     );
 
     if let Err(e) = result {
+        if utils::output::is_json_mode_enabled() {
+            let _ = utils::output::print_error_json("command_error", &e.to_string());
+            std::process::exit(1);
+        }
+
         let mut hints = recovery_hints(&command_name, &e);
         // Augment the static command-specific hints with the AI Contextual
         // Help engine. Patterns that did not match the static rule table
@@ -683,14 +686,14 @@ async fn run() {
             .unwrap_or(true);
     if tips_allowed {
         let cfg = utils::config::load().ok();
-        let tips_enabled = cfg.and_then(|c| c.telemetry_enabled).unwrap_or(true);
+        let tips_enabled = cfg.and_then(|c| c.telemetry_enabled).unwrap_or(false);
         if tips_enabled {
             let history_path = utils::config::config_dir();
             if let Ok(history_entries) = utils::history::load_history(&history_path) {
                 if let Some(tip) =
                     utils::context_help::proactive_tip(&command_name, &history_entries)
                 {
-                    utils::print::info(&tip);
+                    eprintln!("{}", tip);
                 }
             }
         }
@@ -871,11 +874,9 @@ fn recovery_hints(command: &str, err: &anyhow::Error) -> Vec<String> {
             hints.push("Analyze a contract: starforge ai-recommend analyze src/lib.rs".into());
             hints.push("Scan a project: starforge ai-recommend scan .".into());
         }
-        "benchmark" | "test" => {
-            if msg.contains("wasm") || msg.contains("not found") {
-                hints.push("Build your contract first: stellar contract build".into());
-                hints.push("Pass the correct --wasm path to the command.".into());
-            }
+        "benchmark" | "test" if (msg.contains("wasm") || msg.contains("not found")) => {
+            hints.push("Build your contract first: stellar contract build".into());
+            hints.push("Pass the correct --wasm path to the command.".into());
         }
 
         _ => {}
@@ -908,7 +909,7 @@ fn handle_external_plugin(args: Vec<String>) -> anyhow::Result<()> {
     let plugin_name = &args[0];
     let plugin_args = &args[1..];
 
-    let cfg = starforge::utils::config::load()?;
+    let _cfg = starforge::utils::config::load()?;
     let reg = plugins::registry::load_registry().unwrap_or_default();
     if reg.plugins.is_empty() {
         anyhow::bail!(

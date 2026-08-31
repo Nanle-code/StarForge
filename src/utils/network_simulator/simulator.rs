@@ -6,12 +6,9 @@
 use crate::utils::network_simulator::deterministic::{
     derive_contract_id, derive_public_key, derive_tx_hash, DeterministicConfig, SeededRng,
 };
-use crate::utils::network_simulator::failure::{
-    failure_to_rpc_error, FailureInjector, FailureMode,
-};
+use crate::utils::network_simulator::failure::{failure_to_rpc_error, FailureInjector};
 use crate::utils::network_simulator::state::SnapshotManager;
-use crate::utils::network_simulator::time::{LedgerTime, TimeController};
-use chrono::Utc;
+use crate::utils::network_simulator::time::TimeController;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -740,6 +737,7 @@ impl Default for NetworkSimulator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::network_simulator::failure::FailureMode;
 
     #[test]
     fn new_simulator_has_default_state() {

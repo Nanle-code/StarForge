@@ -5,7 +5,6 @@ use rustyline::completion::{Completer, Pair};
 use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
 use rustyline::hint::Hinter;
-use rustyline::history::History;
 use rustyline::validate::Validator;
 use rustyline::{Context, Editor, Helper};
 use std::collections::HashSet;

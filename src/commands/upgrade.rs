@@ -896,6 +896,7 @@ async fn handle_execute(args: ExecuteArgs) -> Result<()> {
         dry_run: false,
         prompt: Some("Execute this upgrade?".to_string()),
         require_type_confirmation: args.network == "mainnet",
+        ..Default::default()
     };
 
     if !confirmation::confirm_operation(&summary, &confirm_config)? {
@@ -1042,6 +1043,7 @@ fn handle_rollback(args: RollbackArgs) -> Result<()> {
         dry_run: false,
         prompt: Some("Proceed with rollback?".to_string()),
         require_type_confirmation: args.network == "mainnet",
+        ..Default::default()
     };
 
     if !confirmation::confirm_operation(&summary, &confirm_config)? {

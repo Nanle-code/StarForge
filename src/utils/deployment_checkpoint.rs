@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -253,8 +253,8 @@ impl DeploymentLock {
 
             if let Ok(content) = fs::read_to_string(&lock_path) {
                 for line in content.lines() {
-                    if line.starts_with("PID: ") {
-                        if let Ok(pid) = line["PID: ".len()..].trim().parse::<u32>() {
+                    if let Some(rest) = line.strip_prefix("PID: ") {
+                        if let Ok(pid) = rest.trim().parse::<u32>() {
                             stale_pid = Some(pid);
                             if !is_pid_active(pid) {
                                 is_stale = true;
@@ -266,10 +266,10 @@ impl DeploymentLock {
 
             // Also check lock file modification age (stale if > 10 minutes)
             if let Ok(meta) = fs::metadata(&lock_path) {
-                if let Ok(elapsed) = meta.modified().and_then(|m| {
-                    m.elapsed()
-                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
-                }) {
+                if let Ok(elapsed) = meta
+                    .modified()
+                    .and_then(|m| m.elapsed().map_err(std::io::Error::other))
+                {
                     if elapsed > std::time::Duration::from_secs(600) {
                         is_stale = true;
                     }
@@ -484,10 +484,11 @@ mod tests {
 
         let lock2 = DeploymentLock::acquire(session);
         assert!(lock2.is_err());
-        assert!(lock2
-            .unwrap_err()
-            .to_string()
-            .contains("already in progress"));
+        let err_msg = match lock2 {
+            Err(e) => e.to_string(),
+            Ok(_) => panic!("expected lock acquisition to fail for a locked session"),
+        };
+        assert!(err_msg.contains("already in progress"));
 
         drop(lock1);
         let lock3 = DeploymentLock::acquire(session);

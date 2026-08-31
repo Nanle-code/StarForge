@@ -115,6 +115,15 @@ pub struct PluginManifest {
     /// Capabilities this AI plugin requires.
     #[serde(default)]
     pub required_capabilities: Vec<String>,
+    /// Optional publisher name or identifier.
+    #[serde(default)]
+    pub publisher: Option<String>,
+    /// Optional publisher public key (Stellar G-address or 32-byte hex key).
+    #[serde(default)]
+    pub publisher_key: Option<String>,
+    /// Optional Ed25519 cryptographic signature (hex or base64).
+    #[serde(default)]
+    pub signature: Option<String>,
 }
 
 impl PluginManifest {
@@ -149,21 +158,21 @@ impl PluginManifest {
             let existing = c.to_lowercase();
             existing == cap_lower
                 || existing == "*"
-                || match (existing.as_str(), cap_lower.as_str()) {
+                || matches!(
+                    (existing.as_str(), cap_lower.as_str()),
                     ("fs", "fs:read")
-                    | ("fs", "fs:write")
-                    | ("filesystem", "fs:read")
-                    | ("filesystem", "fs:write")
-                    | ("filesystemaccess", "fs:read")
-                    | ("filesystemaccess", "fs:write") => true,
-                    ("net", "network")
-                    | ("net", "net:http")
-                    | ("network", "net:http")
-                    | ("network", "net:ws")
-                    | ("networkaccess", "network")
-                    | ("networkaccess", "net:http") => true,
-                    _ => false,
-                }
+                        | ("fs", "fs:write")
+                        | ("filesystem", "fs:read")
+                        | ("filesystem", "fs:write")
+                        | ("filesystemaccess", "fs:read")
+                        | ("filesystemaccess", "fs:write")
+                        | ("net", "network")
+                        | ("net", "net:http")
+                        | ("network", "net:http")
+                        | ("network", "net:ws")
+                        | ("networkaccess", "network")
+                        | ("networkaccess", "net:http")
+                )
         })
     }
 
@@ -307,6 +316,9 @@ mod tests {
             starforge_version_min: None,
             starforge_version_max: None,
             required_capabilities: vec![],
+            publisher: None,
+            publisher_key: None,
+            signature: None,
         };
         assert!(manifest.validate().is_ok());
     }
@@ -328,6 +340,9 @@ mod tests {
             starforge_version_min: None,
             starforge_version_max: None,
             required_capabilities: vec![],
+            publisher: None,
+            publisher_key: None,
+            signature: None,
         };
         assert!(manifest.validate().is_err());
     }

@@ -223,7 +223,9 @@ This document defines the acceptance criteria for the Remote Template Registry i
 - [ ] Production deployment guide
 - [ ] Performance optimization
 - [ ] MongoDB integration (instead of in-memory)
-- [ ] Rate limiting
+- [x] Publisher authentication & ownership enforcement
+- [x] Mutation rate limiting middleware
+- [x] Auditable ownership history log & ownership transfers
 - [ ] Advanced filtering options
 
 ### Phase 3: Community (Planned)

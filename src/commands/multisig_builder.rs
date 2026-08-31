@@ -1,4 +1,4 @@
-use crate::utils::{multisig_builder as multisig, print as p};
+use crate::utils::{multisig_audit, multisig_builder as multisig, print as p};
 use anyhow::Result;
 use clap::Subcommand;
 use colored::Colorize;
@@ -39,8 +39,7 @@ pub enum MultisigCommands {
         /// Proposal file path
         proposal: PathBuf,
         /// Signer wallet name
-        #[arg(long, short)]
-        wallet: String,
+        signer: String,
     },
     /// View proposal details and signatures
     View {
@@ -70,7 +69,6 @@ pub enum MultisigCommands {
         /// Proposal file path
         proposal: PathBuf,
         /// Output file path
-        #[arg(long, short)]
         output: Option<PathBuf>,
     },
     /// Import proposal from JSON
@@ -78,7 +76,6 @@ pub enum MultisigCommands {
         /// JSON file path
         input: PathBuf,
         /// Output proposal file path
-        #[arg(long, short)]
         output: Option<PathBuf>,
     },
     /// Send signature request notifications
@@ -102,7 +99,6 @@ pub enum MultisigCommands {
         /// Template name
         template: String,
         /// Output file path
-        #[arg(long, short)]
         output: PathBuf,
     },
     /// Validate a proposal for impossible thresholds, duplicate signers, and
@@ -113,6 +109,23 @@ pub enum MultisigCommands {
         /// Output as JSON
         #[arg(long)]
         json: bool,
+    },
+    /// Inspect an account's signer set, diff it against the last known state,
+    /// and record any signer/threshold changes to the append-only audit log
+    SignerWatch {
+        /// Stellar account ID (G...)
+        #[arg(long)]
+        account: String,
+        /// Network name (testnet, mainnet, custom)
+        #[arg(long, default_value = "testnet")]
+        network: String,
+        /// Enable monitoring: alerts on changes that do not match the baseline
+        #[arg(long)]
+        monitoring: bool,
+        /// Path to a baseline JSON file describing the expected signer set
+        /// and/or thresholds
+        #[arg(long)]
+        baseline: Option<PathBuf>,
     },
 }
 
@@ -125,7 +138,7 @@ pub async fn handle(cmd: MultisigCommands) -> Result<()> {
             network,
         } => create_proposal(threshold, &signers, &network),
         MultisigCommands::AddSigner { proposal, signer } => add_signer(&proposal, &signer),
-        MultisigCommands::Sign { proposal, wallet } => sign_proposal(&proposal, &wallet),
+        MultisigCommands::Sign { proposal, signer } => sign_proposal(&proposal, &signer),
         MultisigCommands::View { proposal } => view_proposal(&proposal),
         MultisigCommands::Status { proposal } => check_status(&proposal),
         MultisigCommands::IsReady { proposal } => is_ready(&proposal),
@@ -141,6 +154,12 @@ pub async fn handle(cmd: MultisigCommands) -> Result<()> {
         MultisigCommands::Templates => list_templates(),
         MultisigCommands::FromTemplate { template, output } => from_template(&template, &output),
         MultisigCommands::Validate { proposal, json } => validate_proposal(&proposal, json),
+        MultisigCommands::SignerWatch {
+            account,
+            network,
+            monitoring,
+            baseline,
+        } => signer_watch(&account, &network, monitoring, baseline.as_deref()).await,
     }
 }
 
@@ -672,6 +691,115 @@ fn from_template(template: &str, output: &std::path::Path) -> Result<()> {
     println!();
 
     p::success(&format!("Proposal created: {}", output.display()));
+
+    Ok(())
+}
+
+fn print_signer_diff(diff: &multisig_audit::SignerSetDiff) {
+    for signer in &diff.added {
+        println!(
+            "  {} {} (weight {})",
+            "+".green().bold(),
+            signer.public_key,
+            signer.weight
+        );
+    }
+    for signer in &diff.removed {
+        println!(
+            "  {} {} (weight {})",
+            "-".red().bold(),
+            signer.public_key,
+            signer.weight
+        );
+    }
+    for change in &diff.weights_changed {
+        println!(
+            "  {} weight change {}: {} -> {}",
+            "±".yellow().bold(),
+            change.public_key,
+            change.old_weight,
+            change.new_weight
+        );
+    }
+    for change in &diff.thresholds_changed {
+        println!(
+            "  {} {} threshold: {} -> {}",
+            "±".yellow().bold(),
+            change.level,
+            change.old_value,
+            change.new_value
+        );
+    }
+    if let Some((old, new)) = diff.master_weight_changed {
+        println!(
+            "  {} master weight: {} -> {}",
+            "±".yellow().bold(),
+            old,
+            new
+        );
+    }
+}
+
+/// `starforge multisig signer-watch` — inspect an account's signer set, diff it
+/// against the last known snapshot, and append any changes to the audit log.
+async fn signer_watch(
+    account: &str,
+    network: &str,
+    monitoring: bool,
+    baseline_path: Option<&std::path::Path>,
+) -> Result<()> {
+    let baseline = match baseline_path {
+        Some(path) => {
+            let contents = std::fs::read_to_string(path)?;
+            Some(serde_json::from_str::<multisig_audit::MonitoringBaseline>(
+                &contents,
+            )?)
+        }
+        None => None,
+    };
+
+    p::header("Multisig Signer Audit");
+    p::kv("Account", account);
+    p::kv("Network", network);
+    if monitoring {
+        p::kv("Monitoring", "enabled");
+    }
+
+    let current = multisig_audit::fetch_signer_state(account, network).await?;
+    let outcome = multisig_audit::inspect_signer_set(&current, baseline.as_ref(), monitoring)?;
+
+    println!();
+    if !outcome.changed {
+        p::info("No signer or threshold changes detected");
+    } else {
+        p::info(&format!(
+            "Detected {} change(s) since the last known state",
+            outcome.diff.added.len()
+                + outcome.diff.removed.len()
+                + outcome.diff.weights_changed.len()
+                + outcome.diff.thresholds_changed.len()
+        ));
+        print_signer_diff(&outcome.diff);
+        p::success("Audit log updated");
+
+        if outcome.alert {
+            println!();
+            for alert in &outcome.alerts {
+                println!("  {} {}", "⚠".yellow().bold(), alert.yellow());
+            }
+            println!();
+            p::warn("Unexpected multisig configuration change detected");
+        }
+    }
+    println!();
+    p::kv("Signers", &current.signers.len().to_string());
+    p::kv(
+        "Thresholds",
+        &format!(
+            "{}/{}/{}",
+            current.thresholds.low, current.thresholds.medium, current.thresholds.high
+        ),
+    );
 
     Ok(())
 }

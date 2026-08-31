@@ -1,0 +1,12 @@
+{
+  "account_id": "GESCROWAUDITFIXTURE0001",
+  "network": "testnet",
+  "master_weight": 1,
+  "thresholds": { "low": 2, "medium": 2, "high": 3 },
+  "signers": [
+    { "public_key": "GBUYERSIGNER0001", "weight": 1, "name": "buyer" },
+    { "public_key": "GSELLERSIGNER001", "weight": 1, "name": "seller" },
+    { "public_key": "GARBITERSIGNER01", "weight": 1, "name": "arbiter" }
+  ],
+  "captured_at": "2026-08-02T00:00:00Z"
+}

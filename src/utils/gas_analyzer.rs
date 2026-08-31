@@ -601,7 +601,7 @@ pub fn generate_findings(bytes: &[u8], profile: &WasmSectionProfile) -> Vec<GasF
     }
 
     // GAS-012: High instruction density
-    let instr_per_byte = if bytes.len() > 0 {
+    let instr_per_byte = if !bytes.is_empty() {
         profile.estimated_instruction_count as f64 / bytes.len() as f64
     } else {
         0.0

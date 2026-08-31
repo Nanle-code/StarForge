@@ -65,17 +65,25 @@ fn handle_list() -> Result<()> {
     p::separator();
 
     let platforms = [
-        ("github", "GitHub Actions", &[
-            "contract-test.yml  — automated contract testing pipeline",
-            "contract-monitor.yml — scheduled contract health monitoring",
-            "deployment.yml     — safe deploy / rollback with quality gate",
-        ] as &[&str]),
-        ("gitlab", "GitLab CI/CD", &[
-            ".gitlab-ci.yml    — full pipeline: quality, test, deploy, monitor, notify",
-        ]),
-        ("jenkins", "Jenkins", &[
-            "Jenkinsfile        — multi-stage pipeline with approval gates",
-        ]),
+        (
+            "github",
+            "GitHub Actions",
+            &[
+                "contract-test.yml  — automated contract testing pipeline",
+                "contract-monitor.yml — scheduled contract health monitoring",
+                "deployment.yml     — safe deploy / rollback with quality gate",
+            ] as &[&str],
+        ),
+        (
+            "gitlab",
+            "GitLab CI/CD",
+            &[".gitlab-ci.yml    — full pipeline: quality, test, deploy, monitor, notify"],
+        ),
+        (
+            "jenkins",
+            "Jenkins",
+            &["Jenkinsfile        — multi-stage pipeline with approval gates"],
+        ),
     ];
 
     for (key, name, templates) in &platforms {
@@ -106,7 +114,9 @@ fn handle_init(args: InitArgs) -> Result<()> {
     for platform in &platforms {
         match *platform {
             "github" => {
-                let out = args.output.clone()
+                let out = args
+                    .output
+                    .clone()
                     .unwrap_or_else(|| PathBuf::from(".github/workflows"));
                 fs::create_dir_all(&out)?;
                 generated += write_template(
@@ -121,22 +131,14 @@ fn handle_init(args: InitArgs) -> Result<()> {
                 )?;
             }
             "gitlab" => {
-                let out = args.output.clone()
-                    .unwrap_or_else(|| PathBuf::from("."));
-                generated += write_template(
-                    &out.join(".gitlab-ci.yml"),
-                    GITLAB_CI_TEMPLATE,
-                    args.force,
-                )?;
+                let out = args.output.clone().unwrap_or_else(|| PathBuf::from("."));
+                generated +=
+                    write_template(&out.join(".gitlab-ci.yml"), GITLAB_CI_TEMPLATE, args.force)?;
             }
             "jenkins" => {
-                let out = args.output.clone()
-                    .unwrap_or_else(|| PathBuf::from("."));
-                generated += write_template(
-                    &out.join("Jenkinsfile"),
-                    JENKINS_TEMPLATE,
-                    args.force,
-                )?;
+                let out = args.output.clone().unwrap_or_else(|| PathBuf::from("."));
+                generated +=
+                    write_template(&out.join("Jenkinsfile"), JENKINS_TEMPLATE, args.force)?;
             }
             _ => {}
         }
@@ -152,7 +154,7 @@ fn handle_init(args: InitArgs) -> Result<()> {
     println!();
 
     // Post-generation guidance
-    println!("  {} {}", "Next steps:".bright_white().bold(), "");
+    println!("  {}", "Next steps:".bright_white().bold());
     println!();
 
     if platforms.contains(&"github") || platforms.contains(&"all") {
@@ -656,4 +658,3 @@ jobs:
         assert!(handle_validate(args).is_ok());
     }
 }
-

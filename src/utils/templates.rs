@@ -32,6 +32,12 @@ pub enum TemplateSource {
     },
 }
 
+impl Default for TemplateSource {
+    fn default() -> Self {
+        TemplateSource::Builtin { id: String::new() }
+    }
+}
+
 impl std::fmt::Display for TemplateSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -78,6 +84,49 @@ impl MaintenanceStatus {
     }
 }
 
+fn deserialize_findings_opt<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct FindingsVisitor;
+
+    impl<'de> serde::de::Visitor<'de> for FindingsVisitor {
+        type Value = Option<String>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a string, integer, or null")
+        }
+
+        fn visit_none<E>(self) -> std::result::Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_unit<E>(self) -> std::result::Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E> {
+            Ok(Some(value.to_string()))
+        }
+
+        fn visit_string<E>(self, value: String) -> std::result::Result<Self::Value, E> {
+            Ok(Some(value))
+        }
+
+        fn visit_i64<E>(self, value: i64) -> std::result::Result<Self::Value, E> {
+            Ok(Some(value.to_string()))
+        }
+
+        fn visit_u64<E>(self, value: u64) -> std::result::Result<Self::Value, E> {
+            Ok(Some(value.to_string()))
+        }
+    }
+
+    deserializer.deserialize_any(FindingsVisitor)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecurityReview {
     pub status: String,
@@ -95,7 +144,7 @@ pub struct ChangelogEntry {
     pub notes: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TemplateEntry {
     pub name: String,
     #[serde(default)]
@@ -632,30 +681,31 @@ const DEFAULT_REGISTRY: &str = include_str!("../../templates/registry.json");
 const DEFAULT_REGISTRY_URL: &str =
     "https://starforge-protocol.github.io/starforge/templates/registry.json";
 
-/// Directory holding the local registry cache. Honors
-/// `STARFORGE_TEMPLATE_REGISTRY_DIR` (primarily used by tests to avoid
-/// touching a real home directory) before falling back to
-/// `~/.starforge/templates`.
-fn registry_dir() -> Result<PathBuf> {
-    let dir = match std::env::var_os("STARFORGE_TEMPLATE_REGISTRY_DIR") {
-        Some(dir) => PathBuf::from(dir),
-        None => crate::utils::config::config_dir().join("templates"),
-    };
-    if !dir.exists() {
-        fs::create_dir_all(&dir).with_context(|| format!("Failed to create {}", dir.display()))?;
-    }
-    Ok(dir)
-}
-
 fn registry_path() -> Result<PathBuf> {
-    Ok(registry_dir()?.join("registry.json"))
+    let dir = crate::utils::config::config_dir().join("templates");
+    ensure_private_directory(&dir)?;
+    Ok(dir.join("registry.json"))
 }
 
-/// Path to the sidecar file that stores the `ETag` of the last successfully
-/// fetched remote registry, used to make conditional (`If-None-Match`)
-/// requests on subsequent refreshes.
-fn registry_etag_path() -> Result<PathBuf> {
-    Ok(registry_path()?.with_extension("etag"))
+/// Create a cache directory with owner-only permissions and reject symlinked
+/// directories. Cache contents influence generated projects and must not be
+/// redirected into an attacker-controlled location.
+fn ensure_private_directory(path: &Path) -> Result<()> {
+    if path.exists() {
+        let metadata = fs::symlink_metadata(path)?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            anyhow::bail!("Refusing unsafe cache directory: {}", path.display());
+        }
+    } else {
+        fs::create_dir_all(path).with_context(|| format!("Failed to create {}", path.display()))?;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
 }
 
 /// Verify that the SHA-256 checksum of `bytes` matches `expected_hex`.
@@ -687,7 +737,25 @@ pub fn is_archive_path(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// Extract a `.zip` template package into `dest`, guarding against zip-slip paths.
+/// Unix file-type bits (`st_mode & S_IFMT`) that mark a ZIP entry as a symlink,
+/// as opposed to a regular file (`S_IFREG`) or directory (`S_IFDIR`).
+const UNIX_S_IFMT: u32 = 0o170000;
+const UNIX_S_IFLNK: u32 = 0o120000;
+
+/// True if a Unix `unix_mode()` value (upper bits of a ZIP entry's external
+/// attributes) marks the entry as a symlink rather than a regular file or
+/// directory. Archives written on non-Unix systems have no such bits set.
+fn is_symlink_mode(mode: u32) -> bool {
+    mode & UNIX_S_IFMT == UNIX_S_IFLNK
+}
+
+/// Extract a `.zip` template package into `dest`.
+///
+/// Rejects the whole archive — rather than silently dropping individual
+/// entries — if any entry uses an absolute path, a `..` parent-traversal
+/// component, resolves outside `dest` (zip-slip), or is a symlink. A
+/// template package should never need any of these, and partially
+/// extracting an otherwise-malicious archive would be misleading.
 pub fn extract_zip_archive(archive: &Path, dest: &Path) -> Result<()> {
     use zip::ZipArchive;
 
@@ -704,10 +772,26 @@ pub fn extract_zip_archive(archive: &Path, dest: &Path) -> Result<()> {
 
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)?;
-        let entry_path = match entry.enclosed_name() {
-            Some(p) => p.to_path_buf(),
-            None => continue,
-        };
+        let raw_name = entry.name().to_string();
+
+        // `enclosed_name()` returns None for entries with an absolute path or a
+        // `..` component that would escape the archive root — reject those
+        // outright instead of quietly skipping them.
+        let entry_path = entry.enclosed_name().map(|p| p.to_path_buf()).ok_or_else(|| {
+            anyhow::anyhow!(
+                "Archive entry '{}' uses an absolute path or parent traversal ('..'), which is not allowed",
+                raw_name
+            )
+        })?;
+
+        if let Some(mode) = entry.unix_mode() {
+            if is_symlink_mode(mode) {
+                anyhow::bail!(
+                    "Archive entry '{}' is a symlink, which is not allowed",
+                    raw_name
+                );
+            }
+        }
 
         let out_path = dest_canon.join(&entry_path);
         if !out_path.starts_with(&dest_canon) {
@@ -777,17 +861,13 @@ fn template_storage_dir() -> Result<PathBuf> {
     let dir = crate::utils::config::config_dir()
         .join("templates")
         .join("storage");
-    if !dir.exists() {
-        fs::create_dir_all(&dir).with_context(|| format!("Failed to create {}", dir.display()))?;
-    }
+    ensure_private_directory(&dir)?;
     Ok(dir)
 }
 
 fn template_cache_dir() -> Result<PathBuf> {
     let dir = crate::utils::config::config_dir().join("template-cache");
-    if !dir.exists() {
-        fs::create_dir_all(&dir).with_context(|| format!("Failed to create {}", dir.display()))?;
-    }
+    ensure_private_directory(&dir)?;
     Ok(dir)
 }
 
@@ -799,6 +879,12 @@ fn template_cache_dir() -> Result<PathBuf> {
 pub fn fetch_template_cached(entry: &TemplateEntry, force_refresh: bool) -> Result<PathBuf> {
     let cache_root = template_cache_dir()?;
     let dest = cache_root.join(&entry.name);
+
+    if let Ok(metadata) = fs::symlink_metadata(&dest) {
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            anyhow::bail!("Refusing unsafe cached template path: {}", dest.display());
+        }
+    }
 
     if dest.exists() {
         let mut should_refresh = force_refresh;
@@ -1507,6 +1593,9 @@ pub async fn get_template_by_name_and_version(
     }
 }
 
+// Not currently called from any code path in this crate. Kept rather than
+// removed since deleting it is a product decision, not a lint-scoping one.
+#[allow(dead_code)]
 fn semver_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     let parse_version = |v: &str| {
         v.strip_prefix('v')
@@ -1681,6 +1770,10 @@ fn fetch_local_template(source: &Path, dest: &Path) -> Result<()> {
 }
 
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
+    let source_metadata = fs::symlink_metadata(src)?;
+    if source_metadata.file_type().is_symlink() {
+        anyhow::bail!("Refusing symlink in downloaded template: {}", src.display());
+    }
     if !dst.exists() {
         fs::create_dir_all(dst)?;
     }
@@ -1697,7 +1790,14 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
 
         let dest_path = dst.join(&file_name);
 
-        if path.is_dir() {
+        let metadata = fs::symlink_metadata(&path)?;
+        if metadata.file_type().is_symlink() {
+            anyhow::bail!(
+                "Refusing symlink in downloaded template: {}",
+                path.display()
+            );
+        }
+        if metadata.is_dir() {
             copy_dir_recursive(&path, &dest_path)?;
         } else {
             fs::copy(&path, &dest_path)?;
@@ -1734,6 +1834,10 @@ pub async fn publish_template(
 
 /// Like `publish_template` but also records optional CLI version constraints.
 /// Install a template from a directory or `.zip` archive into the local registry.
+// Each parameter is an independent, named input (CLI flags / distinct config
+// values); bundling them into a struct here would add indirection without
+// reducing real complexity.
+#[allow(clippy::too_many_arguments)]
 pub async fn install_template_package(
     package_path: &Path,
     name: String,
@@ -1761,6 +1865,10 @@ pub async fn install_template_package(
     .await
 }
 
+// Each parameter is an independent, named input (CLI flags / distinct config
+// values); bundling them into a struct here would add indirection without
+// reducing real complexity.
+#[allow(clippy::too_many_arguments)]
 pub async fn publish_template_versioned(
     template_path: &Path,
     name: String,
@@ -1812,16 +1920,15 @@ pub async fn publish_template_versioned(
     copy_dir_recursive(&source_root, &dest)?;
 
     let created_at = Utc::now().to_rfc3339();
-    let mut changelog: Vec<ChangelogEntry> = Vec::new();
-    changelog.push(ChangelogEntry {
+    let changelog = vec![ChangelogEntry {
         version: version.clone(),
         date: Utc::now().format("%Y-%m-%d").to_string(),
         notes: "Initial release".to_string(),
-    });
+    }];
 
     let entry = TemplateEntry {
         name: name.clone(),
-        changelog: None,
+        changelog: Some(changelog),
         repository: None,
         security_review: None,
         version: version.clone(),
@@ -2571,6 +2678,76 @@ mod tests {
         assert!(validate_template_structure(&root, "zip-tpl", "desc", "author", "1.0.0").is_ok());
     }
 
+    /// Build a single-entry ZIP whose stored entry name is `raw_name`, bypassing
+    /// any path normalization (the writer stores the string verbatim; only the
+    /// reader-side `enclosed_name()` validates it), so malicious names can be
+    /// exercised the same way a hand-crafted attacker archive would.
+    fn build_zip_with_raw_entry_name(zip_path: &Path, raw_name: &str, contents: &[u8]) {
+        use zip::write::FileOptions;
+        use zip::ZipWriter;
+
+        let file = fs::File::create(zip_path).unwrap();
+        let mut zip = ZipWriter::new(file);
+        zip.start_file(raw_name, FileOptions::default()).unwrap();
+        std::io::Write::write_all(&mut zip, contents).unwrap();
+        zip.finish().unwrap();
+    }
+
+    #[test]
+    fn extract_zip_archive_rejects_parent_traversal() {
+        let tmp = tempdir().unwrap();
+        let zip_path = tmp.path().join("evil.zip");
+        build_zip_with_raw_entry_name(&zip_path, "../escaped.txt", b"pwned");
+
+        let extract_dir = tmp.path().join("out");
+        let err = extract_zip_archive(&zip_path, &extract_dir).unwrap_err();
+        assert!(err.to_string().contains("parent traversal") || err.to_string().contains(".."));
+
+        // Nothing should have escaped into the parent of the destination dir.
+        assert!(!tmp.path().join("escaped.txt").exists());
+    }
+
+    #[test]
+    fn extract_zip_archive_rejects_absolute_path() {
+        let tmp = tempdir().unwrap();
+        let zip_path = tmp.path().join("evil.zip");
+        build_zip_with_raw_entry_name(&zip_path, "/etc/passwd-clone", b"pwned");
+
+        let extract_dir = tmp.path().join("out");
+        let err = extract_zip_archive(&zip_path, &extract_dir).unwrap_err();
+        assert!(err.to_string().contains("absolute path"));
+    }
+
+    #[test]
+    fn extract_zip_archive_stops_at_first_malicious_entry() {
+        use zip::write::FileOptions;
+        use zip::ZipWriter;
+
+        let tmp = tempdir().unwrap();
+        let zip_path = tmp.path().join("mixed.zip");
+        let file = fs::File::create(&zip_path).unwrap();
+        let mut zip = ZipWriter::new(file);
+        zip.start_file("README.md", FileOptions::default()).unwrap();
+        std::io::Write::write_all(&mut zip, b"# ok").unwrap();
+        zip.start_file("../escaped.txt", FileOptions::default())
+            .unwrap();
+        std::io::Write::write_all(&mut zip, b"pwned").unwrap();
+        zip.finish().unwrap();
+
+        let extract_dir = tmp.path().join("out");
+        assert!(extract_zip_archive(&zip_path, &extract_dir).is_err());
+        assert!(!tmp.path().join("escaped.txt").exists());
+    }
+
+    #[test]
+    fn is_symlink_mode_detects_symlink_and_ignores_other_types() {
+        // Regular file (`-rw-r--r--`) and directory (`drwxr-xr-x`) are not symlinks.
+        assert!(!is_symlink_mode(0o100644));
+        assert!(!is_symlink_mode(0o040755));
+        // Symlink (`lrwxrwxrwx`) is.
+        assert!(is_symlink_mode(0o120777));
+    }
+
     fn walkdir_flat(dir: &Path) -> Vec<PathBuf> {
         let mut out = Vec::new();
         let mut stack = vec![dir.to_path_buf()];
@@ -2729,10 +2906,11 @@ mod tests {
     async fn test_publish_template_versioned_stores_by_version() {
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
-        let starforge_dir = home.join(".starforge");
-        std::env::set_var("STARFORGE_CONFIG_DIR", starforge_dir.as_os_str());
+        let config_dir = home.join(".starforge");
         std::env::set_var("HOME", home.as_os_str());
-        let registry_dir = starforge_dir.join("templates");
+        std::env::set_var("USERPROFILE", home.as_os_str());
+        std::env::set_var(crate::utils::config::CONFIG_DIR_ENV, &config_dir);
+        let registry_dir = config_dir.join("templates");
         fs::create_dir_all(&registry_dir).unwrap();
         fs::write(
             registry_dir.join("registry.json"),
@@ -2787,7 +2965,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(older.version, "1.0.0");
-        std::env::remove_var("STARFORGE_CONFIG_DIR");
     }
 
     #[test]

@@ -13,9 +13,8 @@ use crate::utils::{
 };
 use anyhow::{Context, Result};
 use clap::Subcommand;
-use rustyline::{DefaultEditor, Editor};
+use rustyline::DefaultEditor;
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 #[derive(Subcommand)]
 pub enum AiChatCommands {
@@ -332,7 +331,7 @@ async fn generate_ai_response(prompt: &str, model: &str) -> Result<String> {
 
     let response = ollama::generate_cached(
         model,
-        &prompt,
+        prompt,
         Some(opts),
         Some(ai_cache::DEFAULT_CACHE_TTL_SECONDS),
         "ask",

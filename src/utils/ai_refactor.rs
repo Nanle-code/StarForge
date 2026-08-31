@@ -350,7 +350,7 @@ pub async fn handle(cmd: RefactorCommands) -> Result<()> {
             handle_refactor(
                 &file,
                 &model,
-                &name.as_deref().unwrap_or("extracted"),
+                name.as_deref().unwrap_or("extracted"),
                 TaskType::ExtractFunction,
                 output,
             )
@@ -488,10 +488,7 @@ async fn handle_refactor(
     let session_id = format!(
         "refactor-{}-{}",
         Utc::now().format("%Y%m%d-%H%M%S"),
-        sha256::hash(&refactored)
-            .chars()
-            .take(8)
-            .collect::<String>()
+        sha256::hash(refactored).chars().take(8).collect::<String>()
     );
 
     // Save session for tracking/rollback

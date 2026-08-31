@@ -7,7 +7,7 @@ use crate::utils::bridge::{
     save_config,
     security::SecurityVerifier,
     state::StateSynchronizer,
-    BridgeConfig, BridgeTransferRecord,
+    BridgeTransferRecord,
 };
 use crate::utils::print as p;
 use anyhow::Result;

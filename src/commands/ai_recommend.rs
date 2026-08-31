@@ -564,7 +564,7 @@ fn find_rust_sources(dir: &PathBuf) -> Result<Vec<PathBuf>> {
                 {
                     files.extend(find_rust_sources(&path)?);
                 }
-            } else if path.extension().map_or(false, |e| e == "rs") {
+            } else if path.extension().is_some_and(|e| e == "rs") {
                 files.push(path);
             }
         }

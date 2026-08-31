@@ -1,7 +1,6 @@
 use crate::utils::{contract_profiler, performance as perf, print as p};
 use anyhow::Result;
 use clap::Subcommand;
-use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::path::PathBuf;
 

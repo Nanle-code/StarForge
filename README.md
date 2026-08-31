@@ -18,8 +18,9 @@ Think of it as the "Hardhat or Foundry" experience for the Stellar ecosystem, bu
 
 This project is actively maintained and participates in the [Stellar Wave Program](https://www.drips.network/wave/stellar) on Drips â€” a monthly open-source contribution sprint where contributors earn rewards for merged pull requests.
 
-Configuration schema ownership and migration guidance are documented in
-[Configuration schema migrations](./docs/CONFIGURATION_MIGRATIONS.md).
+Security architecture and trust-boundary assumptions are documented in the
+[StarForge threat model](./SECURITY_THREAT_MODEL.md). Report newly discovered
+security gaps as issues tagged `security` and include the affected boundary.
 
 ---
 
@@ -194,6 +195,38 @@ Run it in CI after configuring the `ci` wallet and environment variables. Steps 
   env:
     VALUE: production
 ```
+
+### Stable JSON output contract
+
+Use the global `--json` flag or set `STARFORGE_OUTPUT_JSON=1` to request machine-readable output from supported commands.
+
+Every success response uses the same envelope shape:
+
+```json
+{
+  "version": 1,
+  "ok": true,
+  "data": {
+    "name": "wallet",
+    "count": 2
+  }
+}
+```
+
+Failures use a versioned error envelope:
+
+```json
+{
+  "version": 1,
+  "ok": false,
+  "error": {
+    "code": "command_error",
+    "message": "unsupported network"
+  }
+}
+```
+
+This is a global contract so automation can parse output consistently across commands without depending on per-command ad hoc schemas.
 
 ### Wallet commands
 
@@ -449,18 +482,35 @@ starforge info
 
 ### Shell completions
 
+`starforge completions <shell>` supports four shells: `bash`, `zsh`, `fish`, and `powershell`.
+
 ```bash
-# Bash â€” add to ~/.bashrc
+# Bash -- add to ~/.bashrc
 source <(starforge completions bash)
 
-# Zsh â€” add to ~/.zshrc
+# Zsh -- add to ~/.zshrc
 source <(starforge completions zsh)
 
-# Fish â€” save to fish completions directory
+# Fish -- save to fish completions directory
 starforge completions fish > ~/.config/fish/completions/starforge.fish
+
+# PowerShell -- add to your $PROFILE
+starforge completions powershell | Out-String | Invoke-Expression
 ```
 
-After adding the line to your shell config, restart your shell or run `source ~/.bashrc` / `source ~/.zshrc`. Tab-completion for all subcommands and flags will then be active.
+```powershell
+# Or save it once and dot-source it from your profile:
+starforge completions powershell > starforge-completions.ps1
+# then add to $PROFILE: . /path/to/starforge-completions.ps1
+```
+
+After adding the line to your shell config, restart your shell (or `source` the config file / reload `$PROFILE`). Tab-completion for all subcommands and flags will then be active.
+
+**Compatibility**: completion scripts are generated from the CLI's own command definitions via [`clap_complete`](https://docs.rs/clap_complete), so they always match the flags and subcommands of the `starforge` binary you're running -- there's no separately-maintained completion file to fall out of sync. Supported shell/OS combinations: Bash and Zsh on Linux/macOS, Fish on Linux/macOS/Windows, and PowerShell (5.1+ / PowerShell Core) on Windows, Linux, and macOS.
+
+**Security note**: if you use `starforge plugin` to install third-party plugins, their command names and descriptions can appear in the generated completion script, which you typically `source` directly into your shell. `starforge` only interpolates plugin command names that look like plain identifiers (letters, digits, `-`, `_`, `:`); anything else (quotes, whitespace, shell metacharacters) is dropped from the script rather than escaped and embedded, so a malicious or corrupted plugin registry entry can't inject shell commands into your completion setup. Regenerate your completion script after installing or removing plugins to pick up the change.
+
+**Migration note**: PowerShell support was added in this release -- existing Bash/Zsh/Fish completion setups are unaffected. If you previously worked around the lack of PowerShell completions with a custom script, you can remove it and switch to `starforge completions powershell`.
 
 ---
 
@@ -492,31 +542,37 @@ starforge/
 
 StarForge values your privacy.
 
-### Local-Only Telemetry Guarantee
-To help improve CLI usability, starforge collects anonymous usage telemetry (such as command names and execution times). This telemetry data is **stored purely locally** at `~/.starforge/data/telemetry.log`. **No network requests are ever made** for telemetry transmission; your telemetry data never leaves your machine.
+### Default: Off, Auditable, and Resettable
+StarForge does not collect telemetry by default. It only records local anonymous usage data after you explicitly opt in. The exact payload is stored locally at `~/.starforge/data/telemetry.log`, and it is never sent anywhere without a separate explicit opt-in.
 
-### Explicit Opt-Out Methods
-You can easily disable telemetry at any time using one of three methods:
+### Opt-In Methods
+Enable telemetry at any time with one of these methods:
 
 1. **Config Command:**
    ```bash
-   starforge config set telemetry.enabled false
+   starforge config set telemetry.enabled true
    ```
 
 2. **Telemetry Subcommand:**
    ```bash
-   starforge telemetry disable
+   starforge telemetry enable
    ```
 
 3. **Environment Variable:**
-   Set the `STARFORGE_TELEMETRY` environment variable to `false` or `0` in your shell profile:
+   Set the `STARFORGE_TELEMETRY` environment variable to `true` or `1` in your shell profile:
    ```bash
-   export STARFORGE_TELEMETRY=false
+   export STARFORGE_TELEMETRY=true
    ```
 
-To inspect your current telemetry status:
+To inspect your current telemetry status and the exact last payload:
 ```bash
 starforge telemetry status
+starforge telemetry payload
+```
+
+To erase all local telemetry and the anonymous ID:
+```bash
+starforge telemetry reset
 ```
 
 ---
@@ -669,6 +725,7 @@ StarForge has comprehensive documentation covering all aspects of the project:
 - **[DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md)** - Contributing and development guide
 - **[API_REFERENCE.md](API_REFERENCE.md)** - Complete command reference
 - **[docs/COMMAND_REFERENCE.md](docs/COMMAND_REFERENCE.md)** - Navigable CLI command index
+- **[docs/COMMAND_CHEATSHEET.md](docs/COMMAND_CHEATSHEET.md)** - Auto-generated CLI command cheat sheet
 
 ### ?? Feature Documentation
 - **[TEMPLATE_MARKETPLACE.md](TEMPLATE_MARKETPLACE.md)** - Template marketplace feature

@@ -1,20 +1,16 @@
 use crate::utils::{
     contract_assertions::{
-        assert_balance_eq, assert_error_contains, assert_event_emitted, assert_event_not_emitted,
-        assert_ok, assert_return_value, assert_storage_eq, AssertionResult, AssertionStatus,
-        AssertionSuite, ContractAssertions,
+        assert_error_contains, assert_return_value, AssertionSuite, ContractAssertions,
     },
-    contract_fixtures::{ContractFixture, FixtureContext, FixtureRegistry},
+    contract_fixtures::{ContractFixture, FixtureContext},
     contract_mocks::{MockAddress, MockContractClient, MockEnvironment, StorageKey},
     contract_test_runner::{ContractTestRunner, TestRunConfig, TestRunSummary},
     testnet_integration::{
-        run_connectivity_smoke_test, SorobanNetwork, TestnetConfig, TestnetSession,
-        TestnetTestReport, TestnetTestResult,
+        run_connectivity_smoke_test, TestnetConfig, TestnetSession, TestnetTestReport,
     },
 };
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -220,10 +216,8 @@ impl FrameworkTestSuite {
         let suite_start = Instant::now();
 
         // Setup fixture
-        let fixture_ctx: Option<FixtureContext> = self
-            .fixture
-            .as_mut()
-            .and_then(|f| f.setup().ok().map(|ctx| ctx.clone()));
+        let fixture_ctx: Option<FixtureContext> =
+            self.fixture.as_mut().and_then(|f| f.setup().ok().cloned());
 
         let mut results = Vec::new();
         for case in &self.cases {
@@ -231,7 +225,7 @@ impl FrameworkTestSuite {
 
             // Seed environment from fixture context
             if let Some(ref ctx) = fixture_ctx {
-                for (key, seed) in &ctx.storage {
+                for seed in ctx.storage.values() {
                     env.storage.set(
                         StorageKey {
                             scope: format!("{:?}", seed.durability).to_lowercase(),
@@ -240,7 +234,7 @@ impl FrameworkTestSuite {
                         seed.value.clone(),
                     );
                 }
-                for (_, account) in &ctx.accounts {
+                for account in ctx.accounts.values() {
                     env.auth
                         .auto_approve(MockAddress::new(account.address.clone()));
                 }
@@ -613,7 +607,7 @@ fn render_junit_report(result: &FrameworkRunResult) -> String {
 /// Standard test cases for any counter-style contract.
 pub fn counter_test_suite() -> FrameworkTestSuite {
     use crate::utils::contract_fixtures::counter_fixture;
-    use crate::utils::contract_mocks::{counter_env, MockAddress};
+    use crate::utils::contract_mocks::MockAddress;
 
     let mut suite = FrameworkTestSuite::new("counter").with_fixture(counter_fixture());
 
