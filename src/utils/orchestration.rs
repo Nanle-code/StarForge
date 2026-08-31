@@ -1,8 +1,8 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -120,9 +120,7 @@ pub struct OrchestrationEngine {
 
 impl OrchestrationEngine {
     pub fn new() -> Result<Self> {
-        let home_dir = dirs::home_dir().context("Failed to get home directory")?;
-        let plans_dir = home_dir
-            .join(".starforge")
+        let plans_dir = crate::utils::config::config_dir()
             .join("orchestration")
             .join("plans");
 
@@ -200,7 +198,7 @@ impl OrchestrationEngine {
         let mut temp_visited = HashSet::new();
 
         for contract_id in &contract_ids {
-            self.topological_sort(
+            Self::topological_sort(
                 contract_id,
                 &plan.dependencies,
                 &mut visited,
@@ -213,7 +211,6 @@ impl OrchestrationEngine {
     }
 
     fn topological_sort(
-        &self,
         contract_id: &str,
         dependencies: &HashMap<String, Vec<String>>,
         visited: &mut HashSet<String>,
@@ -232,7 +229,7 @@ impl OrchestrationEngine {
 
         if let Some(deps) = dependencies.get(contract_id) {
             for dep in deps {
-                self.topological_sort(dep, dependencies, visited, temp_visited, sorted)?;
+                Self::topological_sort(dep, dependencies, visited, temp_visited, sorted)?;
             }
         }
 
@@ -478,7 +475,7 @@ impl OrchestrationEngine {
             let entry = entry?;
             let path = entry.path();
 
-            if path.extension().map_or(false, |ext| ext == "json") {
+            if path.extension().is_some_and(|ext| ext == "json") {
                 let content = fs::read_to_string(&path)?;
                 let plan: DeploymentPlan = serde_json::from_str(&content)?;
                 plans.push(plan);
@@ -502,7 +499,7 @@ impl OrchestrationEngine {
         Ok(plan)
     }
 
-    fn load_plan_by_execution(&self, execution_id: &str) -> Result<DeploymentPlan> {
+    fn load_plan_by_execution(&self, _execution_id: &str) -> Result<DeploymentPlan> {
         // In production, would store execution-to-plan mapping
         // For now, load the first plan
         let plans = self.list_plans()?;

@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "network": "testnet",
+  "budget_xlm": 0.5,
+  "invokes": [
+    {
+      "name": "approve-allowance",
+      "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABKT4",
+      "function": "approve",
+      "args": [
+        { "value": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF", "type": "address" },
+        { "value": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABYFH", "type": "address" },
+        { "value": "1000000000", "type": "int" },
+        { "value": "100", "type": "int" }
+      ],
+      "max_fee_stroops": 400000
+    },
+    {
+      "name": "transfer-tokens",
+      "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABKT4",
+      "function": "transfer",
+      "args": [
+        { "value": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF", "type": "address" },
+        { "value": "GAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFAH", "type": "address" },
+        { "value": "500", "type": "int" }
+      ]
+    },
+    {
+      "name": "balance-check",
+      "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABKT4",
+      "function": "balance",
+      "args": [
+        { "value": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF", "type": "address" }
+      ],
+      "network": "mainnet"
+    }
+  ]
+}

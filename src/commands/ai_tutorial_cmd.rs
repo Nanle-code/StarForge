@@ -4,10 +4,10 @@
 //! personalized learning paths, and progress tracking.
 
 use crate::utils::{
-    ai_tutorial::{SkillLevel, StepResult, TutorialManager, TutorialTopic},
+    ai_tutorial::{SkillLevel, TutorialManager},
     print as p,
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Subcommand;
 use dialoguer::{Confirm, Input, Select};
 

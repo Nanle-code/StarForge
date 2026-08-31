@@ -3,7 +3,7 @@
 //! Provides ledger time manipulation for testing – advance, freeze, rewind,
 //! and jump to specific timestamps.
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// Represents the simulated ledger time.

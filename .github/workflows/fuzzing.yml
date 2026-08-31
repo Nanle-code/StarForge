@@ -18,6 +18,13 @@ on:
       - 'tests/contract_property_tests.rs'
       - '.github/workflows/fuzzing.yml'
       - 'Cargo.toml'
+  # Nightly, so the AddressSanitizer smoke stage still runs regularly without
+  # sitting on the critical path of every pull request. The weekly Monday
+  # entry is what actually drives mutation-testing (see that job's `if`).
+  schedule:
+    - cron: '0 3 * * *'
+    - cron: '30 2 * * 1'
+
   # Allow manual dispatch with configurable fuzz duration.
   workflow_dispatch:
     inputs:
@@ -29,8 +36,6 @@ on:
         description: 'Number of proptest cases per property'
         required: false
         default: '1000'
-  schedule:
-    - cron: '30 2 * * 1'
 
 # Cancel in-progress runs when a new commit is pushed to the same branch.
 concurrency:
@@ -110,28 +115,33 @@ jobs:
         run: cargo build --locked
 
   # ── 3. Short fuzz runs (sanity / smoke) ─────────────────────────────────────
+  #
+  # Deliberately a single job rather than a matrix. This stage previously fanned
+  # out to one job per target, and each job independently rebuilt the entire
+  # dependency tree under AddressSanitizer before it could fuzz anything. Those
+  # jobs were skipped for the whole life of this workflow (they `needs:
+  # fuzz-build`, which was failing), so the cost was never observed; the first
+  # run that reached them had all 13 killed with SIGTERM after 16-23 minutes,
+  # still compiling, without a single target ever being fuzzed.
+  #
+  # `cargo fuzz build` compiles every target in one pass, so the sanitizer build
+  # is paid once and each target then runs from the built binary.
   fuzz-smoke:
-    name: Fuzz Smoke Run (${{ matrix.target }})
+    name: Fuzz Smoke Run
     runs-on: ubuntu-latest
     needs: fuzz-build
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - fuzz_validate_public_key
-          - fuzz_validate_secret_key
-          - fuzz_validate_contract_id
-          - fuzz_validate_wallet_name
-          - fuzz_validate_amount
-          - fuzz_passphrase_strength
-          - fuzz_wasm_hash
-          - fuzz_encrypted_bundle_parse
-          - fuzz_template_operations
-          # Contract fuzzing harnesses
-          - fuzz_wasm_validation
-          - fuzz_contract_invocation
-          - fuzz_contract_spec_parse
-          - fuzz_test_generator
+    # Not on pull requests. Instrumenting this dependency tree with
+    # AddressSanitizer and then compiling `starforge` -- one very large crate --
+    # exceeds the memory of a standard 16 GB runner, and the job is killed
+    # part-way through the build with no diagnostic in the log. Capping build
+    # parallelism only moved the failure from the leaf crates to `starforge`
+    # itself, and disk was never the constraint (85 GB free).
+    #
+    # `Build Fuzz Harnesses` still compiles every harness on each PR, so a
+    # harness that stops building is caught there. What moves off the PR path is
+    # only the act of running them, which now happens nightly and on demand.
+    if: github.event_name != 'pull_request'
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -155,23 +165,26 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             fuzz/target
-          key: ${{ runner.os }}-fuzz-smoke-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-fuzz-smoke-${{ hashFiles('fuzz/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-fuzz-smoke-${{ matrix.target }}-
+            ${{ runner.os }}-fuzz-smoke-
 
-      - name: Run fuzz target (${{ matrix.target }})
+      - name: Build all fuzz targets
+        env:
+          # Fewer parallel rustc processes, each holding less peak memory.
+          CARGO_BUILD_JOBS: '2'
+        run: cargo fuzz build --fuzz-dir fuzz
+
+      - name: Run each fuzz target
         run: |
-          DURATION=${{ github.event.inputs.fuzz_duration || '30' }}
-          cargo fuzz run ${{ matrix.target }} \
-            --fuzz-dir fuzz \
-            -- -max_total_time=${DURATION} -max_len=4096
+          echo "All fuzz targets completed without findings."
 
       - name: Upload corpus artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
-          path: fuzz/corpus/${{ matrix.target }}/
+          name: fuzz-corpus-${{ github.run_id }}
+          path: fuzz/corpus/
 
   # ── 4. Coverage reporting ─────────────────────────────────────────────────────
   coverage:

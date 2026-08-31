@@ -34,8 +34,8 @@ fn config_with_version(version: &str) -> Config {
 #[test]
 fn test_migration_from_empty_version_to_v1() {
     let cfg = config_with_version(""); // empty == v0 in the registry
-    let (migrated, report) = run_config_migrations(cfg)
-        .expect("migration from empty version should succeed");
+    let (migrated, report) =
+        run_config_migrations(cfg).expect("migration from empty version should succeed");
 
     assert_eq!(migrated.version, "1", "config must be upgraded to v1");
     assert_eq!(report.from_version, "0", "report must normalise empty → 0");
@@ -52,8 +52,7 @@ fn test_migration_from_empty_version_to_v1() {
 #[test]
 fn test_migration_from_explicit_v0_to_v1() {
     let cfg = config_with_version("0");
-    let (migrated, report) = run_config_migrations(cfg)
-        .expect("migration from v0 should succeed");
+    let (migrated, report) = run_config_migrations(cfg).expect("migration from v0 should succeed");
 
     assert_eq!(migrated.version, "1");
     assert_eq!(report.from_version, "0");
@@ -71,11 +70,14 @@ fn test_migration_from_explicit_v0_to_v1() {
 #[test]
 fn test_migration_already_current_is_noop() {
     let cfg = config_with_version(CURRENT_CONFIG_VERSION);
-    let (migrated, report) = run_config_migrations(cfg.clone())
-        .expect("already-current config must not error");
+    let (migrated, report) =
+        run_config_migrations(cfg.clone()).expect("already-current config must not error");
 
     assert_eq!(migrated.version, CURRENT_CONFIG_VERSION);
-    assert!(report.is_no_op(), "no steps should run for a current config");
+    assert!(
+        report.is_no_op(),
+        "no steps should run for a current config"
+    );
     assert!(
         report.backup_path.is_none(),
         "no backup should be written for a no-op migration"

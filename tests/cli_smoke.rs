@@ -11,6 +11,13 @@ fn starforge(home: &std::path::Path) -> Command {
     cmd.arg("-q");
     cmd.env("HOME", home);
     cmd.env("USERPROFILE", home);
+    // HOME / USERPROFILE alone do not isolate the CLI on Windows, where
+    // `dirs::home_dir()` resolves through SHGetKnownFolderPath(FOLDERID_Profile)
+    // and ignores both. Without this, every test in this file shares the one
+    // real config directory, and the tests that mutate networks concurrently
+    // clobber each other. Set explicitly rather than inherited so a
+    // STARFORGE_CONFIG_DIR already in the environment cannot deisolate the run.
+    cmd.env("STARFORGE_CONFIG_DIR", home.join(".starforge"));
     cmd
 }
 
@@ -68,6 +75,57 @@ fn network_show_exits_zero() {
 }
 
 #[test]
+fn network_show_json_uses_stable_envelope() {
+    let home = isolated_home();
+    let output = starforge(home.path())
+        .args(["--json", "network", "show"])
+        .output()
+        .expect("spawn network show --json");
+    assert_success(&output, "starforge --json network show");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON output");
+    assert_eq!(parsed["version"], 1);
+    assert_eq!(parsed["ok"], true);
+    assert!(parsed["data"].is_object());
+}
+
+#[test]
+fn inherited_json_env_preserves_global_output_mode() {
+    let home = isolated_home();
+    let output = starforge(home.path())
+        .args(["network", "show"])
+        .env("STARFORGE_OUTPUT_JSON", "1")
+        .output()
+        .expect("spawn network show with inherited JSON env");
+    assert_success(&output, "starforge network show with inherited JSON env");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).expect("valid JSON output from env");
+    assert_eq!(parsed["version"], 1);
+    assert_eq!(parsed["ok"], true);
+    assert!(parsed["data"].is_object());
+}
+
+#[test]
+fn invalid_network_switch_json_returns_error_envelope() {
+    let home = isolated_home();
+    let output = starforge(home.path())
+        .args(["--json", "network", "switch", "does-not-exist-xyz"])
+        .output()
+        .expect("spawn network switch with invalid target");
+
+    assert!(!output.status.success(), "invalid network should fail");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let parsed: serde_json::Value = serde_json::from_str(&stderr).expect("error JSON output");
+    assert_eq!(parsed["version"], 1);
+    assert_eq!(parsed["ok"], false);
+    assert!(parsed["error"]["code"].is_string());
+    assert!(parsed["error"]["message"].is_string());
+}
+
+#[test]
 fn wallet_list_exits_zero() {
     let home = isolated_home();
     let output = starforge(home.path())
@@ -85,6 +143,49 @@ fn template_list_exits_zero() {
         .output()
         .expect("spawn template list");
     assert_success(&output, "starforge template list");
+}
+
+#[test]
+fn template_validate_accepts_the_bundled_registry() {
+    let home = isolated_home();
+    let output = starforge(home.path())
+        .args(["template", "validate", "templates/registry.json"])
+        .output()
+        .expect("spawn template validate");
+    assert_success(&output, "starforge template validate");
+}
+
+#[test]
+fn template_validate_reports_the_offending_field() {
+    let home = isolated_home();
+    let bad = home.path().join("bad-registry.json");
+    std::fs::write(
+        &bad,
+        r#"{"templates":[{"name":"broken","version":"v1","description":"d",
+            "author":"a","tags":[],"source":{"type":"builtin","id":"broken"}}]}"#,
+    )
+    .expect("write bad registry");
+
+    let output = starforge(home.path())
+        .args(["template", "validate"])
+        .arg(&bad)
+        .output()
+        .expect("spawn template validate");
+
+    assert!(
+        !output.status.success(),
+        "an invalid registry should exit non-zero"
+    );
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("templates[0].version"),
+        "output should name the offending field, got: {}",
+        combined
+    );
 }
 
 #[test]
@@ -355,42 +456,112 @@ fn config_subcommand_sets_and_shows_telemetry() {
 }
 
 #[test]
+fn telemetry_defaults_to_disabled() {
+    let home = isolated_home();
+
+    let output = starforge(home.path())
+        .args(["telemetry", "status"])
+        .output()
+        .expect("spawn telemetry status");
+    assert_success(&output, "starforge telemetry status");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("false"));
+}
+
+#[test]
 fn telemetry_subcommand_toggles_status() {
     let home = isolated_home();
 
-    // Disable telemetry
-    let output2 = starforge(home.path())
-        .args(["telemetry", "disable"])
-        .output()
-        .expect("spawn telemetry disable");
-    assert_success(&output2, "starforge telemetry disable");
-    let stdout2 = String::from_utf8_lossy(&output2.stdout);
-    assert!(stdout2.contains("disabled"));
-
-    // Check disabled status
-    let output3 = starforge(home.path())
-        .args(["telemetry", "status"])
-        .output()
-        .expect("spawn telemetry status");
-    assert_success(&output3, "starforge telemetry status");
-    let stdout3 = String::from_utf8_lossy(&output3.stdout);
-    assert!(stdout3.contains("false"));
-
-    // Enable telemetry
-    let output4 = starforge(home.path())
+    // Enable telemetry first from the default-off state
+    let output1 = starforge(home.path())
         .args(["telemetry", "enable"])
         .output()
         .expect("spawn telemetry enable");
-    assert_success(&output4, "starforge telemetry enable");
+    assert_success(&output1, "starforge telemetry enable");
 
     // Check enabled status
-    let output5 = starforge(home.path())
+    let output2 = starforge(home.path())
         .args(["telemetry", "status"])
         .output()
         .expect("spawn telemetry status");
-    assert_success(&output5, "starforge telemetry status");
-    let stdout5 = String::from_utf8_lossy(&output5.stdout);
-    assert!(stdout5.contains("true"));
+    assert_success(&output2, "starforge telemetry status");
+    let stdout2 = String::from_utf8_lossy(&output2.stdout);
+    assert!(stdout2.contains("true"));
+
+    // Disable telemetry
+    let output3 = starforge(home.path())
+        .args(["telemetry", "disable"])
+        .output()
+        .expect("spawn telemetry disable");
+    assert_success(&output3, "starforge telemetry disable");
+    let stdout3 = String::from_utf8_lossy(&output3.stdout);
+    assert!(stdout3.contains("disabled"));
+
+    // Check disabled status
+    let output4 = starforge(home.path())
+        .args(["telemetry", "status"])
+        .output()
+        .expect("spawn telemetry status");
+    assert_success(&output4, "starforge telemetry status");
+    let stdout4 = String::from_utf8_lossy(&output4.stdout);
+    assert!(stdout4.contains("false"));
+}
+
+#[test]
+fn telemetry_payload_and_reset_work() {
+    let home = isolated_home();
+
+    let enable = starforge(home.path())
+        .args(["telemetry", "enable"])
+        .output()
+        .expect("spawn telemetry enable");
+    assert_success(&enable, "starforge telemetry enable");
+
+    let mut cmd = starforge(home.path());
+    cmd.args(["deploy"]);
+    cmd.env("STARFORGE_TELEMETRY", "1");
+    let output = cmd.output().expect("spawn deploy");
+    let _ = output;
+
+    let payload = starforge(home.path())
+        .args(["telemetry", "payload"])
+        .output()
+        .expect("spawn telemetry payload");
+    assert_success(&payload, "starforge telemetry payload");
+    let stdout = String::from_utf8_lossy(&payload.stdout);
+    assert!(stdout.contains("\"event\""));
+
+    let reset = starforge(home.path())
+        .args(["telemetry", "reset"])
+        .output()
+        .expect("spawn telemetry reset");
+    assert_success(&reset, "starforge telemetry reset");
+    let payload_after = starforge(home.path())
+        .args(["telemetry", "payload"])
+        .output()
+        .expect("spawn telemetry payload");
+    assert_success(&payload_after, "starforge telemetry payload after reset");
+    let stdout_after = String::from_utf8_lossy(&payload_after.stdout);
+    assert!(stdout_after.contains("No telemetry payloads recorded yet."));
+}
+
+#[test]
+fn telemetry_invalid_bool_value_fails_cleanly() {
+    let home = isolated_home();
+
+    let output = starforge(home.path())
+        .args(["config", "set", "telemetry.enabled", "maybe"])
+        .output()
+        .expect("spawn config set invalid telemetry");
+
+    assert!(!output.status.success(), "invalid bool should fail");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(combined.contains("Expected boolean value") || combined.contains("Invalid"));
 }
 
 #[test]
@@ -531,7 +702,13 @@ fn multisig_create_and_sign_workflow() {
     let created_path = entries[0].path();
 
     let sign_alice = starforge(home.path())
-        .args(["multisig", "sign", created_path.to_str().unwrap(), "alice"])
+        .args([
+            "multisig",
+            "sign",
+            "--wallet",
+            "alice",
+            created_path.to_str().unwrap(),
+        ])
         .output()
         .expect("spawn multisig sign alice");
     assert_success(&sign_alice, "starforge multisig sign alice");
@@ -546,7 +723,13 @@ fn multisig_create_and_sign_workflow() {
     assert!(status_out.contains("50%"));
 
     let sign_bob = starforge(home.path())
-        .args(["multisig", "sign", created_path.to_str().unwrap(), "bob"])
+        .args([
+            "multisig",
+            "sign",
+            "--wallet",
+            "bob",
+            created_path.to_str().unwrap(),
+        ])
         .output()
         .expect("spawn multisig sign bob");
     assert_success(&sign_bob, "starforge multisig sign bob");
@@ -563,8 +746,9 @@ fn multisig_create_and_sign_workflow() {
         .args([
             "multisig",
             "export",
-            created_path.to_str().unwrap(),
+            "--output",
             export_path.to_str().unwrap(),
+            created_path.to_str().unwrap(),
         ])
         .output()
         .expect("spawn multisig export");
@@ -575,8 +759,9 @@ fn multisig_create_and_sign_workflow() {
         .args([
             "multisig",
             "import",
-            export_path.to_str().unwrap(),
+            "--output",
             import_path.to_str().unwrap(),
+            export_path.to_str().unwrap(),
         ])
         .output()
         .expect("spawn multisig import");
@@ -618,8 +803,9 @@ fn multisig_from_template_creates_proposal() {
         .args([
             "multisig",
             "from-template",
-            "escrow",
+            "--output",
             output_path.to_str().unwrap(),
+            "escrow",
         ])
         .output()
         .expect("spawn multisig from-template");

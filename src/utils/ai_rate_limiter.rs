@@ -262,7 +262,7 @@ impl AIRateLimiter {
             }
 
             queue.push(request);
-            queue.sort_by(|a, b| b.priority.cmp(&a.priority));
+            queue.sort_by_key(|a| std::cmp::Reverse(a.priority));
             metrics.queued_requests += 1;
 
             drop(queue);

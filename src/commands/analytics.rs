@@ -3,7 +3,6 @@ use anyhow::Result;
 use chrono::Utc;
 use clap::{Args, Subcommand};
 use colored::Colorize;
-use colored::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -297,8 +296,8 @@ pub fn compute_metrics(
 ) -> DeploymentMetrics {
     let filtered: Vec<_> = events
         .iter()
-        .filter(|e| network.is_none_or(|n| e.network == n))
-        .filter(|e| contract_id.is_none_or(|c| e.contract_id == c))
+        .filter(|e| network.map_or(true, |n| e.network == n))
+        .filter(|e| contract_id.map_or(true, |c| e.contract_id == c))
         .collect();
 
     let total = filtered.len();
@@ -473,7 +472,7 @@ pub fn analyze_trends(
     let filtered: Vec<_> = events
         .iter()
         .filter(|e| e.network == network)
-        .filter(|e| contract_id.is_none_or(|c| e.contract_id == c))
+        .filter(|e| contract_id.map_or(true, |c| e.contract_id == c))
         .filter(|e| {
             DateTime::parse_from_rfc3339(&e.timestamp)
                 .map(|t| t.with_timezone(&Utc) > cutoff)
@@ -646,7 +645,7 @@ fn calculate_health_score(success_rate: f64, recent_failures: usize, trend: &str
         _ => {}
     }
 
-    score.max(0.0).min(100.0)
+    score.clamp(0.0, 100.0)
 }
 
 /// Calculate health score for a contract
@@ -689,7 +688,7 @@ pub fn calculate_contract_health(
     let performance_score = if !fees.is_empty() {
         let avg_fee = fees.iter().sum::<u64>() as f64 / fees.len() as f64;
         // Lower fees = better performance score (baseline is 5000 stroops)
-        ((10000.0 - avg_fee) / 10000.0 * 100.0).max(0.0).min(100.0)
+        ((10000.0 - avg_fee) / 10000.0 * 100.0).clamp(0.0, 100.0)
     } else {
         50.0
     };
@@ -904,11 +903,11 @@ fn handle_list(args: ListArgs) -> Result<()> {
     let events = load_events()?;
     let mut filtered: Vec<_> = events
         .iter()
-        .filter(|e| args.network.as_deref().is_none_or(|n| e.network == n))
+        .filter(|e| args.network.as_deref().map_or(true, |n| e.network == n))
         .filter(|e| {
             args.contract_id
                 .as_deref()
-                .is_none_or(|c| e.contract_id == c)
+                .map_or(true, |c| e.contract_id == c)
         })
         .filter(|e| !args.failures || !e.success)
         .collect();
@@ -1006,7 +1005,7 @@ fn handle_export(args: ExportArgs) -> Result<()> {
     let events = load_events()?;
     let filtered: Vec<_> = events
         .iter()
-        .filter(|e| args.network.as_deref().is_none_or(|n| e.network == n))
+        .filter(|e| args.network.as_deref().map_or(true, |n| e.network == n))
         .cloned()
         .collect();
 

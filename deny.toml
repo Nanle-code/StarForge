@@ -10,6 +10,8 @@ targets = [
 
 [advisories]
 version = 2
+# Reject yanked crates that may contain unpatched vulnerabilities.
+yanked = "warn"
 ignore = [
     # rustls-webpki 0.100/0.101 pulled in transitively via pinned ureq =2.7.1.
     "RUSTSEC-2026-0098",
@@ -30,6 +32,15 @@ ignore = [
     # affected. Upgrading reqwest to 0.12+ is a breaking-change migration;
     # tracked separately. The mock-only h2 0.4 path carries no production risk.
     "RUSTSEC-2026-0258",
+    # time RFC 2822 stack exhaustion. Fixed in time 0.3.47, but every release
+    # from 0.3.46 on declares rust-version 1.88, which is incompatible with this
+    # crate's MSRV of 1.80 (enforced by the `MSRV (Rust 1.80)` CI job). The
+    # vulnerable path is RFC 2822 parsing of untrusted input, which StarForge
+    # never performs: there is no rfc2822 call anywhere in the tree, and the
+    # three consumers do not parse it either (tracing-appender formats log
+    # timestamps, zip reads MS-DOS date fields, zxcvbn does date matching).
+    # Revisit if the MSRV moves to 1.88 or these deps drop `time`.
+    "RUSTSEC-2026-0009",
 ]
 
 [licenses]
@@ -67,3 +78,5 @@ skip = []
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

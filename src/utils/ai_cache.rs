@@ -12,14 +12,12 @@
 //! - Support for cache prewarming
 //! - Manual cache invalidation commands
 
-use crate::utils::database::{db_path, Database};
-use anyhow::{Context, Result};
-use chrono::{DateTime, Utc};
-use rusqlite::{params, Connection, OptionalExtension};
+use crate::utils::database::Database;
+use anyhow::Result;
+use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::path::PathBuf;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Default TTL for cached AI responses (7 days)
 pub const DEFAULT_CACHE_TTL_SECONDS: u64 = 7 * 24 * 60 * 60;

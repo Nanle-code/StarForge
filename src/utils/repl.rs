@@ -1,11 +1,10 @@
-use anyhow::Result;
 use crate::utils::history::redact_command;
+use anyhow::Result;
 use colored::*;
 use rustyline::completion::{Completer, Pair};
 use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
 use rustyline::hint::Hinter;
-use rustyline::history::History;
 use rustyline::validate::Validator;
 use rustyline::{Context, Editor, Helper};
 use std::collections::HashSet;
@@ -31,8 +30,7 @@ pub struct ReplOptions {
 
 impl Default for ReplOptions {
     fn default() -> Self {
-        let mut path = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-        path.push(".starforge");
+        let mut path = crate::utils::config::config_dir();
         path.push("history");
         Self {
             history_enabled: true,
@@ -328,7 +326,11 @@ where
         &mut self,
         editor: &Editor<StarForgeHelper, rustyline::history::DefaultHistory>,
     ) -> Result<()> {
-        let entries: Vec<String> = editor.history().iter().map(|entry| entry.to_string()).collect();
+        let entries: Vec<String> = editor
+            .history()
+            .iter()
+            .map(|entry| entry.to_string())
+            .collect();
         for command in entries {
             let command = command.trim();
             if command.is_empty() || command.contains("[REDACTED]") || command.starts_with(':') {

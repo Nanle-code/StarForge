@@ -16,3 +16,9 @@ if [[ -n "${STARFORGE_HEALTHCHECK_URL:-}" ]]; then
     curl --fail --silent --show-error --max-time 10 "${STARFORGE_HEALTHCHECK_URL}" >/dev/null
     echo "Rollback health check passed."
 fi
+
+# Send rollback notification
+STARFORGE_NOTIFY_STATUS=rollback \
+STARFORGE_NOTIFY_ENV="${STARFORGE_DEPLOY_ENVIRONMENT}" \
+STARFORGE_NOTIFY_ACTOR="${STARFORGE_NOTIFY_ACTOR:-CI}" \
+bash "$(dirname "$0")/ci-notify.sh" || true

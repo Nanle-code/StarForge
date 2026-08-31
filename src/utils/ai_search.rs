@@ -6,13 +6,10 @@
 //! - Pattern discovery and similar code finding
 //! - Usage example generation and recommendation
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-
-use crate::utils::pattern_library::{self, PatternCategory};
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -129,6 +126,9 @@ struct IndexEntry {
     content: String,
     tokens: Vec<String>,
     is_test: bool,
+    // Not currently called from any code path in this crate. Kept rather than
+    // removed since deleting it is a product decision, not a lint-scoping one.
+    #[allow(dead_code)]
     is_contract: bool,
 }
 
@@ -185,7 +185,7 @@ fn find_rust_files(dir: &Path) -> Result<Vec<PathBuf>> {
                 {
                     files.extend(find_rust_files(&path)?);
                 }
-            } else if path.extension().map_or(false, |e| e == "rs") {
+            } else if path.extension().is_some_and(|e| e == "rs") {
                 files.push(path);
             }
         }
@@ -496,7 +496,6 @@ Return JSON with patterns, anti_patterns, missing_patterns, and refactoring_sugg
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
 
     #[test]
     fn test_extract_function_name() {

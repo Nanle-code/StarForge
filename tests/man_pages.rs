@@ -21,10 +21,26 @@ fn build_script_generates_main_man_page() {
 fn build_script_generates_subcommand_man_pages() {
     let man_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("man");
     for name in &[
-        "wallet", "deploy", "network", "config", "template",
-        "plugin", "test", "gas", "benchmark", "tutorial",
-        "debug", "inspect", "contract", "new", "info",
-        "upgrade", "security", "perf", "docs", "analytics",
+        "wallet",
+        "deploy",
+        "network",
+        "config",
+        "template",
+        "plugin",
+        "test",
+        "gas",
+        "benchmark",
+        "tutorial",
+        "debug",
+        "inspect",
+        "contract",
+        "new",
+        "info",
+        "upgrade",
+        "security",
+        "perf",
+        "docs",
+        "analytics",
     ] {
         let page = man_dir.join(format!("starforge-{}.1", name));
         assert!(page.exists(), "man/starforge-{}.1 must exist", name);
@@ -55,8 +71,7 @@ fn man_pages_are_non_empty_roff() {
 #[test]
 fn main_man_page_has_required_sections() {
     let man_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("man");
-    let content = std::fs::read_to_string(man_dir.join("starforge.1"))
-        .expect("read starforge.1");
+    let content = std::fs::read_to_string(man_dir.join("starforge.1")).expect("read starforge.1");
     assert!(content.contains(".SH NAME"), "must contain NAME section");
     assert!(
         content.contains(".SH SYNOPSIS"),
@@ -121,7 +136,11 @@ fn man_pages_directory_has_expected_count() {
 #[test]
 fn unit_read_main_man_page() {
     let result = starforge::commands::man::read_man_page("starforge");
-    assert!(result.is_ok(), "should read main man page: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "should read main man page: {:?}",
+        result.err()
+    );
     let contents = result.unwrap();
     assert!(contents.contains(".SH NAME"), "must contain NAME section");
     assert!(contents.contains("starforge"), "must mention binary name");
@@ -130,7 +149,11 @@ fn unit_read_main_man_page() {
 #[test]
 fn unit_read_wallet_man_page() {
     let result = starforge::commands::man::read_man_page("wallet");
-    assert!(result.is_ok(), "should read wallet man page: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "should read wallet man page: {:?}",
+        result.err()
+    );
     let contents = result.unwrap();
     assert!(
         contents.contains("starforge-wallet"),

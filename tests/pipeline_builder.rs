@@ -10,7 +10,7 @@ fn temp_home() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
 
 fn write_minimal_wasm(path: &std::path::Path) {
     let mut bytes = b"\0asm\x01\0\0\0".to_vec();
-    bytes.extend(std::iter::repeat_n(0u8, 64));
+    bytes.extend(vec![0u8; 64]);
     std::fs::write(path, bytes).unwrap();
 }
 

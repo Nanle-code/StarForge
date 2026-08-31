@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -94,8 +93,7 @@ pub struct DocVersionRef {
 }
 
 fn docs_dir() -> Result<PathBuf> {
-    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
-    let dir = home.join(".starforge").join("docs");
+    let dir = crate::utils::config::config_dir().join("docs");
     if !dir.exists() {
         fs::create_dir_all(&dir).with_context(|| format!("Failed to create {}", dir.display()))?;
     }
@@ -115,6 +113,10 @@ fn contract_doc_dir(contract_id: &str) -> Result<PathBuf> {
     Ok(dir)
 }
 
+// Each parameter is an independent, named input (CLI flags / distinct config
+// values); bundling them into a struct here would add indirection without
+// reducing real complexity.
+#[allow(clippy::too_many_arguments)]
 pub fn generate_documentation(
     contract_id: &str,
     name: &str,

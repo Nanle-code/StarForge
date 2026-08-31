@@ -115,6 +115,15 @@ pub struct PluginManifest {
     /// Capabilities this AI plugin requires.
     #[serde(default)]
     pub required_capabilities: Vec<String>,
+    /// Optional publisher name or identifier.
+    #[serde(default)]
+    pub publisher: Option<String>,
+    /// Optional publisher public key (Stellar G-address or 32-byte hex key).
+    #[serde(default)]
+    pub publisher_key: Option<String>,
+    /// Optional Ed25519 cryptographic signature (hex or base64).
+    #[serde(default)]
+    pub signature: Option<String>,
 }
 
 impl PluginManifest {
@@ -136,10 +145,60 @@ impl PluginManifest {
                 "Plugin manifest: 'starforge_version' is required (the StarForge CLI version this plugin targets)"
             );
         }
-
         let policy = SupportedVersionPolicy::new(core_version);
         policy.evaluate(self)?;
 
+        Ok(())
+    }
+
+    /// Check if the manifest explicitly requests a specific capability.
+    pub fn has_capability(&self, capability: &str) -> bool {
+        let cap_lower = capability.to_lowercase();
+        self.required_capabilities.iter().any(|c| {
+            let existing = c.to_lowercase();
+            existing == cap_lower
+                || existing == "*"
+                || matches!(
+                    (existing.as_str(), cap_lower.as_str()),
+                    ("fs", "fs:read")
+                        | ("fs", "fs:write")
+                        | ("filesystem", "fs:read")
+                        | ("filesystem", "fs:write")
+                        | ("filesystemaccess", "fs:read")
+                        | ("filesystemaccess", "fs:write")
+                        | ("net", "network")
+                        | ("net", "net:http")
+                        | ("network", "net:http")
+                        | ("network", "net:ws")
+                        | ("networkaccess", "network")
+                        | ("networkaccess", "net:http")
+                )
+        })
+    }
+
+    /// Enforces that the plugin manifest has declared filesystem access capabilities.
+    pub fn enforce_filesystem_access(&self, write: bool) -> Result<()> {
+        let required = if write { "fs:write" } else { "fs:read" };
+        if !self.has_capability(required) {
+            anyhow::bail!(
+                "Plugin '{}' denied filesystem access: capability '{}' is not declared in {}",
+                self.name,
+                required,
+                MANIFEST_FILENAME
+            );
+        }
+        Ok(())
+    }
+
+    /// Enforces that the plugin manifest has declared network access capabilities.
+    pub fn enforce_network_access(&self) -> Result<()> {
+        if !self.has_capability("network") {
+            anyhow::bail!(
+                "Plugin '{}' denied network access: capability 'network' is not declared in {}",
+                self.name,
+                MANIFEST_FILENAME
+            );
+        }
         Ok(())
     }
 }
@@ -199,8 +258,8 @@ pub fn require_compatible_manifest(
                  This declares which StarForge CLI version the plugin is compatible with.",
                 MANIFEST_FILENAME,
                 install_name,
-                CORE_VERSION,
-            )
+                CORE_VERSION
+            );
         }
     }
 }
@@ -220,33 +279,23 @@ pub fn format_binary_incompatibility(plugin_core: &str, path: &str) -> String {
     )
 }
 
-pub fn parse_version_parts(v: &str) -> Option<(u64, u64, u64)> {
-    let clean = v.trim().trim_start_matches('v');
-    let mut parts = clean.split('.');
-    let major_str = parts.next()?;
-    let major_num = major_str.split('-').next()?.parse().ok()?;
-    let minor_str = parts.next().unwrap_or("0");
-    let minor_num = minor_str.split('-').next()?.parse().ok()?;
-    let patch_str = parts.next().unwrap_or("0");
-    let patch_num = patch_str.split('-').next()?.parse().ok()?;
-    Some((major_num, minor_num, patch_num))
+fn parse_version_parts(v: &str) -> Option<(u64, u64, u64)> {
+    let mut it = v.split('.');
+    let major = it.next()?.parse().ok()?;
+    let minor = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+    let patch = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
+    Some((major, minor, patch))
 }
 
-pub fn version_at_least(running: &str, required_min: &str) -> bool {
-    match (
-        parse_version_parts(running),
-        parse_version_parts(required_min),
-    ) {
+fn version_at_least(running: &str, min: &str) -> bool {
+    match (parse_version_parts(running), parse_version_parts(min)) {
         (Some(a), Some(b)) => a >= b,
         _ => true,
     }
 }
 
-pub fn version_at_most(running: &str, required_max: &str) -> bool {
-    match (
-        parse_version_parts(running),
-        parse_version_parts(required_max),
-    ) {
+fn version_at_most(running: &str, max: &str) -> bool {
+    match (parse_version_parts(running), parse_version_parts(max)) {
         (Some(a), Some(b)) => a <= b,
         _ => true,
     }
@@ -267,6 +316,9 @@ mod tests {
             starforge_version_min: None,
             starforge_version_max: None,
             required_capabilities: vec![],
+            publisher: None,
+            publisher_key: None,
+            signature: None,
         };
         assert!(manifest.validate().is_ok());
     }
@@ -288,8 +340,42 @@ mod tests {
             starforge_version_min: None,
             starforge_version_max: None,
             required_capabilities: vec![],
+            publisher: None,
+            publisher_key: None,
+            signature: None,
         };
         assert!(manifest.validate().is_err());
+    }
+
+    #[test]
+    fn manifest_enforces_filesystem_and_network_capabilities() {
+        let no_caps = PluginManifest {
+            name: "sandboxed".to_string(),
+            version: "1.0.0".to_string(),
+            starforge_version: CORE_VERSION.to_string(),
+            description: String::new(),
+            starforge_version_min: None,
+            starforge_version_max: None,
+            required_capabilities: vec![],
+        };
+
+        assert!(no_caps.enforce_filesystem_access(false).is_err());
+        assert!(no_caps.enforce_filesystem_access(true).is_err());
+        assert!(no_caps.enforce_network_access().is_err());
+
+        let with_caps = PluginManifest {
+            name: "privileged".to_string(),
+            version: "1.0.0".to_string(),
+            starforge_version: CORE_VERSION.to_string(),
+            description: String::new(),
+            starforge_version_min: None,
+            starforge_version_max: None,
+            required_capabilities: vec!["fs:read".to_string(), "network".to_string()],
+        };
+
+        assert!(with_caps.enforce_filesystem_access(false).is_ok());
+        assert!(with_caps.enforce_filesystem_access(true).is_err());
+        assert!(with_caps.enforce_network_access().is_ok());
     }
 
     #[test]
@@ -303,6 +389,7 @@ mod tests {
 name = "myplugin"
 version = "1.0.0"
 starforge_version = "{core}"
+required_capabilities = ["fs:read", "network"]
 "#,
                 core = CORE_VERSION
             ),
@@ -312,5 +399,7 @@ starforge_version = "{core}"
         fs::write(&lib, b"dummy").unwrap();
         let loaded = load_manifest_for_library(&lib).unwrap().unwrap();
         assert_eq!(loaded.name, "myplugin");
+        assert!(loaded.has_capability("fs:read"));
+        assert!(loaded.has_capability("network"));
     }
 }

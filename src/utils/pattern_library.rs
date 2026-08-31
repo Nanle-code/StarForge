@@ -10,11 +10,10 @@
 //!   indicators before the LLM call, giving the model a structured head-start.
 
 use anyhow::{Context, Result};
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::utils::config;
 

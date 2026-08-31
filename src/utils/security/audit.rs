@@ -112,6 +112,10 @@ pub fn run_audit(path: &Path, config: &AuditConfig) -> Result<AuditResult> {
     })
 }
 
+// Each parameter is an independent, named input (CLI flags / distinct config
+// values); bundling them into a struct here would add indirection without
+// reducing real complexity.
+#[allow(clippy::too_many_arguments)]
 fn collect_external_tool(
     tool: &str,
     env_vars: &[&str],

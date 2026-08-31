@@ -1,0 +1,22 @@
+# cargo-audit configuration for StarForge
+# Docs: https://rustsec.org/
+
+[advisories]
+ignore = [
+    # rustls-webpki 0.100/0.101 pulled in transitively via pinned ureq =2.7.1.
+    "RUSTSEC-2026-0098",
+    "RUSTSEC-2026-0099",
+    "RUSTSEC-2026-0104",
+    # number_prefix unmaintained; pulled in via indicatif. No safe upgrade.
+    "RUSTSEC-2025-0119",
+    # derivative + paste unmaintained; proc-macros under soroban-sdk dev-dependency.
+    "RUSTSEC-2024-0388",
+    "RUSTSEC-2024-0436",
+    # rustls-pemfile unmaintained in 1.0.4; reqwest 0.11 requires it.
+    "RUSTSEC-2025-0134",
+    # h2 unbounded empty DATA frames (CVSS low).
+    "RUSTSEC-2026-0258",
+    # time RFC 2822 stack exhaustion (incompatible with Rust 1.80 MSRV).
+    "RUSTSEC-2026-0009",
+]
+informational_warnings = ["unmaintained"]

@@ -649,7 +649,7 @@ fn chunk_text(content: &str, chunk_size: usize, overlap: usize) -> Vec<String> {
     if content.is_empty() {
         return vec![];
     }
-    let step = chunk_size.saturating_sub(overlap).max(1);
+    let _step = chunk_size.saturating_sub(overlap).max(1);
     let mut chunks = Vec::new();
     let mut start = 0usize;
     while start < content.len() {
@@ -1110,7 +1110,7 @@ impl DocQaEngine {
         }
 
         let analysis = analyze_question(question);
-        let answer_language = language.unwrap_or_else(|| analysis.language);
+        let answer_language = language.unwrap_or(analysis.language);
 
         let tokens = analysis.tokens.clone();
         let mut hits = self.index.retrieve(&tokens, 6, 1.0);
@@ -1178,7 +1178,7 @@ impl DocQaEngine {
                     language: answer_language,
                     confidence: estimate_confidence(&hits, &analysis),
                     mode: AnswerMode::Generated,
-                    follow_up_suggestions: follow_up_suggestions(&question, &analysis),
+                    follow_up_suggestions: follow_up_suggestions(question, &analysis),
                     latency_ms: started.elapsed().as_millis(),
                 },
                 Err(_) => extractive_answer(question, &hits, answer_language, started),
@@ -1470,7 +1470,6 @@ mod tests {
 
     #[test]
     fn test_retrieval_finds_relevant_chunk() {
-        let index = DocIndex::new();
         let chunks = builtin_knowledge_base();
         let index = DocIndex {
             chunks,

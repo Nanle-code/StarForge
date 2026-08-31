@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -239,11 +239,7 @@ impl AiTestGenerator {
     }
 
     /// Generate comprehensive test suite
-    pub async fn generate_test_suite(
-        &self,
-        target_file: &PathBuf,
-        code: &str,
-    ) -> Result<TestSuite> {
+    pub async fn generate_test_suite(&self, target_file: &Path, code: &str) -> Result<TestSuite> {
         let start_time = std::time::Instant::now();
 
         let analysis = self.analyze_code(code)?;
@@ -302,7 +298,7 @@ impl AiTestGenerator {
                 "{}_tests",
                 target_file.file_stem().unwrap().to_string_lossy()
             ),
-            target_file: target_file.clone(),
+            target_file: target_file.to_path_buf(),
             tests,
             coverage_estimate,
             generated_at: Utc::now(),
@@ -646,7 +642,7 @@ fn test_{}_regression() {{
             "// Estimated coverage: {:.1}%\n",
             suite.coverage_estimate * 100.0
         ));
-        output.push_str("\n");
+        output.push('\n');
 
         for test in &suite.tests {
             output.push_str(&format!("// {}\n", test.description));
@@ -655,7 +651,7 @@ fn test_{}_regression() {{
                 test.test_type, test.category
             ));
             output.push_str(&test.code);
-            output.push_str("\n");
+            output.push('\n');
         }
 
         std::fs::write(output_path, output).context("Failed to write test suite file")?;

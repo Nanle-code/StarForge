@@ -13,23 +13,16 @@ use starforge::utils::deployment_checkpoint::{
 use std::fs;
 use tempfile::TempDir;
 
-/// Serializes environment modifications across test threads.
-fn lock_env() -> std::sync::MutexGuard<'static, ()> {
-    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    LOCK.lock().unwrap_or_else(|p| p.into_inner())
-}
-
-fn setup_test_env() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
-    let guard = lock_env();
+fn setup_test_env() -> TempDir {
     let dir = TempDir::new().unwrap();
-    std::env::set_var("HOME", dir.path());
-    (dir, guard)
+    starforge::utils::config::set_test_config_dir(dir.path().to_path_buf());
+    dir
 }
 
 fn create_dummy_wasm(dir: &TempDir, name: &str) -> std::path::PathBuf {
     let path = dir.path().join(name);
     let mut bytes = b"\0asm\x01\0\0\0".to_vec();
-    bytes.extend(std::iter::repeat_n(0u8, 128));
+    bytes.extend(vec![0u8; 128]);
     fs::write(&path, bytes).unwrap();
     path
 }
@@ -48,7 +41,7 @@ fn create_empty_wasm(dir: &TempDir, name: &str) -> std::path::PathBuf {
 
 #[tokio::test]
 async fn test_primary_deployment_flow_creates_checkpoint() {
-    let (dir, _guard) = setup_test_env();
+    let dir = setup_test_env();
     let wasm = create_dummy_wasm(&dir, "contract.wasm");
 
     let config = DeploymentAutomationConfig {
@@ -93,7 +86,7 @@ async fn test_primary_deployment_flow_creates_checkpoint() {
 
 #[tokio::test]
 async fn test_interrupted_deployment_resumes_from_checkpoint() {
-    let (dir, _guard) = setup_test_env();
+    let dir = setup_test_env();
     let wasm = create_dummy_wasm(&dir, "contract.wasm");
     let wasm_bytes = fs::read(&wasm).unwrap();
     let wasm_hash = compute_wasm_content_hash(&wasm_bytes);
@@ -186,7 +179,7 @@ async fn test_interrupted_deployment_resumes_from_checkpoint() {
 
 #[tokio::test]
 async fn test_idempotent_reexecution() {
-    let (dir, _guard) = setup_test_env();
+    let dir = setup_test_env();
     let wasm = create_dummy_wasm(&dir, "contract.wasm");
 
     let config = DeploymentAutomationConfig {
@@ -214,7 +207,7 @@ async fn test_idempotent_reexecution() {
 
 #[tokio::test]
 async fn test_wasm_content_change_triggers_staleness_reset() {
-    let (dir, _guard) = setup_test_env();
+    let dir = setup_test_env();
     let wasm = create_dummy_wasm(&dir, "contract.wasm");
 
     let config = DeploymentAutomationConfig {
@@ -246,7 +239,7 @@ async fn test_wasm_content_change_triggers_staleness_reset() {
 
 #[tokio::test]
 async fn test_corrupted_checkpoint_recovery() {
-    let (dir, _guard) = setup_test_env();
+    let dir = setup_test_env();
     let wasm = create_dummy_wasm(&dir, "contract.wasm");
     let wasm_bytes = fs::read(&wasm).unwrap();
     let wasm_hash = compute_wasm_content_hash(&wasm_bytes);
@@ -278,7 +271,7 @@ async fn test_corrupted_checkpoint_recovery() {
 
 #[tokio::test]
 async fn test_schema_version_mismatch_resets() {
-    let (dir, _guard) = setup_test_env();
+    let dir = setup_test_env();
     let wasm = create_dummy_wasm(&dir, "contract.wasm");
     let wasm_bytes = fs::read(&wasm).unwrap();
     let wasm_hash = compute_wasm_content_hash(&wasm_bytes);
@@ -329,7 +322,7 @@ async fn test_schema_version_mismatch_resets() {
 
 #[tokio::test]
 async fn test_concurrency_lock_prevents_duplicate_run() {
-    let (dir, _guard) = setup_test_env();
+    let dir = setup_test_env();
     let wasm = create_dummy_wasm(&dir, "contract.wasm");
     let wasm_bytes = fs::read(&wasm).unwrap();
     let wasm_hash = compute_wasm_content_hash(&wasm_bytes);
@@ -358,7 +351,7 @@ async fn test_concurrency_lock_prevents_duplicate_run() {
 
 #[tokio::test]
 async fn test_fast_fail_invalid_inputs_and_unsupported_network() {
-    let (dir, _guard) = setup_test_env();
+    let dir = setup_test_env();
 
     // Case 1: WASM file does not exist
     let cfg1 = DeploymentAutomationConfig {
@@ -434,7 +427,7 @@ async fn test_fast_fail_invalid_inputs_and_unsupported_network() {
 
 #[test]
 fn test_orchestrate_resumability_and_idempotency() {
-    let (dir, _guard) = setup_test_env();
+    let dir = setup_test_env();
     let wasm_a = create_dummy_wasm(&dir, "a.wasm");
     let wasm_b = create_dummy_wasm(&dir, "b.wasm");
 

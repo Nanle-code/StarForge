@@ -3,7 +3,7 @@
 //! Provides robust error handling for AI operations with automatic recovery,
 //! fallback mechanisms, and user-friendly error messages.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -161,25 +161,13 @@ impl ProviderConfig {
 }
 
 /// Error analytics tracker
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ErrorAnalytics {
     pub total_errors: u64,
     pub errors_by_category: HashMap<AiErrorCategory, u64>,
     pub errors_by_provider: HashMap<String, u64>,
     pub successful_recoveries: u64,
     pub failed_recoveries: u64,
-}
-
-impl Default for ErrorAnalytics {
-    fn default() -> Self {
-        ErrorAnalytics {
-            total_errors: 0,
-            errors_by_category: HashMap::new(),
-            errors_by_provider: HashMap::new(),
-            successful_recoveries: 0,
-            failed_recoveries: 0,
-        }
-    }
 }
 
 impl ErrorAnalytics {

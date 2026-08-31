@@ -29,20 +29,15 @@ use crate::utils::history::HistoryEntry;
 // ── Public types ──────────────────────────────────────────────────────────────
 
 /// A coarse expertise tier used to tune tip verbosity.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Expertise {
     /// Few or no prior commands in this area — keep tips short and concrete.
+    #[default]
     Beginner,
     /// Some prior commands — surface intermediate tips and best practices.
     Intermediate,
     /// Many recent commands — prefer concise, power-user pointers.
     Advanced,
-}
-
-impl Default for Expertise {
-    fn default() -> Self {
-        Expertise::Beginner
-    }
 }
 
 impl Expertise {
@@ -78,13 +73,13 @@ pub struct HelpContext<'a> {
 impl<'a> HelpContext<'a> {
     /// True when category `cat` should be considered enabled.
     pub fn category_enabled(&self, cat: &str) -> bool {
-        if self.disabled_categories.iter().any(|c| *c == cat) {
+        if self.disabled_categories.contains(&cat) {
             return false;
         }
         if self.enabled_categories.is_empty() {
             true
         } else {
-            self.enabled_categories.iter().any(|c| *c == cat)
+            self.enabled_categories.contains(&cat)
         }
     }
 }
@@ -306,15 +301,15 @@ pub fn expertise_level(category: &str, history: &[HistoryEntry]) -> Expertise {
     let mut weight: u32 = 0;
     let mut recent_count: u32 = 0;
     for entry in history {
-        let secs = now
-            .signed_duration_since(entry.last_used)
-            .num_seconds()
-            .max(0);
-        let recency: f32 = if secs < 86_400 {
+        // Bucket by whole days rather than seconds: "used yesterday" should
+        // count as recent, and a seconds comparison puts an entry exactly one
+        // day old on the wrong side of the boundary.
+        let days = now.signed_duration_since(entry.last_used).num_days().max(0);
+        let recency: f32 = if days <= 1 {
             1.0
-        } else if secs < 86_400 * 7 {
+        } else if days <= 7 {
             0.6
-        } else if secs < 86_400 * 30 {
+        } else if days <= 30 {
             0.3
         } else {
             0.1
@@ -332,10 +327,14 @@ pub fn expertise_level(category: &str, history: &[HistoryEntry]) -> Expertise {
         }
     }
 
+    // Roughly: a handful of recent uses is intermediate, sustained use across
+    // several days is advanced. The advanced threshold sits at 15 so that a
+    // user with ~5 recent sessions spread over a few days clears it once the
+    // recency weighting is applied.
     match (recent_count, weight) {
         (0, _) => Expertise::Beginner,
-        (_, w) if w >= 19 => Expertise::Advanced,
-        (_, w) if w >= 5 => Expertise::Intermediate,
+        (_, w) if w >= 15 => Expertise::Advanced,
+        (_, w) if w >= 6 => Expertise::Intermediate,
         _ => Expertise::Beginner,
     }
 }
@@ -393,7 +392,7 @@ pub const PROACTIVE_BLOCKLIST: &[&str] = &["help", "info", "completions", "versi
 /// worth saying OR if the command is on the [[PROACTIVE_BLOCKLIST]].
 pub fn proactive_tip(command: &str, history: &[HistoryEntry]) -> Option<String> {
     let cmd = command.trim().to_lowercase();
-    if PROACTIVE_BLOCKLIST.iter().any(|c| *c == cmd.as_str()) {
+    if PROACTIVE_BLOCKLIST.contains(&cmd.as_str()) {
         return None;
     }
 
@@ -578,7 +577,14 @@ mod tests {
             "missing --wasm flag in {:?}",
             h.flags_and_examples
         );
-        assert!(h.flags_and_examples.iter().any(|s| s.contains("rebuilt")));
+        // Examples are rendered into the same list as flags.
+        assert!(
+            h.flags_and_examples
+                .iter()
+                .any(|s| s.contains("starforge deploy --wasm")),
+            "missing a deploy example in {:?}",
+            h.flags_and_examples
+        );
     }
 
     #[test]
@@ -588,7 +594,11 @@ mod tests {
             ..HelpContext::default()
         };
         let h = generate_help(&ctx);
-        assert!(h.description.contains("No dedicated help"));
+        assert!(
+            h.description.contains("No dedicated help"),
+            "got {:?}",
+            h.description
+        );
         assert!(h.flags_and_examples.is_empty());
         assert!(h.workflow_suggestions.is_empty());
     }
@@ -765,12 +775,18 @@ mod tests {
     fn troubleshoot_merging_does_not_duplicate() {
         let mut existing = vec!["Already-known hint".to_string()];
         troubleshoot_merging("require_auth failed", &mut existing);
-        let len_after_first = existing.len();
+        let after_first = existing.len();
+        assert!(
+            after_first > 1,
+            "expected the auth fixes to be merged in: {:?}",
+            existing
+        );
+
         troubleshoot_merging("require_auth failed", &mut existing);
         assert_eq!(
             existing.len(),
-            len_after_first,
-            "duplicated: {:?}",
+            after_first,
+            "merging the same error twice duplicated hints: {:?}",
             existing
         );
     }

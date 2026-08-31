@@ -25,22 +25,81 @@ pub enum ManCommand {
 
 /// Known subcommands that have man pages (must match build.rs SUBCOMMAND_INFO).
 const KNOWN_PAGES: &[&str] = &[
-    "ai-debug", "ai-navigate", "ai-quality-gate", "ai",
-    "wallet", "nl", "new", "contract", "generate", "complete",
-    "debug", "inspect", "deploy", "deployments", "info",
-    "prompts", "explain", "config", "telemetry", "tx",
-    "network", "node", "completions", "autocomplete", "shell",
-    "monitor", "tutorial", "benchmark", "test", "gas", "cost",
-    "plugin", "privacy", "project", "template", "registry",
-    "multisig", "upgrade", "governance", "orchestrate", "pipeline",
-    "security", "audit", "ai-audit", "ai-test", "ai-property-test",
-    "ai-feedback", "ai-search", "ai-recommend", "ai-route", "ai-plan",
-    "ai-accessibility", "ai-contract-suggest", "ai-doc-qa",
-    "schedule", "simulate", "backup", "lint", "diagnostics",
-    "template-vcs", "perf", "advanced-perf", "docs", "analytics",
-    "approval", "feature-flags", "migrate", "collab", "verify",
-    "help", "ai-telemetry", "optimize", "ai-security-training",
-    "contract-monitor", "man",
+    "ai-debug",
+    "ai-navigate",
+    "ai-quality-gate",
+    "ai",
+    "wallet",
+    "nl",
+    "new",
+    "contract",
+    "generate",
+    "complete",
+    "debug",
+    "inspect",
+    "deploy",
+    "deployments",
+    "info",
+    "prompts",
+    "explain",
+    "config",
+    "telemetry",
+    "tx",
+    "network",
+    "node",
+    "completions",
+    "autocomplete",
+    "shell",
+    "monitor",
+    "tutorial",
+    "benchmark",
+    "test",
+    "gas",
+    "cost",
+    "plugin",
+    "privacy",
+    "project",
+    "template",
+    "registry",
+    "multisig",
+    "upgrade",
+    "governance",
+    "orchestrate",
+    "pipeline",
+    "security",
+    "audit",
+    "ai-audit",
+    "ai-test",
+    "ai-property-test",
+    "ai-feedback",
+    "ai-search",
+    "ai-recommend",
+    "ai-route",
+    "ai-plan",
+    "ai-accessibility",
+    "ai-contract-suggest",
+    "ai-doc-qa",
+    "schedule",
+    "simulate",
+    "backup",
+    "lint",
+    "diagnostics",
+    "template-vcs",
+    "perf",
+    "advanced-perf",
+    "docs",
+    "analytics",
+    "approval",
+    "feature-flags",
+    "migrate",
+    "collab",
+    "verify",
+    "help",
+    "ai-telemetry",
+    "optimize",
+    "ai-security-training",
+    "contract-monitor",
+    "man",
 ];
 
 fn man_dir() -> Option<PathBuf> {
@@ -157,18 +216,11 @@ fn handle_install(dir: Option<&std::path::Path>) -> Result<()> {
     };
 
     let source_dir = man_dir().ok_or_else(|| {
-        anyhow::anyhow!(
-            "Man pages not found. Build the project first (cargo build)."
-        )
+        anyhow::anyhow!("Man pages not found. Build the project first (cargo build).")
     })?;
 
-    std::fs::create_dir_all(&out_dir).map_err(|e| {
-        anyhow::anyhow!(
-            "Failed to create directory {}: {}",
-            out_dir.display(),
-            e
-        )
-    })?;
+    std::fs::create_dir_all(&out_dir)
+        .map_err(|e| anyhow::anyhow!("Failed to create directory {}: {}", out_dir.display(), e))?;
 
     let mut installed = Vec::new();
 
@@ -217,7 +269,11 @@ mod tests {
     #[test]
     fn read_main_man_page_works() {
         let result = read_man_page("starforge");
-        assert!(result.is_ok(), "should read main man page: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "should read main man page: {:?}",
+            result.err()
+        );
         let contents = result.unwrap();
         assert!(contents.contains(".SH NAME"), "must contain NAME section");
     }
@@ -225,7 +281,11 @@ mod tests {
     #[test]
     fn read_wallet_man_page_works() {
         let result = read_man_page("wallet");
-        assert!(result.is_ok(), "should read wallet man page: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "should read wallet man page: {:?}",
+            result.err()
+        );
         let contents = result.unwrap();
         assert!(
             contents.contains("starforge-wallet"),

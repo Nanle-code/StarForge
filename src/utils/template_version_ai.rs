@@ -2,7 +2,6 @@ use crate::utils::ollama;
 use crate::utils::template_vcs::{get_version_history, TemplateChangelog, TemplateVersion};
 use anyhow::{Context, Result};
 use semver::Version;
-use std::fs;
 use std::path::Path;
 use std::process::Command;
 
@@ -334,9 +333,9 @@ fn extract_list(text: &str, section: &str) -> Vec<String> {
     };
 
     let slice = &text[start + section.len()..];
-    let mut lines = slice.lines().skip_while(|l| l.trim().is_empty());
+    let lines = slice.lines().skip_while(|l| l.trim().is_empty());
 
-    while let Some(line) = lines.next() {
+    for line in lines {
         let line = line.trim();
         if line.is_empty() || line.contains(':') && !line.starts_with('-') {
             break;

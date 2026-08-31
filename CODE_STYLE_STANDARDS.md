@@ -481,27 +481,49 @@ cargo clippy -- -W clippy::needless_clone
 
 ### Project-Specific Allowances
 
-The StarForge project allows these clippy rules in specific circumstances. See `src/main.rs` for the global allowlist:
+**There is no crate-wide lint allowlist.** `src/lib.rs` and `src/main.rs` used to
+carry a blanket `#![allow(dead_code, unused, clippy::all)]`, and `Cargo.toml`
+carried a matching `[lints]` table — together these silenced essentially every
+default Clippy lint group (correctness, suspicious, style, complexity, perf)
+across the *entire* ~40k-line crate, not just the handful of patterns the
+comments claimed to cover. That's exactly backwards: it hid real bugs (see
+below) behind the same blanket that was meant to excuse a few CLI functions
+with many arguments.
+
+Every remaining `#[allow(...)]` in the codebase is now **scoped to the single
+item that needs it** — a function, struct, or field — with a comment
+immediately above explaining *why*:
 
 ```rust
-#![allow(
-    dead_code,                           // Some plugin infrastructure code is unused until plugins load it
-    clippy::needless_range_loop,         // Sometimes more readable than alternatives
-    clippy::redundant_closure,           // Used intentionally for clarity in some cases
-    clippy::too_many_arguments,          // Complex CLI commands require many arguments
-    clippy::type_complexity,             // Some type definitions are inherently complex
-    clippy::unnecessary_lazy_evaluations // Some expressions are evaluated for side effects
-)]
+// Each parameter is an independent, named input (CLI flags / distinct config
+// values); bundling them into a struct here would add indirection without
+// reducing real complexity.
+#[allow(clippy::too_many_arguments)]
+async fn monitor_contract(
+    contract_id: &str,
+    events_filter: Option<&str>,
+    // ...
+) -> Result<()> {
 ```
 
-**When to add to this allowlist:**
-- Only for **unavoidable** patterns
-- Document *why* with a comment
-- Discuss with maintainers before merging
+**When to add a scoped allow:**
+- Only on the specific item that triggers it — never on a module, and never
+  crate-wide.
+- Only for patterns that are genuinely **unavoidable or clearly intentional**
+  for that one item, not as a shortcut past a warning you haven't looked at.
+- Always with a comment explaining *why*, not just restating the lint name.
+- `dead_code` is the one lint where "unavoidable" usually means "not wired up
+  yet, but deleting it isn't this change's call to make" — that's a valid
+  reason, but say so explicitly rather than leaving the allow unexplained.
 
-```rust
-#![allow(clippy::too_many_arguments)]  // Contract CLI requires many parameters for optimization context
-```
+**What restoring this signal found:** with the blanket removed,
+`cargo clippy --all-features` went from silently clean to over 2000
+warnings — 94% of them were the single mechanical `uninlined_format_args`
+style lint (fixed via `cargo clippy --fix`), but the rest included real
+defects the blanket had been hiding, e.g. a constructed template changelog
+entry that was built and then silently discarded (`changelog: None` instead
+of `Some(changelog)`) and unreachable branches. Local, documented exceptions
+don't have that failure mode: each one is small enough to actually read.
 
 **When NOT to add:**
 - "I don't want to refactor" — do the refactor

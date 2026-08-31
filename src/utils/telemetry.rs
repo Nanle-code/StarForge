@@ -3,9 +3,10 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::path::PathBuf;
 use uuid::Uuid;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TelemetryData {
     pub timestamp: DateTime<Utc>,
     pub event: String,
@@ -13,22 +14,75 @@ pub struct TelemetryData {
     pub anonymous_id: String,
 }
 
-pub fn track_event(event: &str, properties: serde_json::Value) -> Result<()> {
-    // Check environment variable first (for CI/automation that cannot modify config)
+pub fn telemetry_log_path() -> Result<PathBuf> {
+    Ok(config::get_data_dir()?.join("telemetry.log"))
+}
+
+pub fn is_telemetry_enabled() -> bool {
     if let Ok(env_val) = std::env::var("STARFORGE_TELEMETRY") {
-        let disabled = matches!(
-            env_val.to_lowercase().as_str(),
+        let enabled = !matches!(
+            env_val.trim().to_ascii_lowercase().as_str(),
             "0" | "false" | "off" | "disabled" | "no"
         );
-        if disabled {
-            return Ok(());
+        if env_val.trim() == "" {
+            return false;
         }
+        return enabled;
     }
 
-    let cfg = config::load()?;
+    let cfg = match config::load() {
+        Ok(cfg) => cfg,
+        Err(_) => return false,
+    };
 
-    // Check if telemetry is enabled (default to true, but respect opt-out)
-    if !cfg.telemetry_enabled.unwrap_or(true) {
+    cfg.telemetry_enabled.unwrap_or(false)
+}
+
+pub fn read_events() -> Result<Vec<TelemetryData>> {
+    let path = telemetry_log_path()?;
+    if !path.exists() {
+        return Ok(vec![]);
+    }
+
+    let contents = fs::read_to_string(path)?;
+    let mut events = Vec::new();
+    for line in contents.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Ok(event) = serde_json::from_str::<TelemetryData>(line) {
+            events.push(event);
+        }
+    }
+    Ok(events)
+}
+
+pub fn show_payload() -> Result<Option<String>> {
+    let events = read_events()?;
+    let last = events.last().cloned();
+    match last {
+        Some(event) => Ok(Some(serde_json::to_string_pretty(&event)?)),
+        None => Ok(None),
+    }
+}
+
+pub fn reset() -> Result<()> {
+    let data_dir = config::get_data_dir()?;
+    let telemetry_log = data_dir.join("telemetry.log");
+    let anonymous_id = data_dir.join("anonymous_id");
+
+    if telemetry_log.exists() {
+        fs::remove_file(telemetry_log)?;
+    }
+    if anonymous_id.exists() {
+        fs::remove_file(anonymous_id)?;
+    }
+
+    Ok(())
+}
+
+pub fn track_event(event: &str, properties: serde_json::Value) -> Result<()> {
+    if !is_telemetry_enabled() {
         return Ok(());
     }
 
@@ -48,8 +102,6 @@ pub fn track_event(event: &str, properties: serde_json::Value) -> Result<()> {
         anonymous_id,
     };
 
-    // Telemetry is saved ONLY locally in the data directory.
-    // Absolutely NO network requests are made for telemetry transmission.
     save_telemetry_locally(&data)?;
 
     Ok(())

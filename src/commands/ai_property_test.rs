@@ -321,7 +321,7 @@ fn handle_edge_cases(args: EdgeCasesArgs) -> Result<()> {
             .filter(|p| {
                 p.target_function
                     .as_ref()
-                    .map_or(false, |f| args.functions.contains(f))
+                    .is_some_and(|f| args.functions.contains(f))
             })
             .collect()
     };
@@ -394,11 +394,14 @@ async fn handle_shrink(args: ShrinkArgs) -> Result<()> {
             confidence: 0.5,
         };
         let prop = properties.first().unwrap_or(&default_prop);
-        let shrink =
-            apt::generate_test_cases(&[prop.clone()], &[], &apt::PropertyTestConfig::default())
-                .first()
-                .and_then(|tc| tc.shrink_strategy.clone())
-                .unwrap_or_else(|| "shrink numerics toward 0, strings toward empty".to_string());
+        let shrink = apt::generate_test_cases(
+            std::slice::from_ref(prop),
+            &[],
+            &apt::PropertyTestConfig::default(),
+        )
+        .first()
+        .and_then(|tc| tc.shrink_strategy.clone())
+        .unwrap_or_else(|| "shrink numerics toward 0, strings toward empty".to_string());
 
         match args.format.as_str() {
             "json" => {

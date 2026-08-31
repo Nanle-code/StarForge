@@ -219,6 +219,72 @@ starforge multisig notify proposal.json --channel slack --webhook https://...
 
 ---
 
+## Audit Log Format (Signer/Threshold Change Detection)
+
+Every detected change to an account's signer set (additions, removals,
+weight edits, threshold changes, or a master-weight change) is recorded into a
+local **append-only, integrity-protected** audit log for operators. The
+implementation lives in `src/utils/multisig_audit.rs`.
+
+### Log location
+
+The log is a newline-delimited JSON (`.jsonl`) file at:
+
+```
+<home>/.starforge/audit/multisig_signer_changes.jsonl
+```
+
+`<home>` resolves to `$USERPROFILE` / `$HOME` when set, otherwise the OS home
+directory (`dirs::home_dir`). Supporting snapshots used for diffing are kept in
+`<home>/.starforge/audit/multisig_state/`. The file is only ever opened in
+append mode; existing records are never rewritten or deleted.
+
+### Record fields
+
+Each line is a single JSON object with these fields:
+
+| Field                  | Type            | Description                                                        |
+| ---------------------- | --------------- | ------------------------------------------------------------------ |
+| `seq`                  | `u64`           | Monotonically increasing record sequence number                    |
+| `at`                   | `string`        | RFC3339 UTC timestamp of the observation                           |
+| `account_id`           | `string`        | Multisig account being observed                                    |
+| `network`              | `string`        | Network the account lives on (e.g. `testnet`, `mainnet`)           |
+| `kind`                 | `string`        | `baseline`, `add_signer`, `remove_signer`, `weight_change`, `threshold_change`, `master_weight_change` |
+| `added`                | `array`         | Signers added since the previous snapshot                          |
+| `removed`              | `array`         | Signers removed since the previous snapshot                        |
+| `weights_changed`      | `array`         | Weight edits (`public_key`, `old_weight`, `new_weight`)            |
+| `thresholds_changed`   | `array`         | Threshold edits (`level` `low`/`medium`/`high`, `old_value`, `new_value`) |
+| `master_weight_changed`| `[u8, u8]` \| null | Master-weight change as `(old, new)`, or `null`                 |
+| `alert`                | `bool`          | `true` when flagged unexpected while monitoring is enabled         |
+| `note`                 | `string` \| null | Optional alert / context message                                   |
+| `prev_hash`            | `string`        | SHA-256 of the preceding record; `"0"` for the first record        |
+| `hash`                 | `string`        | SHA-256 of this record's canonical payload (excludes `hash`)       |
+
+### Integrity model (hash chain)
+
+Each record's `hash` is the SHA-256 digest of its canonical payload
+(`seq`, `at`, `account_id`, `network`, `kind`, the change vectors, `alert`,
+`note`, and `prev_hash`). The `prev_hash` of every record equals the `hash` of
+the record that immediately precedes it; the first record's `prev_hash` is
+`"0"`. This chaining means that rewriting, deleting, reordering, or inserting
+any record breaks the chain and is detectable.
+
+### Verification
+
+`multisig_audit::verify_audit_log(&records)` returns every integrity violation:
+
+- the stored `hash` does not match the recomputed digest over the record's
+  audit payload, or
+- the record's `prev_hash` does not match the previous record's `hash`
+  (i.e. a broken chain link).
+
+The signer-change feature is covered by the unit tests in
+`src/utils/multisig_audit.rs` (diff, alerting, hash-chain/verify) and the
+integration tests in `tests/multisig_signer_audit.rs`, including an audit-log
+tamper test that confirms modifications are detected.
+
+---
+
 ## Acceptance Sign-Off
 
 - [ ] All commands functional

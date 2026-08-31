@@ -38,7 +38,7 @@ fn write_wasm(dir: &Path) -> std::path::PathBuf {
         bytes.extend_from_slice(name.as_bytes());
         bytes.push(0);
     }
-    bytes.extend(std::iter::repeat_n(0u8, 4096));
+    bytes.extend(vec![0u8; 4096]);
 
     let path = dir.join("contract.wasm");
     std::fs::write(&path, bytes).expect("write wasm fixture");

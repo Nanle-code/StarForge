@@ -312,7 +312,7 @@ pub fn match_voice_command(input: &str) -> Option<VoiceCommandMatch> {
                         confidence,
                         matched_phrase: phrase.clone(),
                     };
-                    if best.as_ref().is_none_or(|(_, c)| confidence > *c) {
+                    if best.as_ref().map_or(true, |(_, c)| confidence > *c) {
                         best = Some((m, confidence));
                     }
                 }
@@ -635,7 +635,7 @@ pub fn check_wcag_compliance(text: &str, level: WcagLevel) -> WcagCheckResult {
     checks_passed += 1;
 
     // 2.4.2 Page Titled — has identifiable heading
-    if text.lines().next().is_none_or(|l| l.trim().is_empty()) {
+    if text.lines().next().map_or(true, |l| l.trim().is_empty()) {
         violations.push(WcagViolation {
             criterion: "2.4.2".into(),
             description: "Output lacks a descriptive heading".into(),

@@ -29,6 +29,8 @@ pub enum VerifyCommands {
     Ci(CiArgs),
     /// Visualize verification results as an ASCII chart
     Visualize(VisualizeArgs),
+    /// Verify Cargo.lock reproducibility across supported platforms
+    Lockfile(LockfileArgs),
 }
 
 #[derive(Subcommand)]
@@ -135,6 +137,19 @@ pub struct CiArgs {
     /// Contract label to embed in the snippet
     #[arg(long, default_value = "my-contract")]
     pub contract: String,
+}
+
+#[derive(Args)]
+pub struct LockfileArgs {
+    /// Target project directory containing Cargo.toml and Cargo.lock (defaults to current directory)
+    #[arg(long, short)]
+    pub path: Option<PathBuf>,
+    /// Output results in JSON format
+    #[arg(long)]
+    pub json: bool,
+    /// Treat non-critical warnings as failure violations
+    #[arg(long)]
+    pub strict: bool,
 }
 
 // ── Data structures ───────────────────────────────────────────────────────────
@@ -382,6 +397,7 @@ pub async fn handle(cmd: VerifyCommands) -> Result<()> {
         VerifyCommands::Reports(args) => handle_reports(args),
         VerifyCommands::Ci(args) => handle_ci(args),
         VerifyCommands::Visualize(args) => handle_visualize(args),
+        VerifyCommands::Lockfile(args) => handle_lockfile(args),
     }
 }
 
@@ -518,7 +534,7 @@ fn handle_property_list(args: PropertyListArgs) -> Result<()> {
     let props = load_properties()?;
     let filtered: Vec<_> = props
         .iter()
-        .filter(|p| args.contract.as_deref().is_none_or(|c| p.contract == c))
+        .filter(|p| args.contract.as_deref().map_or(true, |c| p.contract == c))
         .collect();
 
     if filtered.is_empty() {
@@ -748,7 +764,7 @@ fn handle_reports(args: ReportsArgs) -> Result<()> {
     let reports = load_reports()?;
     let filtered: Vec<_> = reports
         .iter()
-        .filter(|r| args.contract.as_deref().is_none_or(|c| r.contract == c))
+        .filter(|r| args.contract.as_deref().map_or(true, |c| r.contract == c))
         .collect();
 
     if filtered.is_empty() {
@@ -947,6 +963,69 @@ fn handle_visualize(args: VisualizeArgs) -> Result<()> {
         println!();
         p::success("All checked properties passed or are proven");
     }
+    Ok(())
+}
+
+fn handle_lockfile(args: LockfileArgs) -> Result<()> {
+    use crate::utils::cargo_lock::{
+        verify_cargo_lock_reproducibility, CargoLockVerificationConfig,
+    };
+
+    let project_dir = args.path.unwrap_or_else(|| PathBuf::from("."));
+    let config = CargoLockVerificationConfig {
+        project_dir,
+        strict: args.strict,
+    };
+
+    let result = verify_cargo_lock_reproducibility(&config)?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        p::header("Cargo.lock Reproducibility Check");
+        p::kv("Project Path", &result.project_dir);
+        p::kv(
+            "Cargo.toml Manifest",
+            if result.has_manifest {
+                "Found"
+            } else {
+                "Missing"
+            },
+        );
+        p::kv(
+            "Cargo.lock File",
+            if result.has_lockfile {
+                "Found"
+            } else {
+                "Missing"
+            },
+        );
+
+        if result.is_ok() {
+            p::success("Cargo.lock is reproducible and unmutated under locked resolution.");
+        } else {
+            p::separator();
+            if let Some(err) = &result.resolution_error {
+                p::warn("Resolution Error:");
+                println!("{}", err);
+            }
+            if let Some(diff) = &result.diff_summary {
+                p::warn("Lockfile Mutation Diff:");
+                println!("{}", diff);
+            }
+            for v in &result.violations {
+                p::warn(&format!("Violation: {}", v));
+            }
+        }
+    }
+
+    if !result.is_ok() {
+        anyhow::bail!(
+            "Cargo.lock reproducibility verification failed with {} violation(s).",
+            result.violations.len()
+        );
+    }
+
     Ok(())
 }
 

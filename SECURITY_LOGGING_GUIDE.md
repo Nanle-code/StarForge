@@ -271,6 +271,12 @@ StarForge uses structured logging for machine-parseability. Each log entry inclu
 | Remove | name, confirmation, result | Public |
 | Rotate | name, new_account_created, result | Public |
 
+Confirmation prompts log structured outcomes at `INFO` (`confirmation_action`,
+`confirmation_network`, `confirmation_outcome`, `confirmation_unsafe_bypass`).
+Typed challenge phrases and secrets are **never** logged. See
+[docs/CONFIRMATION_UX.md](docs/CONFIRMATION_UX.md) and the
+`STARFORGE_UNSAFE_SKIP_CONFIRMATION` bypass flag.
+
 **Never log:** Secret keys, passphrases, private key material
 
 ### Plugin Management
@@ -290,6 +296,7 @@ StarForge uses structured logging for machine-parseability. Each log entry inclu
 |-----------|------|-------------|
 | Validate | file_path, file_size, validation_result | Public |
 | Deploy | network, account (redacted), hash, gas, result | Public |
+| Deploy policy | policy path, organization, rule, violation (no secrets) | Public |
 | Inspect | address (redacted), network, inspection_result | Public |
 | Invoke | address (redacted), function, param_count, result | Public |
 

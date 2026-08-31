@@ -605,7 +605,7 @@ fn handle_list(args: ListArgs) -> Result<()> {
         .filter(|p| {
             args.contract_id
                 .as_deref()
-                .is_none_or(|id| p.contract_id == id)
+                .map_or(true, |id| p.contract_id == id)
         })
         .collect();
 
@@ -896,6 +896,7 @@ async fn handle_execute(args: ExecuteArgs) -> Result<()> {
         dry_run: false,
         prompt: Some("Execute this upgrade?".to_string()),
         require_type_confirmation: args.network == "mainnet",
+        ..Default::default()
     };
 
     if !confirmation::confirm_operation(&summary, &confirm_config)? {
@@ -1042,6 +1043,7 @@ fn handle_rollback(args: RollbackArgs) -> Result<()> {
         dry_run: false,
         prompt: Some("Proceed with rollback?".to_string()),
         require_type_confirmation: args.network == "mainnet",
+        ..Default::default()
     };
 
     if !confirmation::confirm_operation(&summary, &confirm_config)? {
@@ -1144,22 +1146,41 @@ fn resolve_wallet<'a>(
 mod tests {
     use super::*;
 
+    /// Minimal valid WASM: the magic header plus a version, with `suffix`
+    /// appended so different fixtures hash differently.
+    ///
+    /// `wasm_hash` rejects input that is not WASM, so fixtures have to carry
+    /// the real header.
+    fn minimal_wasm(suffix: &[u8]) -> Vec<u8> {
+        let mut bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+        bytes.extend_from_slice(suffix);
+        bytes
+    }
+
     #[test]
     fn wasm_hash_is_deterministic() {
-        let bytes = b"\0asmmock wasm content";
-        assert_eq!(wasm_hash(bytes), wasm_hash(bytes));
+        let bytes = minimal_wasm(b"mock wasm content");
+        assert_eq!(wasm_hash(&bytes), wasm_hash(&bytes));
     }
 
     #[test]
     fn wasm_hash_differs_for_different_input() {
-        assert_ne!(wasm_hash(b"\0asmversion1"), wasm_hash(b"\0asmversion2"));
+        assert_ne!(
+            wasm_hash(&minimal_wasm(b"version1")),
+            wasm_hash(&minimal_wasm(b"version2"))
+        );
     }
 
     #[test]
     fn wasm_hash_is_64_hex_chars() {
-        let hash = wasm_hash(b"\0asmtest");
+        let hash = wasm_hash(&minimal_wasm(b"test"));
         assert_eq!(hash.len(), 64);
         assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn wasm_hash_rejects_input_that_is_not_wasm() {
+        assert!(compute_wasm_hash(b"not wasm", BuildEnvironment::current()).is_err());
     }
 
     #[test]

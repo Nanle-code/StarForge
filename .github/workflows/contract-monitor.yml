@@ -1,0 +1,73 @@
+name: Contract Monitoring
+
+on:
+  schedule:
+    # Run every 30 minutes
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+    inputs:
+      contract_id:
+        description: Soroban contract ID to monitor
+        required: true
+        type: string
+      network:
+        description: Network
+        required: false
+        default: testnet
+        type: choice
+        options: [testnet, mainnet]
+
+permissions:
+  contents: read
+
+jobs:
+  monitor:
+    name: Monitor Contract Health
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+      - name: Build starforge
+        run: cargo build --locked --release && cp target/release/starforge /usr/local/bin/starforge
+      - name: Inspect contract state
+        id: inspect
+        run: |
+          CONTRACT_ID="${{ inputs.contract_id || secrets.STARFORGE_CONTRACT_ID }}"
+          NETWORK="${{ inputs.network || 'testnet' }}"
+          if [ -n "$CONTRACT_ID" ]; then
+            starforge inspect state "$CONTRACT_ID" --network "$NETWORK" --json > monitor-output.json 2>&1 || echo '{"error": true}' > monitor-output.json
+            echo "contract_id=$CONTRACT_ID" >> "$GITHUB_OUTPUT"
+            echo "network=$NETWORK" >> "$GITHUB_OUTPUT"
+          else
+            echo "No contract ID configured — skipping inspection"
+          fi
+        continue-on-error: true
+      - name: Upload monitoring snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: monitor-snapshot-${{ github.run_number }}
+          path: monitor-output.json
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Notify on anomaly
+        if: ${{ failure() && secrets.SLACK_WEBHOOK_URL != '' }}
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "⚠️ Contract monitoring alert",
+              "attachments": [{
+                "color": "warning",
+                "fields": [
+                  { "title": "Contract ID", "value": "${{ steps.inspect.outputs.contract_id }}", "short": true },
+                  { "title": "Network", "value": "${{ steps.inspect.outputs.network }}", "short": true },
+                  { "title": "Details", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}", "short": false }
+                ]
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

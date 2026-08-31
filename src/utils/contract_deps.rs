@@ -3,7 +3,7 @@ use semver::VersionReq;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ContractDependencies {

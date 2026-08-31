@@ -382,11 +382,12 @@ pub fn analyse_source(content: &str, file: &str) -> Vec<TransformSuggestion> {
         }
 
         // Suggest soroban_sdk::Vec instead of std::vec::Vec
-        if trimmed.contains("Vec<") && !trimmed.starts_with("//") {
-            if trimmed.contains("std::vec")
-                || (trimmed.contains("Vec<") && trimmed.contains("use std"))
-            {
-                suggestions.push(TransformSuggestion {
+        if trimmed.contains("Vec<")
+            && !trimmed.starts_with("//")
+            && (trimmed.contains("std::vec")
+                || (trimmed.contains("Vec<") && trimmed.contains("use std")))
+        {
+            suggestions.push(TransformSuggestion {
                     file: file.to_string(),
                     line: line_no,
                     category: TransformCategory::RedundantCode,
@@ -394,7 +395,6 @@ pub fn analyse_source(content: &str, file: &str) -> Vec<TransformSuggestion> {
                     suggested: line.replace("std::vec::Vec", "soroban_sdk::Vec").to_string(),
                     reason: "Prefer soroban_sdk::Vec over std::vec::Vec in contract code for Soroban compatibility.".to_string(),
                 });
-            }
         }
 
         // Flag large string literals in contract code
@@ -621,7 +621,7 @@ fn detect_storage_packing(content: &str, file: &str) -> Vec<TransformSuggestion>
             }
             if fields.len() >= 2 {
                 let mut sorted = fields.clone();
-                sorted.sort_by(|a, b| b.1.cmp(&a.1));
+                sorted.sort_by_key(|a| std::cmp::Reverse(a.1));
                 if sorted != fields {
                     suggestions.push(TransformSuggestion {
                         file: file.to_string(),
@@ -1272,7 +1272,7 @@ fn handle_reports(args: ReportsArgs) -> Result<()> {
     let reports = load_reports_store()?;
     let filtered: Vec<_> = reports
         .iter()
-        .filter(|r| args.contract.as_deref().is_none_or(|c| r.contract == c))
+        .filter(|r| args.contract.as_deref().map_or(true, |c| r.contract == c))
         .collect();
 
     if filtered.is_empty() {

@@ -64,7 +64,10 @@ fn redact_secrets_impl(input: &str) -> String {
 
     // 7. Sensitive query parameters in URLs (e.g., ?apiKey=xyz&secret=123)
     static URL_QUERY_PARAM_REGEX: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r"([?&](?:apiKey|api_key|secret|token|passphrase|access_token|private_key)=)([^&\s]+)").unwrap()
+        Regex::new(
+            r"([?&](?:apiKey|api_key|secret|token|passphrase|access_token|private_key)=)([^&\s]+)",
+        )
+        .unwrap()
     });
 
     // Apply regex replacements sequentially
@@ -78,9 +81,7 @@ fn redact_secrets_impl(input: &str) -> String {
     let s = HEX_PRIVATE_KEY_REGEX.replace_all(&s, REDACTED);
 
     // 8. BIP-39 Mnemonics (12, 15, 18, 21, 24 space-separated words)
-    let final_result = redact_mnemonics(&s);
-
-    final_result
+    redact_mnemonics(&s)
 }
 
 /// Helper function to detect and redact BIP-39 mnemonic seed phrases (12 to 24 words).
@@ -113,7 +114,7 @@ mod tests {
 
     #[test]
     fn test_stellar_secret_key_redaction() {
-        let valid_sk = "SDJ34K5N6P7Q8R9S0T1U2V3W4X5Y6Z7A8B9C0D1E2F3G4H5I6J7K8L9MN";
+        let valid_sk = "SDJ34K5N6P7Q2R3S4T5U2V3W4X5Y6Z7A2B3C4D5E2F3G4H5I6J7K2L3M";
         let text = format!("Account created with secret key {}", valid_sk);
         let redacted = redact_secrets(&text);
         assert!(!redacted.contains(valid_sk));
@@ -122,7 +123,8 @@ mod tests {
 
     #[test]
     fn test_mnemonic_redaction() {
-        let mnemonic_12 = "army vanish defense carry reward write custom cargo adult melt verify polar";
+        let mnemonic_12 =
+            "army vanish defense carry reward write custom cargo adult melt verify polar";
         let text = format!("Seed phrase is: {}", mnemonic_12);
         let redacted = redact_secrets(&text);
         assert!(!redacted.contains("army vanish"));
@@ -144,7 +146,8 @@ mod tests {
         let redacted = redact_secrets(url);
         assert!(!redacted.contains("hunter2"));
         assert!(!redacted.contains("abcdef123456"));
-        assert!(redacted.contains("https://[REDACTED]:[REDACTED]@rpc.example.com/soroban?apiKey=[REDACTED]"));
+        assert!(redacted
+            .contains("https://[REDACTED]:[REDACTED]@rpc.example.com/soroban?apiKey=[REDACTED]"));
     }
 
     #[test]
@@ -178,7 +181,8 @@ mod tests {
         assert_eq!(redact_secrets(short_phrase), short_phrase);
 
         // Non-bip39 words in 12-word length sentence
-        let regular_sentence = "this is just a regular sentence with twelve words that are not mnemonic";
+        let regular_sentence =
+            "this is just a regular sentence with twelve words that are not mnemonic";
         assert_eq!(redact_secrets(regular_sentence), regular_sentence);
 
         // String with null bytes and special chars

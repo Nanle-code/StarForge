@@ -104,6 +104,10 @@ pub async fn handle(cmd: AiTestGenCommands) -> Result<()> {
     }
 }
 
+// Each parameter is an independent, named input (CLI flags / distinct config
+// values); bundling them into a struct here would add indirection without
+// reducing real complexity.
+#[allow(clippy::too_many_arguments)]
 async fn handle_generate(
     file: PathBuf,
     output: PathBuf,
@@ -264,7 +268,7 @@ async fn handle_reset_analytics() -> Result<()> {
     p::header("Reset Test Generation Analytics");
     p::separator();
 
-    let generator = AiTestGenerator::new();
+    let _generator = AiTestGenerator::new();
     // Note: This would require adding a reset method to AiTestGenerator
     // For now, just inform the user
     p::info("Analytics reset functionality would be implemented here.");

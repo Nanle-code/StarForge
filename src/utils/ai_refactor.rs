@@ -176,10 +176,7 @@ pub struct RefactorReport {
 // Session storage helpers
 
 fn sessions_dir() -> Result<PathBuf> {
-    let dir = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".starforge")
-        .join("refactor-sessions");
+    let dir = crate::utils::config::config_dir().join("refactor-sessions");
     if !dir.exists() {
         fs::create_dir_all(&dir)?;
     }
@@ -353,7 +350,7 @@ pub async fn handle(cmd: RefactorCommands) -> Result<()> {
             handle_refactor(
                 &file,
                 &model,
-                &name.as_deref().unwrap_or("extracted"),
+                name.as_deref().unwrap_or("extracted"),
                 TaskType::ExtractFunction,
                 output,
             )
@@ -491,10 +488,7 @@ async fn handle_refactor(
     let session_id = format!(
         "refactor-{}-{}",
         Utc::now().format("%Y%m%d-%H%M%S"),
-        sha256::hash(&refactored)
-            .chars()
-            .take(8)
-            .collect::<String>()
+        sha256::hash(refactored).chars().take(8).collect::<String>()
     );
 
     // Save session for tracking/rollback
@@ -786,7 +780,8 @@ mod tests {
         let code = "pub fn slow() { let mut x = 0; for _ in 0..100 { x += 1; } }";
         let prompt = optimize_perf_prompt(code);
         assert!(prompt.contains(code));
-        assert!(prompt.contains("Optimize"));
+        // The instruction opens the sentence, so match without regard to case.
+        assert!(prompt.to_lowercase().contains("optimize"), "got {}", prompt);
     }
 
     #[test]

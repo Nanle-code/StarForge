@@ -10,7 +10,6 @@ use crate::utils::stream::{EventStreamFilters, SorobanEventStream};
 use crate::utils::{config, notifications, soroban};
 use anyhow::Result;
 use clap::{Args, Subcommand};
-use colored::Colorize;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{
@@ -692,12 +691,9 @@ fn handle_threat_detect(args: ThreatDetectArgs) -> Result<()> {
     p::kv("Malicious", &summary.malicious.to_string());
     p::kv("Suspicious", &summary.suspicious.to_string());
 
-    match args.format.as_str() {
-        "json" => {
-            let json = serde_json::to_string_pretty(&event)?;
-            println!("{}", json);
-        }
-        _ => {}
+    if args.format.as_str() == "json" {
+        let json = serde_json::to_string_pretty(&event)?;
+        println!("{}", json);
     }
 
     if event.classification == crate::utils::security::ThreatClassification::Malicious {

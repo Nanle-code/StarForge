@@ -488,10 +488,9 @@ fn parse_dependencies(root: &Path, file: &Path, source: &str) -> Vec<Dependency>
             let trimmed = line.trim();
             let (kind, rest) = if let Some(rest) = trimmed.strip_prefix("use ") {
                 ("use", rest)
-            } else if let Some(rest) = trimmed.strip_prefix("mod ") {
-                ("module", rest)
             } else {
-                return None;
+                let rest = trimmed.strip_prefix("mod ")?;
+                ("module", rest)
             };
             let target = rest
                 .trim_end_matches(';')

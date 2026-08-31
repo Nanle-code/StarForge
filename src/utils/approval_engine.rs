@@ -223,6 +223,10 @@ pub fn deactivate_workflow(id: &str) -> Result<()> {
     }
 }
 
+// Each parameter is an independent, named input (CLI flags / distinct config
+// values); bundling them into a struct here would add indirection without
+// reducing real complexity.
+#[allow(clippy::too_many_arguments)]
 pub fn create_request(
     workflow_id: &str,
     contract_id: &str,
@@ -293,8 +297,8 @@ pub fn list_requests(
     let requests = load_requests_raw()?;
     Ok(requests
         .into_iter()
-        .filter(|r| status_filter.as_ref().is_none_or(|s| r.status == *s))
-        .filter(|r| network_filter.is_none_or(|n| r.network == n))
+        .filter(|r| status_filter.as_ref().map_or(true, |s| r.status == *s))
+        .filter(|r| network_filter.map_or(true, |n| r.network == n))
         .collect())
 }
 

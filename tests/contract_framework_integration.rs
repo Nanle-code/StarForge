@@ -7,8 +7,9 @@ use starforge::utils::{
         AssertionSuite, ContractAssertions, NumericComparator,
     },
     contract_fixtures::{
-        counter_fixture, liquidity_pool_fixture, multisig_fixture, save_fixture_snapshot,
-        token_fixture, AccountRole, FixturePhase, FixtureRegistry, StorageDurability, StorageSeed,
+        auth_fixture, counter_fixture, deterministic_fixture, liquidity_pool_fixture,
+        multisig_fixture, save_fixture_snapshot, token_fixture, AccountRole, FixturePhase,
+        FixtureRegistry, StorageDurability, StorageSeed,
     },
     contract_mocks::{
         counter_env, token_env, MockAddress, MockAuthContext, MockContractClient, MockEnvironment,
@@ -30,7 +31,7 @@ use tempfile::{NamedTempFile, TempDir};
 
 fn write_minimal_wasm(path: &std::path::Path) {
     let mut bytes = b"\0asm\x01\0\0\0".to_vec();
-    bytes.extend(std::iter::repeat(0u8).take(64));
+    bytes.extend(vec![0u8; 64]);
     std::fs::write(path, bytes).unwrap();
 }
 
@@ -111,6 +112,68 @@ fn fixture_liquidity_pool_storage_seeds() {
     assert!(ctx.storage_entry("reserve_a").is_some());
     assert!(ctx.storage_entry("reserve_b").is_some());
     assert!(ctx.storage_entry("fee_bps").is_some());
+}
+
+#[test]
+fn fixture_auth_has_all_roles() {
+    let mut fixture = auth_fixture();
+    let ctx = fixture.setup().unwrap();
+
+    assert!(ctx.account("admin").is_some());
+    assert!(ctx.account("operator").is_some());
+    assert!(ctx.account("viewer").is_some());
+    assert!(ctx.account("unauthorized").is_some());
+
+    let admin = ctx.account("admin").unwrap();
+    assert_eq!(admin.role, AccountRole::Admin);
+    assert!(admin.balance > 0);
+
+    let unauthorized = ctx.account("unauthorized").unwrap();
+    assert_eq!(unauthorized.role, AccountRole::Unauthorized);
+    assert_eq!(unauthorized.secret_key, None);
+    assert_eq!(unauthorized.balance, 0);
+
+    let admin_actions = ctx.value("admin_actions").unwrap();
+    assert!(admin_actions
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::json!("grant_role")));
+
+    let authorized_actions = ctx.value("authorized_actions").unwrap();
+    assert!(authorized_actions
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::json!("transfer")));
+}
+
+#[test]
+fn fixture_deterministic_stability() {
+    let mut f1 = deterministic_fixture(42);
+    let ctx1 = f1.setup().unwrap().clone();
+    let mut f2 = deterministic_fixture(42);
+    let ctx2 = f2.setup().unwrap().clone();
+
+    assert_eq!(ctx1.name, ctx2.name);
+    assert_eq!(
+        ctx1.account("admin").unwrap().address,
+        ctx2.account("admin").unwrap().address
+    );
+    assert_eq!(
+        ctx1.account("user").unwrap().address,
+        ctx2.account("user").unwrap().address
+    );
+    assert_eq!(ctx1.value("seed"), ctx2.value("seed"));
+}
+
+#[test]
+fn fixture_registry_with_auth_and_deterministic() {
+    let mut registry = FixtureRegistry::new();
+    registry.register(counter_fixture());
+    registry.register(token_fixture());
+    registry.register(auth_fixture());
+    registry.register(deterministic_fixture(1));
+    registry.setup_all().unwrap();
+    registry.teardown_all().unwrap();
 }
 
 #[test]

@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Template context
@@ -430,7 +430,10 @@ mod tests {
         let out_a = ctx_a.render(template);
         let out_b = ctx_b.render(template);
 
-        assert_eq!(out_a, out_b, "BTreeMap ensures same output regardless of insertion order");
+        assert_eq!(
+            out_a, out_b,
+            "BTreeMap ensures same output regardless of insertion order"
+        );
         assert_eq!(out_a, "before <p>a</p> mid <p>m</p> end <p>z</p>");
     }
 
@@ -451,6 +454,9 @@ mod tests {
             .map(|p| p.file_name().unwrap().to_str().unwrap().to_string())
             .collect();
 
-        assert_eq!(names, vec!["a_template.md", "m_template.html", "z_template.html"]);
+        assert_eq!(
+            names,
+            vec!["a_template.md", "m_template.html", "z_template.html"]
+        );
     }
 }

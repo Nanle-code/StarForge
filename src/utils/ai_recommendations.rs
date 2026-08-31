@@ -6,11 +6,9 @@
 //! - Priority-ranked recommendations
 //! - Implementation guidance for each recommendation
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs;
-use std::path::Path;
 
 use crate::utils::ai_test_assistant as ata;
 

@@ -24,6 +24,8 @@ crate-type = ["cdylib", "rlib"]
 dead_code = "allow"
 unused_imports = "allow"
 unused_variables = "allow"
+noop_method_call = "allow"
+deprecated = "allow"
 
 [lints.clippy]
 needless_range_loop = "allow"
@@ -39,6 +41,7 @@ doc_overindented_list_items = "allow"
 expect_fun_call = "allow"
 useless_vec = "allow"
 single_match = "allow"
+await_holding_lock = "allow"
 
 [dependencies]
 clap     = { version = "=4.4.18", features = ["derive", "color"] }
@@ -83,16 +86,17 @@ tracing-appender = "0.2"
 bip39 = { version = "2", features = ["rand", "std"] }
 hmac = "0.12"
 rustyline = "14.0.0"
+zeroize = { version = "1", features = ["derive"] }
 zip = "0.6"
 tempfile = "3.8"
 wasm-bindgen = "0.2"
 rusqlite = { version = "0.32", features = ["bundled"] }
+libc = "0.2"
 csv = "1.0"
 minijinja = "1.0"
 serde_yaml = "0.9.34"
 async-trait = "0.1"
 futures = "0.3.33"
-thiserror = "1.0"
 
 [features]
 hardware-wallet = ["dep:hidapi", "dep:trezor-client"]

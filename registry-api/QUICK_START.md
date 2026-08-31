@@ -65,6 +65,21 @@ curl -X POST http://localhost:3000/api/templates/search \
 curl http://localhost:3000/api/templates/simple-counter/1.0.0
 ```
 
+### 5. Query Ownership Audit History
+
+```bash
+curl http://localhost:3000/api/templates/simple-counter/ownership-history
+```
+
+### 6. Transfer Template Ownership
+
+```bash
+curl -X POST http://localhost:3000/api/templates/simple-counter/transfer-ownership \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <token>" \
+  -d '{"new_username": "new_owner"}'
+```
+
 ## Using Docker
 
 ```bash

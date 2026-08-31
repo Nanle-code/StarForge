@@ -172,7 +172,7 @@ async fn handle_command(cmd: &str, args: &HelpArgs) -> Result<()> {
     let canonical = cmd.trim().to_lowercase();
     p::header(&format!("Help: {}", canonical));
     let summary_line =
-        context_help::command_summary(&canonical).unwrap_or_else(|| help.description.as_str());
+        context_help::command_summary(&canonical).unwrap_or(help.description.as_str());
     println!("  {}", summary_line.dimmed());
     println!();
 
@@ -338,12 +338,7 @@ fn expand_workflow(slug: &str) -> Result<()> {
 async fn handle_why(args: &HelpArgs) -> Result<()> {
     let error_text: Option<String> = match args.error.clone() {
         Some(text) => Some(text),
-        None => match args.command.clone() {
-            // Treat `starforge help --why "some text"` (positional argument)
-            // as the error text too — it's the most ergonomic shape.
-            Some(text) => Some(text),
-            None => None,
-        },
+        None => args.command.clone(),
     };
 
     let error_text = match error_text {

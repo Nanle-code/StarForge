@@ -86,9 +86,15 @@ pub fn redact_command(command: &str) -> String {
         }
 
         let lower = token.to_ascii_lowercase();
-        if ["--secret", "--secret-key", "--token", "--api-key", "--secret-key-file"]
-            .iter()
-            .any(|flag| lower == *flag)
+        if [
+            "--secret",
+            "--secret-key",
+            "--token",
+            "--api-key",
+            "--secret-key-file",
+        ]
+        .iter()
+        .any(|flag| lower == *flag)
         {
             output.push(token.to_string());
             redact_next = true;

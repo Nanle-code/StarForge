@@ -1,40 +1,250 @@
 {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://starforge-protocol.github.io/starforge/templates/registry.schema.json",
+  "title": "StarForge template registry",
+  "description": "Schema for a StarForge template registry document: the curated registry shipped in templates/registry.json, any remote marketplace index, and the local cache at ~/.starforge/templates/registry.json. StarForge validates a registry against this schema before using it, so a malformed template fails immediately with field-level errors instead of surfacing much later during scaffolding.",
   "type": "object",
-  "required": ["name", "version", "description", "author", "tags", "source"],
+  "required": ["templates"],
+  "x-unknown-properties": "warn",
   "properties": {
-    "name": { "type": "string" },
-    "version": { "type": "string" },
-    "description": { "type": "string" },
-    "author": { "type": "string" },
-    "tags": { "type": "array", "items": { "type": "string" } },
-    "source": { "type": "object" },
-    "license": { "type": "string" },
-    "repository": { "type": "string" },
-    "homepage": { "type": "string" },
-    "documentation": { "type": "string" },
-    "verified": { "type": "boolean" },
-    "documented": { "type": "boolean" },
-    "maintenance": { "type": "string", "enum": ["active", "maintained", "deprecated", "unknown"] },
-    "security_review": {
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Registry format version. Optional; \"1\" is the only format published so far."
+    },
+    "templates": {
+      "type": "array",
+      "description": "Every template this registry offers.",
+      "items": { "$ref": "#/$defs/templateEntry" }
+    }
+  },
+  "$defs": {
+    "templateEntry": {
       "type": "object",
-      "required": ["status"],
+      "description": "Metadata for a single template.",
+      "required": ["name", "version", "description", "author", "tags", "source"],
+      "x-unknown-properties": "warn",
       "properties": {
-        "status": { "type": "string", "enum": ["audited", "pending", "not-reviewed"] },
-        "audited_at": { "type": ["string", "null"] },
-        "auditor": { "type": ["string", "null"] },
-        "findings": { "type": ["integer", "null"] },
-        "score": { "type": ["number", "null"] }
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "x-format": "template-name",
+          "description": "Unique template identifier. It is also used as a directory name under ~/.starforge/templates, so path separators, whitespace and control characters are rejected."
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "x-format": "semver",
+          "description": "Template version as major.minor.patch."
+        },
+        "description": {
+          "type": "string",
+          "description": "One-line summary shown in search and list output."
+        },
+        "author": {
+          "type": "string",
+          "description": "Template author or maintaining organisation."
+        },
+        "tags": {
+          "type": "array",
+          "description": "Free-form search tags. Each tag must be a non-empty string.",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "categories": {
+          "type": "array",
+          "description": "Curated categories describing the template's domain.",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "source": { "$ref": "#/$defs/source" },
+        "path": {
+          "type": ["string", "null"],
+          "description": "Local directory holding the fetched template, once installed."
+        },
+        "downloads": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Reported download count."
+        },
+        "verified": {
+          "type": "boolean",
+          "description": "Reviewed and vouched for by the StarForge maintainers."
+        },
+        "documented": {
+          "type": "boolean",
+          "description": "Whether the template ships user-facing documentation (a README)."
+        },
+        "featured": {
+          "type": "boolean",
+          "description": "Selected as featured by curators."
+        },
+        "created_at": {
+          "type": "string",
+          "x-format": "rfc3339",
+          "description": "RFC 3339 timestamp of first publication. The empty string means \"unset\"."
+        },
+        "updated_at": {
+          "type": "string",
+          "x-format": "rfc3339",
+          "description": "RFC 3339 timestamp of the most recent update. The empty string means \"unset\"."
+        },
+        "cli_version_min": {
+          "type": ["string", "null"],
+          "x-format": "semver",
+          "description": "Lowest StarForge CLI version this template supports. null means no lower bound."
+        },
+        "cli_version_max": {
+          "type": ["string", "null"],
+          "x-format": "semver",
+          "description": "Highest StarForge CLI version this template supports. null means no upper bound. Must not be lower than cli_version_min."
+        },
+        "license": {
+          "type": ["string", "null"],
+          "description": "SPDX license identifier, e.g. \"MIT\" or \"Apache-2.0\"."
+        },
+        "repository": {
+          "type": ["string", "null"],
+          "x-format": "url",
+          "description": "Source repository URL."
+        },
+        "repository_url": {
+          "type": ["string", "null"],
+          "x-format": "url",
+          "description": "Alias of `repository` kept for older registries."
+        },
+        "homepage": {
+          "type": ["string", "null"],
+          "x-format": "url",
+          "description": "Project homepage."
+        },
+        "documentation": {
+          "type": ["string", "null"],
+          "x-format": "url",
+          "description": "Extended documentation URL."
+        },
+        "maintenance": {
+          "type": "string",
+          "enum": ["active", "maintained", "deprecated", "unknown"],
+          "description": "Declared maintenance state, surfaced as a trust signal."
+        },
+        "security_review": { "$ref": "#/$defs/securityReview" },
+        "changelog": {
+          "type": ["array", "null"],
+          "description": "Release history, newest first.",
+          "items": { "$ref": "#/$defs/changelogEntry" }
+        }
       }
     },
-    "changelog": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["version", "date", "notes"],
-        "properties": {
-          "version": { "type": "string" },
-          "date": { "type": "string" },
-          "notes": { "type": "string" }
+    "source": {
+      "type": "object",
+      "description": "Where the template contents are fetched from.",
+      "required": ["type"],
+      "x-unknown-properties": "warn",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["git", "local", "builtin"]
+        }
+      },
+      "oneOf": [
+        {
+          "title": "git",
+          "required": ["type", "url"],
+          "x-unknown-properties": "warn",
+          "properties": {
+            "type": { "const": "git" },
+            "url": {
+              "type": "string",
+              "minLength": 1,
+              "x-format": "git-url",
+              "description": "Clonable git remote."
+            },
+            "branch": {
+              "type": ["string", "null"],
+              "description": "Branch to clone. null uses the remote's default branch."
+            }
+          }
+        },
+        {
+          "title": "local",
+          "required": ["type", "path"],
+          "x-unknown-properties": "warn",
+          "properties": {
+            "type": { "const": "local" },
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Filesystem path to the template directory."
+            }
+          }
+        },
+        {
+          "title": "builtin",
+          "required": ["type", "id"],
+          "x-unknown-properties": "warn",
+          "properties": {
+            "type": { "const": "builtin" },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "x-format": "template-name",
+              "description": "Identifier of a template bundled with the CLI under templates/examples."
+            }
+          }
+        }
+      ]
+    },
+    "securityReview": {
+      "type": ["object", "null"],
+      "description": "Outcome of the template's security review.",
+      "required": ["status"],
+      "x-unknown-properties": "warn",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["audited", "pending", "not-reviewed"]
+        },
+        "audited_at": {
+          "type": ["string", "null"],
+          "x-format": "rfc3339",
+          "description": "RFC 3339 timestamp of the audit."
+        },
+        "auditor": {
+          "type": ["string", "null"],
+          "description": "Person or organisation that performed the audit."
+        },
+        "findings": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Number of findings raised by the audit."
+        },
+        "score": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Audit score out of 100."
+        }
+      }
+    },
+    "changelogEntry": {
+      "type": "object",
+      "description": "A single released version of the template.",
+      "required": ["version", "date", "notes"],
+      "x-unknown-properties": "warn",
+      "properties": {
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "x-format": "semver"
+        },
+        "date": {
+          "type": "string",
+          "x-format": "date",
+          "description": "Release date as YYYY-MM-DD."
+        },
+        "notes": {
+          "type": "string",
+          "description": "What changed in this release."
         }
       }
     }

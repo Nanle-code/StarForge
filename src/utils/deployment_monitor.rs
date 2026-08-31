@@ -137,9 +137,7 @@ pub fn analyze_deployments(
         predictions.push(DeploymentPrediction {
             title: "Rollback risk is increasing".to_string(),
             confidence: 74,
-            detail: format!(
-                "The recent failure pattern suggests a higher chance of another deployment failure in the next rollout.",
-            ),
+            detail: "The recent failure pattern suggests a higher chance of another deployment failure in the next rollout.".to_string(),
             recommended_action: "Prepare a rollback plan, verify the artifact hash, and keep the previous deployment ready for immediate recovery.".to_string(),
         });
     }
@@ -148,9 +146,7 @@ pub fn analyze_deployments(
         predictions.push(DeploymentPrediction {
             title: "Performance degradation is likely".to_string(),
             confidence: 68,
-            detail: format!(
-                "The observed deployment latency trend points to slower execution than the recent baseline.",
-            ),
+            detail: "The observed deployment latency trend points to slower execution than the recent baseline.".to_string(),
             recommended_action: "Trim the deployment payload, validate the wallet setup, and review network congestion before launching the next deployment.".to_string(),
         });
     }

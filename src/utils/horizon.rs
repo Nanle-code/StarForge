@@ -14,8 +14,13 @@ fn build_http_client(timeout: Duration) -> Result<Client> {
 }
 
 static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
-    build_http_client(Duration::from_secs(30)).expect("Failed to create shared Horizon HTTP client")
+    build_http_client(Duration::from_secs(10)).expect("Failed to create shared Horizon HTTP client")
 });
+
+/// Shared HTTP client used for Horizon requests.
+pub(crate) fn http_client() -> &'static Client {
+    &HTTP_CLIENT
+}
 
 pub fn network_config(network: &str) -> Result<config::NetworkConfig> {
     let cfg = config::load()?;
@@ -48,17 +53,45 @@ pub struct Balance {
 }
 
 pub async fn fund_account(public_key: &str, network: &str) -> Result<()> {
-    let friendbot =
-        friendbot_url(network)?.unwrap_or_else(|| "https://friendbot.stellar.org".to_string());
+    let net_cfg = network_config(network)?;
+
+    // Gate Friendbot by verified network identity & passphrase
+    if network.eq_ignore_ascii_case("mainnet")
+        || net_cfg.passphrase.as_deref() == Some("Public Global Stellar Network ; September 2015")
+        || net_cfg.horizon_url.contains("horizon.stellar.org")
+    {
+        anyhow::bail!(
+            "Friendbot cannot be used on mainnet or production networks. \
+             Friendbot is only available on test networks (e.g. testnet, standalone, futurenet).\n\
+             Verify your active network: starforge network show"
+        );
+    }
+
+    let friendbot = match net_cfg.friendbot_url {
+        Some(url) => url,
+        None if network.eq_ignore_ascii_case("testnet") => {
+            "https://friendbot.stellar.org".to_string()
+        }
+        None => {
+            anyhow::bail!(
+                "Network '{}' does not have a Friendbot faucet URL configured.\n\
+                 Add one using: starforge network add <name> --horizon-url <url> --friendbot-url <url>",
+                network
+            );
+        }
+    };
+
     let separator = if friendbot.contains('?') { '&' } else { '?' };
     let url = format!("{}{}addr={}", friendbot, separator, public_key);
 
-    let res = HTTP_CLIENT.get(&url).send().await.with_context(|| {
-        format!(
-            "Could not reach Friendbot on '{}'. Check your internet connection.",
-            network
-        )
-    })?;
+    let res = send_with_retry(|| HTTP_CLIENT.get(&url).send())
+        .await
+        .with_context(|| {
+            format!(
+                "Could not reach Friendbot on '{}'. Check your internet connection.",
+                network
+            )
+        })?;
 
     if res.status() == 200 {
         Ok(())
@@ -83,9 +116,7 @@ pub async fn fund_account(public_key: &str, network: &str) -> Result<()> {
 pub async fn fetch_account(public_key: &str, network: &str) -> Result<AccountResponse> {
     let horizon = horizon_url(network)?;
     let url = format!("{}/accounts/{}", horizon.trim_end_matches('/'), public_key);
-    let res = HTTP_CLIENT
-        .get(&url)
-        .send()
+    let res = send_with_retry(|| HTTP_CLIENT.get(&url).send())
         .await
         .with_context(|| {
             format!(
@@ -134,6 +165,36 @@ pub async fn check_horizon_endpoint(horizon_url: &str) -> bool {
         .await
         .map(|r| r.status() == 200)
         .unwrap_or(false)
+}
+
+#[derive(Debug, Deserialize)]
+struct HorizonRoot {
+    network_passphrase: String,
+}
+
+/// Read the network identity advertised by Horizon.
+pub async fn fetch_network_passphrase(network: &str) -> Result<String> {
+    let endpoint = horizon_url(network)?;
+    let url = format!("{}/", endpoint.trim_end_matches('/'));
+    let response = HTTP_CLIENT
+        .get(&url)
+        .send()
+        .await
+        .with_context(|| format!("Could not reach Horizon endpoint '{}'", endpoint))?;
+    if !response.status().is_success() {
+        anyhow::bail!(
+            "Horizon endpoint '{}' returned HTTP {}",
+            endpoint,
+            response.status()
+        );
+    }
+    let root: HorizonRoot = response.json().await.with_context(|| {
+        format!(
+            "Horizon endpoint '{}' did not provide network identity",
+            endpoint
+        )
+    })?;
+    Ok(root.network_passphrase)
 }
 
 pub async fn check_soroban_rpc(soroban_url: &str) -> bool {
@@ -388,7 +449,10 @@ pub async fn submit_payment_transaction(
     secret_key: &str,
     network: &str,
 ) -> Result<TransactionSubmitResult> {
-    let request = wallet_signer::SigningRequest::local_secret(secret_key.to_string(), network);
+    let request = wallet_signer::SigningRequest::local_secret(
+        zeroize::Zeroizing::new(secret_key.to_string()),
+        network,
+    );
     submit_payment_with_signing(transaction_xdr, &request, network).await
 }
 
@@ -397,6 +461,7 @@ pub async fn submit_payment_with_signing(
     request: &wallet_signer::SigningRequest,
     network: &str,
 ) -> Result<TransactionSubmitResult> {
+    crate::utils::network_guard::verify(network).await?;
     let signed_xdr = wallet_signer::sign_transaction_xdr(transaction_xdr, request)?;
 
     let horizon = horizon_url(network)?;

@@ -388,8 +388,8 @@ fn comparator_interval(c: &Comparator) -> Interval {
                 inclusive: true,
             }),
             upper: Some(Bound {
-                value: if c.minor.is_some() {
-                    Version::new(c.major, c.minor.unwrap() + 1, 0)
+                value: if let Some(minor) = c.minor {
+                    Version::new(c.major, minor + 1, 0)
                 } else {
                     Version::new(c.major + 1, 0, 0)
                 },
@@ -820,36 +820,47 @@ mod tests {
         fs::write(dir.join("contract-dependencies.toml"), contents).unwrap();
     }
 
+    /// Render a path for embedding in a TOML basic string.
+    ///
+    /// Windows paths contain backslashes, which TOML reads as escape
+    /// sequences; forward slashes are accepted as separators on every platform.
+    fn toml_path(path: &Path) -> String {
+        path.display().to_string().replace('\\', "/")
+    }
+
     #[test]
     fn test_detect_conflicts_disjoint_requirements() {
         let root = tempdir().unwrap();
         let dep = tempdir().unwrap();
+        let sibling = tempdir().unwrap();
+
+        let dep_str = dep.path().display().to_string().replace('\\', "/");
+        let sibling_str = sibling.path().display().to_string().replace('\\', "/");
 
         write_deps(
             root.path(),
             &format!(
                 "[dependencies]\na = {{ version = \"^1.0.0\", path = \"{}\" }}\n",
-                dep.path().display()
+                dep_str
             ),
         );
 
         // Simulate a second requirer with an incompatible constraint by
         // nesting another manifest under a sibling directory that also
         // requires `a`, pointing at the same dep path with a disjoint range.
-        let sibling = tempdir().unwrap();
         write_deps(
             sibling.path(),
             &format!(
                 "[dependencies]\na = {{ version = \"^2.0.0\", path = \"{}\" }}\n",
-                dep.path().display()
+                dep_str
             ),
         );
         write_deps(
             root.path(),
             &format!(
                 "[dependencies]\na = {{ version = \"^1.0.0\", path = \"{}\" }}\nb = {{ path = \"{}\" }}\n",
-                dep.path().display(),
-                sibling.path().display()
+                dep_str,
+                sibling_str
             ),
         );
 
@@ -863,11 +874,12 @@ mod tests {
     fn test_detect_conflicts_none_when_compatible() {
         let root = tempdir().unwrap();
         let dep = tempdir().unwrap();
+        let dep_str = dep.path().display().to_string().replace('\\', "/");
         write_deps(
             root.path(),
             &format!(
                 "[dependencies]\na = {{ version = \"^1.0.0\", path = \"{}\" }}\n",
-                dep.path().display()
+                dep_str
             ),
         );
         let conflicts = detect_conflicts(root.path()).unwrap();
@@ -878,6 +890,7 @@ mod tests {
     fn test_build_matrix() {
         let root = tempdir().unwrap();
         let dep = tempdir().unwrap();
+        let dep_str = dep.path().display().to_string().replace('\\', "/");
         init(dep.path(), "token").unwrap();
         tag(dep.path(), "1.0.0", None, None, false).unwrap();
         tag(dep.path(), "1.5.0", None, None, false).unwrap();
@@ -887,7 +900,7 @@ mod tests {
             root.path(),
             &format!(
                 "[dependencies]\ntoken = {{ version = \"^1.0.0\", path = \"{}\" }}\n",
-                dep.path().display()
+                dep_str
             ),
         );
 

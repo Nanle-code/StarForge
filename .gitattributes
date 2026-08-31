@@ -1,0 +1,12 @@
+# Normalise binding snapshot golden files to LF so the snapshot comparison
+# (which rejects CR characters) is stable across Windows and Linux checkouts.
+tests/fixtures/snapshots/bindings_rust.rs      text eol=lf
+tests/fixtures/snapshots/bindings_typescript.ts text eol=lf
+tests/fixtures/snapshots/bindings_python.py    text eol=lf
+tests/fixtures/snapshots/bindings_go.go        text eol=lf
+*.rs  text eol=lf
+*.ts  text eol=lf
+*.py  text eol=lf
+*.go  text eol=lf
+*.toml text eol=lf
+*.md  text eol=lf

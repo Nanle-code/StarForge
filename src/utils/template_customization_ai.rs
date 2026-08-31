@@ -2,7 +2,7 @@ use crate::utils::{ollama, template_vcs};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CustomizationHistory {
@@ -161,8 +161,8 @@ fn apply_ai_modifications(template_path: &Path, ai_response: &str) -> Result<Vec
             let mut i = 0;
             while i < lines.len() {
                 let line = lines[i].trim();
-                if line.starts_with("- ") {
-                    if let Some((file_path, rest)) = line[2..].split_once(':') {
+                if let Some(stripped) = line.strip_prefix("- ") {
+                    if let Some((file_path, _rest)) = stripped.split_once(':') {
                         let mut code_change = String::new();
                         i += 1;
                         while i < lines.len()

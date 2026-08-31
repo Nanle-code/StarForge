@@ -1,4 +1,3 @@
-use anyhow::Result;
 use chrono::Utc;
 use colored::*;
 use serde::{Deserialize, Serialize};

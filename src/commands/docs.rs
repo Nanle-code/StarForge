@@ -293,6 +293,10 @@ fn maintain(
     Ok(())
 }
 
+// Each parameter is an independent, named input (CLI flags / distinct config
+// values); bundling them into a struct here would add indirection without
+// reducing real complexity.
+#[allow(clippy::too_many_arguments)]
 fn generate(
     contract: String,
     name: Option<String>,
@@ -752,9 +756,7 @@ fn generate_html(
     let extracted = doc_generator::DocCommentExtractor::extract_from_file(&source_path)?;
 
     let out_dir = output_dir.map(PathBuf::from).unwrap_or_else(|| {
-        dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".starforge")
+        crate::utils::config::config_dir()
             .join("docs")
             .join("html")
             .join(&contract)
@@ -811,9 +813,7 @@ fn generate_api_ref(
     );
 
     let out_dir = output_dir.map(PathBuf::from).unwrap_or_else(|| {
-        dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".starforge")
+        crate::utils::config::config_dir()
             .join("docs")
             .join(&contract)
     });
@@ -852,9 +852,7 @@ fn publish(
     p::header("Documentation — Publish");
 
     let src = source_dir.map(PathBuf::from).unwrap_or_else(|| {
-        dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".starforge")
+        crate::utils::config::config_dir()
             .join("docs")
             .join("html")
             .join(&contract)

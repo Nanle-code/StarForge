@@ -38,7 +38,7 @@ impl RouteRegistry {
                 r.enabled
                     && r.source_network == source
                     && r.dest_network == dest
-                    && asset.is_none_or(|a| r.asset == a)
+                    && asset.map_or(true, |a| r.asset == a)
             })
             .collect()
     }

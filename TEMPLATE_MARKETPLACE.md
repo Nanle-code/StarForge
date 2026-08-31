@@ -91,7 +91,28 @@ starforge template init
 
 # Remove a template
 starforge template remove my-template
+
+# Check a registry against templates/registry.schema.json
+starforge template validate
+starforge template validate ./my-registry.json --json
 ```
+
+### 5. Registry Validation
+
+Every registry StarForge reads — bundled, remote, or the local cache — is
+validated against `templates/registry.schema.json` before use, so a malformed
+template fails immediately with the offending field named:
+
+```text
+templates[3].version: 'v1.2' is not valid semver (expected major.minor.patch, e.g. "1.2.0")
+templates[3].source.url: required field is missing
+```
+
+A remote registry is validated **before** it is cached, so a broken marketplace
+index cannot replace a working local cache. Unknown fields are warnings rather
+than errors, keeping older CLIs compatible with newer registries. See
+[`templates/README.md`](templates/README.md#registry-validation) for the full
+list of checks.
 
 ## Template Structure
 

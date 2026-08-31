@@ -578,7 +578,7 @@ mod tests {
         bytes.extend_from_slice(b"\0");
         bytes.extend_from_slice(b"initialize_contract");
         bytes.extend_from_slice(b"\0");
-        bytes.extend(std::iter::repeat_n(0u8, 4096));
+        bytes.extend(vec![0u8; 4096]);
         bytes
     }
 

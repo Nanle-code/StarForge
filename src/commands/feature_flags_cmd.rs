@@ -8,7 +8,7 @@
 //! - `enable <name>` / `disable <name>`
 //! - `rollout <name> --percent N` – set the global rollout percentage
 //! - `segment add|remove|list`    – manage segment rules (allow-list, %,
-//!                                  attribute predicate)
+//!   attribute predicate)
 //! - `variant add|remove|list`    – manage A/B variants
 //! - `override set|clear|list`    – per-user overrides
 //! - `metrics show|prune [--days]`
@@ -21,9 +21,7 @@
 
 use crate::utils::config;
 use crate::utils::database::Database;
-use crate::utils::feature_flags::{
-    self, FlagCategory, FlagManager, MetricKind, SegmentRule, UserContext, Variant,
-};
+use crate::utils::feature_flags::{FlagCategory, FlagManager, SegmentRule, UserContext, Variant};
 use crate::utils::print as p;
 use anyhow::{bail, Context, Result};
 use clap::{Args, Subcommand};
@@ -312,6 +310,9 @@ pub async fn handle(args: FeatureFlagsArgs) -> Result<()> {
 
 // ── Helpers shared by subcommands ─────────────────────────────────────────────
 
+// Not currently called from any code path in this crate. Kept rather than
+// removed since deleting it is a product decision, not a lint-scoping one.
+#[allow(dead_code)]
 fn hydrate_state(mgr: &FlagManager, db: &Database, flag_name: &str) -> Result<()> {
     if db.get_definition(flag_name)?.is_none() {
         bail!(
@@ -963,6 +964,7 @@ fn format_rule(rule: &SegmentRule) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::feature_flags::MetricKind;
 
     #[test]
     fn format_rule_user_in_list() {

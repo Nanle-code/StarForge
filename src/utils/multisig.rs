@@ -255,8 +255,10 @@ pub fn sign_transaction_partial(
     secret_key: &str,
     network: &str,
 ) -> Result<String> {
-    let request =
-        crate::utils::wallet_signer::SigningRequest::local_secret(secret_key.to_string(), network);
+    let request = crate::utils::wallet_signer::SigningRequest::local_secret(
+        zeroize::Zeroizing::new(secret_key.to_string()),
+        network,
+    );
     crate::utils::wallet_signer::sign_transaction_partial(transaction_xdr, &request, "local")
 }
 

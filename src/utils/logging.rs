@@ -72,7 +72,7 @@ impl<W: Write> Write for RedactingWriter<W> {
 
     fn flush(&mut self) -> io::Result<()> {
         if !self.buffer.is_empty() {
-            let remaining: Vec<u8> = self.buffer.drain(..).collect();
+            let remaining: Vec<u8> = std::mem::take(&mut self.buffer);
             if let Ok(line_str) = std::str::from_utf8(&remaining) {
                 let redacted = redact_secrets(line_str);
                 self.inner.write_all(redacted.as_bytes())?;
@@ -206,16 +206,16 @@ pub fn redact_public_key(public_key: &str, level: Level) -> String {
 ///
 /// Secret keys and passphrases should never appear in info-level or debug-level
 /// logs.
-pub fn redact_secret_value(value: &str) -> String {
-    redact_secrets(value)
+pub fn redact_secret_value(_value: &str) -> String {
+    "[REDACTED]".to_string()
 }
 
 /// Always redact signed XDR payloads when they are written to logs.
 ///
 /// XDR envelopes containing signatures are secret and must not be emitted at
 /// info level.
-pub fn redact_signed_xdr(xdr: &str) -> String {
-    redact_secrets(xdr)
+pub fn redact_signed_xdr(_xdr: &str) -> String {
+    "[REDACTED]".to_string()
 }
 
 /// Build a `LogConfig` from CLI flags / environment.
@@ -274,7 +274,9 @@ mod tests {
         let mut buf = Vec::new();
         {
             let mut writer = RedactingWriter::new(&mut buf);
-            writer.write_all(b"Authorization: Bearer mytoken123\n").unwrap();
+            writer
+                .write_all(b"Authorization: Bearer mytoken123\n")
+                .unwrap();
             writer.flush().unwrap();
         }
         let output = String::from_utf8(buf).unwrap();

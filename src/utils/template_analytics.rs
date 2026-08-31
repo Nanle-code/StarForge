@@ -36,8 +36,7 @@ use std::str::FromStr;
 // ─── Storage paths ──────────────────────────────────────────────────────────
 
 fn analytics_dir() -> Result<PathBuf> {
-    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
-    let dir = home.join(".starforge").join("analytics");
+    let dir = crate::utils::config::config_dir().join("analytics");
     if !dir.exists() {
         fs::create_dir_all(&dir).with_context(|| format!("Failed to create {}", dir.display()))?;
     }
@@ -601,7 +600,7 @@ fn build_issue_detection(entries: &[TemplateEntry], feedback: &[FeedbackEntry]) 
         }
         if let Some(sr) = &e.security_review {
             if let Some(findings) = &sr.findings {
-                if findings.len() > 0 {
+                if *findings > 0 {
                     reasons.push(format!("{} unresolved security finding(s)", findings));
                 }
             }
@@ -928,8 +927,9 @@ mod tests {
             categories: vec![],
             featured: false,
             security_review: None,
-            changelog: Some(vec![]),
-            categories: Vec::new(),
+            changelog: None,
+            repository_url: None,
+            categories: vec![],
             featured: false,
         }
     }
@@ -1261,7 +1261,8 @@ mod tests {
             status: "audited".to_string(),
             audited_at: Some("2026-01-01".to_string()),
             auditor: Some("Auditor".to_string()),
-            findings: Some("2".to_string()),
+            findings: Some(2.to_string()),
+            findings: Some(2),
             score: Some(80.0),
         });
         e.documented = true;

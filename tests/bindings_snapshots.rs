@@ -93,8 +93,8 @@ fn assert_snapshot(actual: &str, golden_path: &Path, label: &str) {
 
         let max = golden_lines.len().max(actual_lines.len());
         for i in 0..max {
-            let g = golden_lines.get(i).map(|s| *s);
-            let a = actual_lines.get(i).map(|s| *s);
+            let g = golden_lines.get(i).copied();
+            let a = actual_lines.get(i).copied();
             if g != a {
                 diffs.push(format!("  line {}: expected {:?}, got {:?}", i + 1, g, a));
             }

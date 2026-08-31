@@ -12,7 +12,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::utils::config;
 
@@ -166,7 +166,24 @@ pub struct FeedbackStore {
 
 // ── Storage ──────────────────────────────────────────────────────────────────
 
+thread_local! {
+    static TEST_DIR_OVERRIDE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub fn set_test_dir(path: PathBuf) {
+    TEST_DIR_OVERRIDE.with(|cell| {
+        *cell.borrow_mut() = Some(path);
+    });
+}
+
 fn feedback_dir() -> PathBuf {
+    #[cfg(test)]
+    {
+        if let Some(path) = TEST_DIR_OVERRIDE.with(|cell| cell.borrow().clone()) {
+            return path;
+        }
+    }
     config::config_dir().join("feedback")
 }
 
@@ -249,7 +266,7 @@ pub fn learn_preferences(store: &mut FeedbackStore) {
                 CorrectionCategory::Performance => PreferenceType::PerformancePriority,
                 _ => continue,
             };
-            let map = pref_counts.entry(pref_type).or_insert_with(HashMap::new);
+            let map = pref_counts.entry(pref_type).or_default();
             *map.entry(correction.corrected_output.clone()).or_insert(0) += 1;
         }
     }
@@ -406,7 +423,7 @@ pub fn get_feature_stats(feature: &str) -> Result<FeatureStats> {
 
     let mut top_corrections: Vec<(CorrectionCategory, usize)> =
         correction_counts.into_iter().collect();
-    top_corrections.sort_by(|a, b| b.1.cmp(&a.1));
+    top_corrections.sort_by_key(|a| std::cmp::Reverse(a.1));
     top_corrections.truncate(5);
 
     let metrics = calculate_quality_metrics(feature)?;
@@ -485,8 +502,15 @@ Based on this feedback, what are the key areas for improvement? Provide actionab
 mod tests {
     use super::*;
 
+    fn init_test_dir() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        set_test_dir(dir.path().to_path_buf());
+        dir
+    }
+
     #[test]
     fn test_record_feedback() {
+        let _dir = init_test_dir();
         let entry = record_feedback(
             "ai_test",
             "Generate tests for token contract",
@@ -503,18 +527,21 @@ mod tests {
 
     #[test]
     fn test_quality_metrics() {
+        let _dir = init_test_dir();
         let metrics = calculate_quality_metrics("nonexistent_feature").unwrap();
         assert_eq!(metrics.overall_score, 0.5);
     }
 
     #[test]
     fn test_feature_stats() {
+        let _dir = init_test_dir();
         let stats = get_feature_stats("nonexistent_feature").unwrap();
         assert_eq!(stats.total_feedback, 0);
     }
 
     #[test]
     fn test_build_prompts() {
+        let _dir = init_test_dir();
         let prompt = build_preference_aware_prompt("test prompt", "ai_test").unwrap();
         assert!(prompt.contains("test prompt"));
 

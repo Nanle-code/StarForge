@@ -92,6 +92,17 @@ starforge plugin load          # loads and reports all installed plugins
 starforge my-plugin <args>     # execute a loaded plugin as an external subcommand
 ```
 
+### Crash isolation and diagnostics
+
+StarForge isolates third-party plugin crashes at the host boundary. Runtime panics during plugin registration or execution are caught before they unwind into the CLI process, and the user receives a structured diagnostic instead of a corrupted host state.
+
+This applies to:
+
+- invalid plugin paths and corrupted shared libraries
+- unsupported runtime environments or incompatible plugin versions
+- runtime panics in `on_load()` and `execute()`
+- failure paths that return actionable guidance instead of aborting the host CLI
+
 ### Verify
 
 ```bash
@@ -158,12 +169,58 @@ cargo build --release
 
 ---
 
+## Publisher Authentication and Signature Verification
+
+StarForge supports cryptographic publisher authentication using Ed25519 signatures. Plugin authors can sign the compiled shared library binary with a Stellar public key (`G...` address or 32-byte hex public key) and distribute the signature in `starforge-plugin.toml`.
+
+### Publisher Signature Manifest Schema
+
+```toml
+# starforge-plugin.toml
+name = "my-plugin"
+version = "1.0.0"
+starforge_version = "0.1.0"
+description = "My signed plugin"
+
+publisher = "StarForge Labs"
+publisher_key = "GABC1234567890EXAMPLEPUBLICKEY..."
+signature = "hex_or_base64_ed25519_signature_over_sha256_binary_digest..."
+```
+
+### Verification Statuses
+
+When a plugin is verified, StarForge computes the SHA-256 digest of the shared library binary on disk and checks the Ed25519 signature:
+
+| Verification Status | Meaning |
+| ------------------- | ------- |
+| `verified` | Signature successfully verified against binary checksum using publisher key |
+| `unsigned` | No signature provided in `starforge-plugin.toml` |
+| `invalid_signature` | Signature check failed (binary was tampered with or key mismatch) |
+| `untrusted_publisher` | Signature valid, but publisher key is not in `trusted_publishers` allowlist |
+| `malformed_key` | `publisher_key` is not a valid Stellar G-address or hex public key |
+| `malformed_signature` | `signature` string format is invalid hex/base64 |
+
+### Configuring Publisher Allowlist & Signature Policy
+
+In `~/.starforge/config.toml`:
+
+```toml
+[plugin_trust]
+# List of trusted publisher Stellar public keys or hex public keys
+trusted_publishers = [
+    "GABC1234567890EXAMPLEPUBLICKEY...",
+]
+
+# Strict signature enforcement: reject unsigned plugins during install and load
+require_signatures = false
+```
+
+---
+
 ## Security considerations
 
 - Never load plugins from sources you do not control.
-- Prefer `--path` installs from artifacts you have reviewed.
-- The `--force` flag bypasses the source trust warning but does **not**
-  bypass the ABI/version compatibility checks — those run unconditionally.
-- There is no code-signing verification beyond source classification.
-  Use OS-level file integrity tools (e.g., `sha256sum`) if you need
-  cryptographic assurance.
+- Prefer `--path` installs from artifacts you have reviewed or plugins with verified publisher signatures (`verified`).
+- If `require_signatures = true` is set, all plugins must contain a valid Ed25519 signature from a recognized publisher key.
+- The `--force` flag bypasses source trust and signature warnings for administrative troubleshooting, but does **not** bypass ABI or major-version compatibility checks.
+

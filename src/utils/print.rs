@@ -1,7 +1,7 @@
+use crate::utils::redaction::redact_secrets;
 use colored::*;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::time::Duration;
-use crate::utils::redaction::redact_secrets;
 
 pub fn success(msg: &str) {
     println!("{} {}", "✓".green().bold(), msg);
@@ -51,11 +51,7 @@ pub fn cli_error(err: &anyhow::Error, hints: &[&str]) {
     if !chain.is_empty() {
         for cause in &chain {
             let cause_msg = redact_secrets(&cause.to_string());
-            eprintln!(
-                "     {} {}",
-                "Context:".dimmed(),
-                cause_msg.dimmed()
-            );
+            eprintln!("     {} {}", "Context:".dimmed(), cause_msg.dimmed());
         }
         eprintln!();
     }
@@ -86,11 +82,19 @@ pub fn header(msg: &str) {
 }
 
 pub fn kv(key: &str, value: &str) {
-    println!("  {:<20} {}", key.dimmed(), redact_secrets(value).bright_white());
+    println!(
+        "  {:<20} {}",
+        key.dimmed(),
+        redact_secrets(value).bright_white()
+    );
 }
 
 pub fn kv_accent(key: &str, value: &str) {
-    println!("  {:<20} {}", key.dimmed(), redact_secrets(value).cyan().bold());
+    println!(
+        "  {:<20} {}",
+        key.dimmed(),
+        redact_secrets(value).cyan().bold()
+    );
 }
 
 pub fn separator() {

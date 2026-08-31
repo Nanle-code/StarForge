@@ -1,8 +1,7 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Team {
@@ -186,8 +185,7 @@ pub struct SocialManager {
 
 impl SocialManager {
     pub fn new() -> Result<Self> {
-        let home_dir = dirs::home_dir().context("Failed to get home directory")?;
-        let config_dir = home_dir.join(".starforge").join("social");
+        let config_dir = crate::utils::config::config_dir().join("social");
 
         if !config_dir.exists() {
             fs::create_dir_all(&config_dir)?;

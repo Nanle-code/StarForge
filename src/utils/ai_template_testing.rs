@@ -533,13 +533,17 @@ fn validate_cargo_toml(cargo_path: &Path, findings: &mut Vec<TestFinding>) {
     }
 }
 
-fn find_soroban_dependency(package: &toml::Value) -> bool {
-    if let Some(deps) = package.get("dependencies") {
-        if deps.get("soroban-sdk").is_some() {
-            return true;
-        }
-    }
-    false
+/// Whether the manifest depends on `soroban-sdk`.
+///
+/// Takes the whole manifest, not the `[package]` table: dependencies live in
+/// their own top-level tables.
+fn find_soroban_dependency(manifest: &toml::Value) -> bool {
+    ["dependencies", "dev-dependencies"].iter().any(|table| {
+        manifest
+            .get(table)
+            .and_then(|deps| deps.get("soroban-sdk"))
+            .is_some()
+    })
 }
 
 fn validate_source_files(template_dir: &Path, findings: &mut Vec<TestFinding>) {
@@ -803,9 +807,24 @@ fn analyze_security_patterns(content: &str, file_name: &str, findings: &mut Vec<
     for (i, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
 
-        if trimmed.starts_with("pub fn ") {
+        let is_pub = trimmed.starts_with("pub fn ");
+        let is_priv = trimmed.starts_with("fn ")
+            || trimmed.starts_with("pub(crate) fn ")
+            || trimmed.starts_with("pub(in ")
+            || trimmed.starts_with("impl ")
+            || trimmed.starts_with("struct ")
+            || trimmed.starts_with("enum ")
+            || trimmed.starts_with("const ")
+            || trimmed.starts_with("static ");
+
+        if is_pub || is_priv {
             // Process previous function
-            if in_pub_fn && fn_has_state_write && !fn_has_require_auth {
+            if in_pub_fn
+                && fn_has_state_write
+                && !fn_has_require_auth
+                && current_fn != "initialize"
+                && current_fn != "init"
+            {
                 findings.push(TestFinding {
                     category: FindingCategory::Security,
                     severity: Severity::High,
@@ -826,18 +845,22 @@ fn analyze_security_patterns(content: &str, file_name: &str, findings: &mut Vec<
                 });
             }
 
-            // Reset for new function
-            current_fn = trimmed
-                .strip_prefix("pub fn ")
-                .unwrap_or("")
-                .split('(')
-                .next()
-                .unwrap_or("")
-                .to_string();
-            in_pub_fn = true;
-            fn_has_require_auth = false;
-            fn_has_state_write = false;
-            fn_line = i + 1;
+            if is_pub {
+                // Reset for new function
+                current_fn = trimmed
+                    .strip_prefix("pub fn ")
+                    .unwrap_or("")
+                    .split('(')
+                    .next()
+                    .unwrap_or("")
+                    .to_string();
+                in_pub_fn = true;
+                fn_has_require_auth = false;
+                fn_has_state_write = false;
+                fn_line = i + 1;
+            } else {
+                in_pub_fn = false;
+            }
         }
 
         if in_pub_fn {
@@ -855,7 +878,12 @@ fn analyze_security_patterns(content: &str, file_name: &str, findings: &mut Vec<
     }
 
     // Check last function
-    if in_pub_fn && fn_has_state_write && !fn_has_require_auth {
+    if in_pub_fn
+        && fn_has_state_write
+        && !fn_has_require_auth
+        && current_fn != "initialize"
+        && current_fn != "init"
+    {
         findings.push(TestFinding {
             category: FindingCategory::Security,
             severity: Severity::High,
@@ -1141,8 +1169,28 @@ fn run_compatibility_phase(template_dir: &Path, config: &TestConfig) -> Result<P
         });
     }
 
-    let content = fs::read_to_string(&cargo_path)?;
-    let parsed: toml::Value = content.parse()?;
+    let content = match fs::read_to_string(&cargo_path) {
+        Ok(c) => c,
+        Err(_) => {
+            return Ok(PhaseResult {
+                phase: "compatibility_testing".to_string(),
+                findings,
+                passed: false,
+                duration_ms: start.elapsed().as_millis() as u64,
+            });
+        }
+    };
+    let parsed: toml::Value = match content.parse() {
+        Ok(v) => v,
+        Err(_) => {
+            return Ok(PhaseResult {
+                phase: "compatibility_testing".to_string(),
+                findings,
+                passed: false,
+                duration_ms: start.elapsed().as_millis() as u64,
+            });
+        }
+    };
 
     if let Some(package) = parsed.get("package") {
         // Check Rust edition
@@ -1549,10 +1597,17 @@ mod test {
         let config = TestConfig::default();
         let report = test_template(&template_dir, &config).unwrap();
 
+        let blocking: Vec<String> = report
+            .phases
+            .iter()
+            .flat_map(|p| p.findings.iter())
+            .filter(|f| f.severity == Severity::Critical || f.severity == Severity::High)
+            .map(|f| format!("[{}] {}", f.severity.label(), f.title))
+            .collect();
         assert!(
             report.passed,
-            "Valid template should pass: {}",
-            report.summary
+            "Valid template should pass: {} — blocking findings: {:?}",
+            report.summary, blocking
         );
         assert!(
             report.quality_score >= 70,
@@ -1850,8 +1905,11 @@ impl UnwrapContract {
         };
 
         let json = serde_json::to_string_pretty(&phase).unwrap();
-        assert!(json.contains("security"));
-        assert!(json.contains("high"));
+        // The enums carry serde rename policies, so compare case-insensitively
+        // rather than pinning the JSON to a particular casing.
+        let lower = json.to_lowercase();
+        assert!(lower.contains("security"), "{}", json);
+        assert!(lower.contains("high"), "{}", json);
 
         let deserialized: PhaseResult = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.phase, "test");

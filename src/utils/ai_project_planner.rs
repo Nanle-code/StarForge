@@ -517,7 +517,7 @@ pub fn estimate_timeline(tasks: &[TaskItem], phases: &[DevelopmentPhase]) -> Tim
     let milestones = phases
         .iter()
         .scan(start, |cursor, phase| {
-            *cursor = *cursor + Duration::days(phase.estimated_days as i64);
+            *cursor += Duration::days(phase.estimated_days as i64);
             Some(Milestone {
                 name: phase.name.clone(),
                 date: *cursor,

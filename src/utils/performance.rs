@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::path::PathBuf;
+use std::time::Instant;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContractMetrics {
@@ -83,9 +83,18 @@ pub struct GasUsageRecord {
     pub network: String,
 }
 
+thread_local! {
+    static TEST_METRICS_DIR: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
 fn metrics_dir() -> Result<PathBuf> {
-    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
-    let dir = home.join(".starforge").join("metrics");
+    if let Some(dir) = TEST_METRICS_DIR.with(|d| d.borrow().clone()) {
+        if !dir.exists() {
+            fs::create_dir_all(&dir)?;
+        }
+        return Ok(dir);
+    }
+    let dir = crate::utils::config::config_dir().join("metrics");
     if !dir.exists() {
         fs::create_dir_all(&dir).with_context(|| format!("Failed to create {}", dir.display()))?;
     }
@@ -391,7 +400,7 @@ pub fn analyze_bottlenecks(contract_id: &str) -> Result<BottleneckAnalysis> {
         }
     }
 
-    let total_gas: u64 = gas_history.iter().map(|r| r.gas_used).sum();
+    let _total_gas: u64 = gas_history.iter().map(|r| r.gas_used).sum();
     let total_executions = gas_history.len() as f64;
 
     let mut bottleneck_operations: Vec<String> = operation_frequencies
@@ -421,8 +430,12 @@ pub fn analyze_bottlenecks(contract_id: &str) -> Result<BottleneckAnalysis> {
     let mem_records: Vec<u64> = gas_history.iter().filter_map(|r| r.memory_used).collect();
     let memory_leaks_detected = if mem_records.len() >= 4 {
         let half = mem_records.len() / 2;
-        let first_half_avg: f64 =
-            mem_records.iter().take(half).map(|m| *m as f64).sum::<f64>() / half as f64;
+        let first_half_avg: f64 = mem_records
+            .iter()
+            .take(half)
+            .map(|m| *m as f64)
+            .sum::<f64>()
+            / half as f64;
         let second_half_avg: f64 = mem_records
             .iter()
             .skip(half)
@@ -445,7 +458,8 @@ pub fn analyze_bottlenecks(contract_id: &str) -> Result<BottleneckAnalysis> {
         score -= 15.0;
     }
     if !mem_records.is_empty() {
-        let avg_mem: f64 = mem_records.iter().map(|m| *m as f64).sum::<f64>() / mem_records.len() as f64;
+        let avg_mem: f64 =
+            mem_records.iter().map(|m| *m as f64).sum::<f64>() / mem_records.len() as f64;
         if avg_mem > 50_000_000.0 {
             score -= ((avg_mem - 50_000_000.0) / 50_000_000.0) * 15.0;
         }
@@ -515,10 +529,22 @@ pub fn detect_regression(contract_id: &str, period_hours: u64) -> Result<Regress
 
     let baseline_gas: Vec<f64> = baseline_records.iter().map(|r| r.gas_used as f64).collect();
     let current_gas: Vec<f64> = recent_records.iter().map(|r| r.gas_used as f64).collect();
-    let baseline_time: Vec<f64> = baseline_records.iter().map(|r| r.execution_time_ms as f64).collect();
-    let current_time: Vec<f64> = recent_records.iter().map(|r| r.execution_time_ms as f64).collect();
-    let baseline_mem: Vec<f64> = baseline_records.iter().filter_map(|r| r.memory_used.map(|m| m as f64)).collect();
-    let current_mem: Vec<f64> = recent_records.iter().filter_map(|r| r.memory_used.map(|m| m as f64)).collect();
+    let baseline_time: Vec<f64> = baseline_records
+        .iter()
+        .map(|r| r.execution_time_ms as f64)
+        .collect();
+    let current_time: Vec<f64> = recent_records
+        .iter()
+        .map(|r| r.execution_time_ms as f64)
+        .collect();
+    let baseline_mem: Vec<f64> = baseline_records
+        .iter()
+        .filter_map(|r| r.memory_used.map(|m| m as f64))
+        .collect();
+    let current_mem: Vec<f64> = recent_records
+        .iter()
+        .filter_map(|r| r.memory_used.map(|m| m as f64))
+        .collect();
 
     let baseline_avg = if !baseline_gas.is_empty() {
         baseline_gas.iter().sum::<f64>() / baseline_gas.len() as f64
@@ -605,9 +631,11 @@ pub fn detect_regression(contract_id: &str, period_hours: u64) -> Result<Regress
     }
 
     if baseline_time_avg > 0.0 && current_time_avg > baseline_time_avg * 1.15 {
-        trends.push("Execution time has increased by more than 15% compared to baseline".to_string());
+        trends
+            .push("Execution time has increased by more than 15% compared to baseline".to_string());
     } else if baseline_time_avg > 0.0 && current_time_avg < baseline_time_avg * 0.85 {
-        trends.push("Execution time has decreased by more than 15% compared to baseline".to_string());
+        trends
+            .push("Execution time has decreased by more than 15% compared to baseline".to_string());
     }
 
     if baseline_mem_avg > 0.0 && current_mem_avg > baseline_mem_avg * 1.15 {
@@ -778,7 +806,8 @@ pub fn compare_profiles(contract_id: &str, hours_back: u64) -> Result<Comparison
     if let Some(mem_diff) = performance_differences.get("memory_usage_difference") {
         if *mem_diff > 20.0 {
             recommendations.push(
-                "Memory usage has increased. Check for leaks or unnecessary allocations.".to_string(),
+                "Memory usage has increased. Check for leaks or unnecessary allocations."
+                    .to_string(),
             );
         } else if *mem_diff < -20.0 {
             recommendations.push("Memory usage has improved significantly.".to_string());
@@ -882,14 +911,34 @@ mod tests {
         assert_eq!(summary.success_rate, 100.0);
     }
 
+    static TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     fn run_with_temp_home<F>(test: F)
     where
         F: FnOnce(),
     {
+        let _guard = TEST_MUTEX.lock().unwrap();
+        let orig_home = std::env::var("HOME").ok();
+        let orig_userprofile = std::env::var("USERPROFILE").ok();
+
         let tmp = tempfile::tempdir().unwrap();
         std::env::set_var("HOME", tmp.path());
         std::env::set_var("USERPROFILE", tmp.path());
+        TEST_METRICS_DIR.with(|d| *d.borrow_mut() = Some(tmp.path().to_path_buf()));
+
         test();
+
+        TEST_METRICS_DIR.with(|d| *d.borrow_mut() = None);
+        if let Some(h) = orig_home {
+            std::env::set_var("HOME", h);
+        } else {
+            std::env::remove_var("HOME");
+        }
+        if let Some(up) = orig_userprofile {
+            std::env::set_var("USERPROFILE", up);
+        } else {
+            std::env::remove_var("USERPROFILE");
+        }
     }
 
     #[test]
@@ -1016,12 +1065,20 @@ mod tests {
             for i in 0..8 {
                 let record = GasUsageRecord {
                     contract_id: contract_id.clone(),
-                    operation: if i % 2 == 0 { "heavy".to_string() } else { "light".to_string() },
+                    operation: if i % 2 == 0 {
+                        "heavy".to_string()
+                    } else {
+                        "light".to_string()
+                    },
                     gas_used: 10000 + i as u64 * 1000,
                     timestamp: (base_time + chrono::Duration::seconds(i as i64)).to_rfc3339(),
                     success: true,
                     execution_time_ms: 200 + i as u64 * 10,
-                    memory_used: if i % 2 == 0 { Some(15_000_000) } else { Some(1_000_000) },
+                    memory_used: if i % 2 == 0 {
+                        Some(15_000_000)
+                    } else {
+                        Some(1_000_000)
+                    },
                     network: "testnet".to_string(),
                 };
                 record_gas_usage(&record).unwrap();

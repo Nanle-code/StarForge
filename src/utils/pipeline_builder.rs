@@ -927,7 +927,6 @@ pub fn import_pipeline(path: &Path) -> Result<DeploymentPipeline> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
     use tempfile::TempDir;
 
     fn temp_home() -> (TempDir, std::sync::MutexGuard<'static, ()>) {
@@ -939,7 +938,7 @@ mod tests {
 
     fn write_minimal_wasm(path: &Path) {
         let mut bytes = b"\0asm\x01\0\0\0".to_vec();
-        bytes.extend(std::iter::repeat_n(0u8, 64));
+        bytes.extend(vec![0u8; 64]);
         std::fs::write(path, bytes).unwrap();
     }
 

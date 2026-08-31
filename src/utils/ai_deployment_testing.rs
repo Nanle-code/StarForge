@@ -554,7 +554,7 @@ mod tests {
 
     fn valid_wasm() -> Vec<u8> {
         let mut bytes = vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
-        bytes.extend(std::iter::repeat_n(0u8, 2048));
+        bytes.extend(vec![0u8; 2048]);
         bytes
     }
 
@@ -628,7 +628,7 @@ mod tests {
     #[test]
     fn large_module_warns_but_does_not_block() {
         let mut bytes = valid_wasm();
-        bytes.extend(std::iter::repeat_n(0u8, 200 * 1024));
+        bytes.extend(vec![0u8; 200 * 1024]);
         let checks = run_pre_deployment_checks(&bytes, &DeploymentContext::default());
         let size = checks.iter().find(|c| c.id == "PRE-003").unwrap();
         assert_eq!(size.outcome, Outcome::Warn);

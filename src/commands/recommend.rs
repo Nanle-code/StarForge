@@ -1,7 +1,7 @@
 //! `starforge template recommend` — AI-powered template recommendation engine.
 //!
 //! Usage examples:
-//! ```
+//! ```bash
 //! # Ask for a DeFi recommendation
 //! starforge template recommend "decentralized exchange"
 //!
@@ -46,7 +46,7 @@ pub async fn handle(
         .collect();
 
     let skill_level = match skill.as_deref() {
-        Some(s) => match rec::SkillLevel::from_str(s) {
+        Some(s) => match rec::SkillLevel::parse_lenient(s) {
             Some(level) => level,
             None => {
                 p::warn(&format!(

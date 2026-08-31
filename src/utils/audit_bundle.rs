@@ -40,7 +40,13 @@ impl AuditBundle {
             let unsigned = serde_json::to_vec(&bundle)?;
             let mut mac = HmacSha256::new_from_slice(key)?;
             mac.update(&unsigned);
-            bundle.signature = Some(mac.finalize().into_bytes().iter().map(|b| format!("{:02x}", b)).collect());
+            bundle.signature = Some(
+                mac.finalize()
+                    .into_bytes()
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect(),
+            );
         }
         Ok(bundle)
     }
@@ -54,7 +60,12 @@ impl AuditBundle {
     }
 
     fn redact(&mut self) {
-        for field in [&mut self.versions, &mut self.checksums, &mut self.deploy_history, &mut self.config_hashes] {
+        for field in [
+            &mut self.versions,
+            &mut self.checksums,
+            &mut self.deploy_history,
+            &mut self.config_hashes,
+        ] {
             for value in field.iter_mut() {
                 *value = redact(value);
             }
@@ -63,7 +74,10 @@ impl AuditBundle {
 }
 
 fn redact(value: &str) -> String {
-    if value.contains("BEGIN ") || value.contains("PRIVATE KEY") || value.to_ascii_lowercase().contains("secret") {
+    if value.contains("BEGIN ")
+        || value.contains("PRIVATE KEY")
+        || value.to_ascii_lowercase().contains("secret")
+    {
         "[REDACTED]".to_string()
     } else {
         value.to_string()
@@ -80,10 +94,14 @@ mod tests {
             "2026-08-26T00:00:00Z",
             vec!["starforge 1.0".into()],
             vec!["sha256:abc".into()],
-            vec!["deploy testnet".into(), "-----BEGIN PRIVATE KEY-----".into()],
+            vec![
+                "deploy testnet".into(),
+                "-----BEGIN PRIVATE KEY-----".into(),
+            ],
             vec!["secret=config-value".into()],
             Some(b"audit-key"),
-        ).unwrap();
+        )
+        .unwrap();
         let json = serde_json::to_string(&bundle).unwrap();
         assert!(!json.contains("PRIVATE KEY"));
         assert!(!json.contains("config-value"));

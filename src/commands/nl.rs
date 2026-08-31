@@ -132,6 +132,9 @@ struct Pattern {
     keywords: &'static [&'static str],
     intent_factory: fn(&ExtractedEntities) -> Intent,
     confidence: f64,
+    // Not currently called from any code path in this crate. Kept rather than
+    // removed since deleting it is a product decision, not a lint-scoping one.
+    #[allow(dead_code)]
     explanation: &'static str,
 }
 
@@ -297,9 +300,21 @@ const STOP_WORDS: &[&str] = &[
     "after", "above", "below", "between", "out", "off", "over", "under", "again", "further",
     "then", "once", "and", "but", "or", "nor", "not", "so", "very", "just", "than", "too", "also",
     "here", "there", "when", "where", "why", "how", "all", "each", "every", "both", "few", "more",
-    "most", "other", "some", "such", "no", "only", "own", "same", "now", "if", "please", "show",
-    "me", "want",
+    "most", "other", "some", "such", "no", "only", "own", "same", "now", "if", "please", "me",
+    "want",
 ];
+
+/// Fold domain synonyms onto the vocabulary the pattern table uses, so a user
+/// can say "devnet" where the patterns say "node".
+///
+/// `show` is deliberately *not* a stop word: it is a command verb here, and
+/// several patterns key on it.
+fn canonical_keyword(word: &str) -> &str {
+    match word {
+        "devnet" | "localnet" | "sandbox" => "node",
+        other => other,
+    }
+}
 
 /// Extracts entities from the natural language input.
 fn extract_entities(input: &str) -> ExtractedEntities {
@@ -311,14 +326,12 @@ fn extract_entities(input: &str) -> ExtractedEntities {
 
     // Extract wallet name (after "named", "called", "as", "name", or directly after "wallet")
     for i in 0..words.len() {
-        if matches!(words[i], "named" | "called" | "as" | "name") {
-            if i + 1 < words.len() {
-                let name = words[i + 1]
-                    .trim_matches(|c: char| !c.is_alphanumeric() && c != '_' && c != '-');
-                if !name.is_empty() {
-                    entities.wallet_name = Some(name.to_string());
-                    break;
-                }
+        if matches!(words[i], "named" | "called" | "as" | "name") && i + 1 < words.len() {
+            let name =
+                words[i + 1].trim_matches(|c: char| !c.is_alphanumeric() && c != '_' && c != '-');
+            if !name.is_empty() {
+                entities.wallet_name = Some(name.to_string());
+                break;
             }
         }
     }
@@ -341,12 +354,15 @@ fn extract_entities(input: &str) -> ExtractedEntities {
         }
     }
 
-    // Extract contract ID (starts with C and is 56 chars). Uses the
-    // original-case words since StrKey contract IDs are case-sensitive.
+    // Extract contract ID (starts with C and is 56 chars).
+    //
+    // Scanned against the original-case words, not the lower-cased copy:
+    // contract IDs are upper-case base32 and lower-casing them destroys the
+    // `C` prefix this looks for, as well as the ID itself.
     for word in &words_orig {
         let cleaned: String = word.chars().filter(|c| c.is_alphanumeric()).collect();
-        if cleaned.starts_with('C') && cleaned.len() == 56 {
-            entities.contract_id = Some(cleaned);
+        if (cleaned.starts_with('c') || cleaned.starts_with('C')) && cleaned.len() == 56 {
+            entities.contract_id = Some(cleaned.to_uppercase());
             break;
         }
     }
@@ -376,26 +392,27 @@ fn extract_entities(input: &str) -> ExtractedEntities {
 
     // Extract amount (numbers after "fund", "send", etc.)
     for i in 0..words.len() {
-        if matches!(words[i], "fund" | "send" | "pay") {
-            if i + 1 < words.len() {
-                if words[i + 1].parse::<f64>().is_ok() {
-                    entities.amount = Some(words[i + 1].to_string());
-                    break;
-                }
-            }
+        if matches!(words[i], "fund" | "send" | "pay")
+            && i + 1 < words.len()
+            && words[i + 1].parse::<f64>().is_ok()
+        {
+            entities.amount = Some(words[i + 1].to_string());
+            break;
         }
     }
 
-    // Extract function name (after "call", "run", "execute"). Later triggers
-    // win over earlier ones so e.g. "invoke contract call transfer" resolves
-    // to "transfer" rather than the "contract" that follows "invoke".
+    // Extract function name (after "call", "run", "execute").
+    //
+    // "invoke" is not in this list: it introduces the *contract*, as in
+    // "invoke contract <id> call <function>".
     for i in 0..words.len() {
-        if matches!(words[i], "call" | "run" | "execute" | "invoke") {
-            if i + 1 < words.len() {
-                let func = words[i + 1].trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
-                if !func.is_empty() {
-                    entities.function_name = Some(func.to_string());
-                }
+        if matches!(words[i], "call" | "run" | "execute") && i + 1 < words.len() {
+            let func = words[i + 1].trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+            if func == "contract" {
+                continue;
+            }
+            if !func.is_empty() {
+                entities.function_name = Some(func.to_string());
             }
         }
     }
@@ -406,12 +423,12 @@ fn extract_entities(input: &str) -> ExtractedEntities {
             .chars()
             .filter(|c| c.is_alphanumeric() || *c == '_')
             .collect();
-        if !cleaned.is_empty()
-            && cleaned.len() > 2
-            && !STOP_WORDS.contains(&cleaned.as_str())
-            && !entities.keywords.contains(&cleaned)
-        {
-            entities.keywords.push(cleaned);
+        if cleaned.is_empty() || cleaned.len() <= 2 || STOP_WORDS.contains(&cleaned.as_str()) {
+            continue;
+        }
+        let canonical = canonical_keyword(&cleaned).to_string();
+        if !entities.keywords.contains(&canonical) {
+            entities.keywords.push(canonical);
         }
     }
 
@@ -431,9 +448,18 @@ fn recognize_intent(entities: &ExtractedEntities) -> (Intent, f64) {
             .keywords
             .iter()
             .filter(|k| {
-                keywords
-                    .iter()
-                    .any(|ek| ek.contains(*k) || k.contains(ek.as_str()))
+                // A keyword naming an entity kind is satisfied by having
+                // extracted that entity: "switch to mainnet" never says the
+                // word "network", but it clearly names one.
+                let entity_named = match **k {
+                    "network" => entities.network.is_some(),
+                    "contract" => entities.contract_id.is_some(),
+                    _ => false,
+                };
+                entity_named
+                    || keywords
+                        .iter()
+                        .any(|ek| ek.contains(*k) || k.contains(ek.as_str()))
                     || entities
                         .wallet_name
                         .as_ref()
@@ -445,7 +471,7 @@ fn recognize_intent(entities: &ExtractedEntities) -> (Intent, f64) {
         let match_ratio = match_count as f64 / pattern.keywords.len() as f64;
         let adjusted_confidence = pattern.confidence * match_ratio;
 
-        if match_ratio > 0.5
+        if match_ratio >= 0.5
             && best_match
                 .as_ref()
                 .map(|(_, c)| adjusted_confidence > *c)
@@ -938,10 +964,12 @@ mod tests {
 
     #[test]
     fn extract_contract_id() {
-        let e = extract_entities(
-            "invoke contract CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-        );
-        assert!(e.contract_id.is_some());
+        // A Stellar contract ID is exactly 56 characters.
+        let id = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM";
+        assert_eq!(id.len(), 56, "fixture must be a real contract ID length");
+
+        let e = extract_entities(&format!("invoke contract {}", id));
+        assert_eq!(e.contract_id.as_deref(), Some(id));
     }
 
     #[test]

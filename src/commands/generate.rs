@@ -53,6 +53,13 @@ struct ChatResponseMessage {
 pub async fn handle(cmd: &GenerateCommands) -> Result<()> {
     match cmd {
         GenerateCommands::Contract { prompt, out } => {
+            // Offline-first guard: `generate` is cloud-only and must fail
+            // clearly before any network call when offline mode is active.
+            crate::utils::ai_offline::require_offline_compatible(
+                "generate",
+                crate::utils::ai_offline::resolve_configured_mode_sync(),
+            )?;
+
             let api_key = env::var("OPENAI_API_KEY").context(
                 "OPENAI_API_KEY environment variable is not set. Please set it to use the AI generator.",
             )?;

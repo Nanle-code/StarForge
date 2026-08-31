@@ -11,9 +11,9 @@
 //! - `warm`       – pre-warm cache with common operations
 
 use crate::utils::{ai_cache, print as p};
-use anyhow::{Context, Result};
-use clap::{Args, Subcommand};
-use std::path::PathBuf;
+use anyhow::Result;
+use clap::Subcommand;
+use std::path::{Path, PathBuf};
 
 // ─── Sub-command enum ─────────────────────────────────────────────────────────
 
@@ -288,7 +288,7 @@ async fn handle_invalidate(tags: Option<&str>, model: Option<&str>) -> Result<()
     Ok(())
 }
 
-async fn handle_export(path: &PathBuf) -> Result<()> {
+async fn handle_export(path: &Path) -> Result<()> {
     let cache = ai_cache::AiCache::open()?;
 
     p::header("Exporting AI Cache");
@@ -303,7 +303,7 @@ async fn handle_export(path: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-async fn handle_import(path: &PathBuf) -> Result<()> {
+async fn handle_import(path: &Path) -> Result<()> {
     let mut cache = ai_cache::AiCache::open()?;
 
     p::header("Importing AI Cache");

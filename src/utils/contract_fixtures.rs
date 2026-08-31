@@ -457,6 +457,127 @@ pub fn liquidity_pool_fixture() -> ContractFixture {
         .build()
 }
 
+/// Builds a fixture for an authorization-focused contract.
+///
+/// This fixture models a contract that requires different authorization
+/// levels for different operations — useful for testing `require_auth`
+/// patterns, role-based access control, and unauthorized-call rejection.
+///
+/// Accounts:
+/// - `admin` — full admin access (can grant/revoke roles)
+/// - `operator` — limited mutation access (can transfer, mint)
+/// - `viewer` — read-only access
+/// - `unauthorized` — no access (should be rejected)
+pub fn auth_fixture() -> ContractFixture {
+    FixtureBuilder::new("auth")
+        .with_account(TestAccount {
+            id: "admin".into(),
+            address: "GBXYZTEST00000000000000000000000000000000000000000000000040".into(),
+            secret_key: Some("STEST0000000000000000000000000000000000000000000000000040".into()),
+            balance: 100_000_000_000,
+            role: AccountRole::Admin,
+        })
+        .with_account(TestAccount {
+            id: "operator".into(),
+            address: "GBXYZTEST00000000000000000000000000000000000000000000000041".into(),
+            secret_key: Some("STEST0000000000000000000000000000000000000000000000000041".into()),
+            balance: 10_000_000_000,
+            role: AccountRole::User,
+        })
+        .with_account(TestAccount {
+            id: "viewer".into(),
+            address: "GBXYZTEST00000000000000000000000000000000000000000000000042".into(),
+            secret_key: Some("STEST0000000000000000000000000000000000000000000000000042".into()),
+            balance: 1_000_000_000,
+            role: AccountRole::User,
+        })
+        .with_account(TestAccount {
+            id: "unauthorized".into(),
+            address: "GBXYZTEST00000000000000000000000000000000000000000000000099".into(),
+            secret_key: None,
+            balance: 0,
+            role: AccountRole::Unauthorized,
+        })
+        .with_storage(StorageSeed {
+            key: "admin".into(),
+            value: serde_json::json!("GBXYZTEST00000000000000000000000000000000000000000000000040"),
+            durability: StorageDurability::Instance,
+        })
+        .with_storage(StorageSeed {
+            key: "operator_role".into(),
+            value: serde_json::json!("GBXYZTEST00000000000000000000000000000000000000000000000041"),
+            durability: StorageDurability::Persistent,
+        })
+        .with_value(
+            "authorized_actions",
+            serde_json::json!(vec!["read", "transfer", "mint"]),
+        )
+        .with_value(
+            "admin_actions",
+            serde_json::json!(vec![
+                "read",
+                "transfer",
+                "mint",
+                "grant_role",
+                "revoke_role"
+            ]),
+        )
+        .with_metadata("contract_type", "auth")
+        .with_metadata("version", "1.0.0")
+        .build()
+}
+
+/// Builds a deterministic fixture variant with a fixed seed.
+///
+/// Deterministic fixtures use a counter for account addresses so that
+/// snapshot comparisons are stable across runs. The `seed` parameter
+/// offsets the address suffixes (e.g. seed=100 produces addresses ending
+/// in `0040` for admin, `0041` for operator, etc.).
+///
+/// This is useful for:
+/// - Snapshot testing (compare serialized fixture context across runs)
+/// - Property-based testing (generate fixtures from a seed)
+/// - Regression testing (reproduce exact fixture state)
+pub fn deterministic_fixture(seed: u32) -> ContractFixture {
+    let base = seed * 100;
+    FixtureBuilder::new(format!("deterministic_{}", seed))
+        .with_account(TestAccount {
+            id: "admin".into(),
+            address: format!(
+                "GBXYZTEST0000000000000000000000000000000000000000000000{:04}",
+                base
+            ),
+            secret_key: Some(format!(
+                "STEST00000000000000000000000000000000000000000000000000{:04}",
+                base
+            )),
+            balance: 10_000_000_000,
+            role: AccountRole::Admin,
+        })
+        .with_account(TestAccount {
+            id: "user".into(),
+            address: format!(
+                "GBXYZTEST0000000000000000000000000000000000000000000000{:04}",
+                base + 1
+            ),
+            secret_key: Some(format!(
+                "STEST00000000000000000000000000000000000000000000000000{:04}",
+                base + 1
+            )),
+            balance: 1_000_000_000,
+            role: AccountRole::User,
+        })
+        .with_storage(StorageSeed {
+            key: "count".into(),
+            value: serde_json::json!(0u64),
+            durability: StorageDurability::Instance,
+        })
+        .with_value("seed", serde_json::json!(seed))
+        .with_metadata("contract_type", "deterministic")
+        .with_metadata("seed", seed.to_string())
+        .build()
+}
+
 /// A registry that manages multiple fixtures by name.
 #[derive(Default)]
 pub struct FixtureRegistry {
@@ -567,5 +688,75 @@ mod tests {
         save_fixture_snapshot(&ctx, &path).unwrap();
         let loaded = load_fixture_snapshot(&path).unwrap();
         assert_eq!(loaded.name, ctx.name);
+    }
+
+    #[test]
+    fn auth_fixture_has_all_roles() {
+        let mut f = auth_fixture();
+        let ctx = f.setup().unwrap();
+        assert!(ctx.account("admin").is_some());
+        assert!(ctx.account("operator").is_some());
+        assert!(ctx.account("viewer").is_some());
+        assert!(ctx.account("unauthorized").is_some());
+        assert_eq!(
+            ctx.metadata.get("contract_type").map(|s| s.as_str()),
+            Some("auth")
+        );
+    }
+
+    #[test]
+    fn auth_fixture_storage_seeds() {
+        let mut f = auth_fixture();
+        let ctx = f.setup().unwrap();
+        assert!(ctx.storage_entry("admin").is_some());
+        assert!(ctx.storage_entry("operator_role").is_some());
+        assert!(
+            ctx.value("authorized_actions").is_some(),
+            "auth fixture must have authorized_actions value"
+        );
+        assert!(
+            ctx.value("admin_actions").is_some(),
+            "auth fixture must have admin_actions value"
+        );
+    }
+
+    #[test]
+    fn deterministic_fixture_is_deterministic() {
+        let mut f1 = deterministic_fixture(42);
+        let ctx1 = f1.setup().unwrap().clone();
+        let mut f2 = deterministic_fixture(42);
+        let ctx2 = f2.setup().unwrap().clone();
+        assert_eq!(ctx1.name, ctx2.name);
+        assert_eq!(
+            ctx1.account("admin").unwrap().address,
+            ctx2.account("admin").unwrap().address
+        );
+        assert_eq!(
+            ctx1.account("user").unwrap().address,
+            ctx2.account("user").unwrap().address
+        );
+    }
+
+    #[test]
+    fn deterministic_fixture_different_seeds() {
+        let mut f1 = deterministic_fixture(1);
+        let ctx1 = f1.setup().unwrap();
+        let mut f2 = deterministic_fixture(2);
+        let ctx2 = f2.setup().unwrap();
+        assert_ne!(
+            ctx1.account("admin").unwrap().address,
+            ctx2.account("admin").unwrap().address
+        );
+    }
+
+    #[test]
+    fn fixture_factory_all_types_in_registry() {
+        let mut registry = FixtureRegistry::new();
+        registry.register(counter_fixture());
+        registry.register(token_fixture());
+        registry.register(auth_fixture());
+        registry.register(deterministic_fixture(1));
+        registry.setup_all().unwrap();
+        registry.teardown_all().unwrap();
     }
 }

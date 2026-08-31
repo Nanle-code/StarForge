@@ -1,10 +1,20 @@
 use std::process::Command;
 
+fn isolated_home() -> tempfile::TempDir {
+    tempfile::tempdir().expect("create isolated home")
+}
+
+fn starforge(home: &std::path::Path) -> Command {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_starforge"));
+    cmd.env("HOME", home);
+    cmd.env("USERPROFILE", home);
+    cmd
+}
+
 #[test]
 fn test_hardware_wallet_command_availability() {
-    let starforge_binary = env!("CARGO_BIN_EXE_starforge");
-
-    let output = Command::new(starforge_binary)
+    let home = isolated_home();
+    let output = starforge(home.path())
         .arg("wallet")
         .arg("--help")
         .output()
@@ -26,9 +36,8 @@ fn test_hardware_wallet_command_availability() {
 
 #[test]
 fn test_hardware_wallet_detection_graceful_fallback() {
-    let starforge_binary = env!("CARGO_BIN_EXE_starforge");
-
-    let output = Command::new(starforge_binary)
+    let home = isolated_home();
+    let output = starforge(home.path())
         .arg("wallet")
         .arg("list")
         .output()
@@ -55,9 +64,8 @@ fn test_hardware_wallet_detection_graceful_fallback() {
 
 #[test]
 fn test_hardware_wallet_without_device_handling() {
-    let starforge_binary = env!("CARGO_BIN_EXE_starforge");
-
-    let output = Command::new(starforge_binary)
+    let home = isolated_home();
+    let output = starforge(home.path())
         .arg("wallet")
         .arg("import")
         .arg("dummy_name")
@@ -84,9 +92,8 @@ fn test_hardware_wallet_without_device_handling() {
 
 #[test]
 fn test_hardware_wallet_feature_detection() {
-    let starforge_binary = env!("CARGO_BIN_EXE_starforge");
-
-    let output = Command::new(starforge_binary)
+    let home = isolated_home();
+    let output = starforge(home.path())
         .arg("--version")
         .output()
         .expect("Failed to get version");
@@ -102,15 +109,14 @@ fn test_hardware_wallet_feature_detection() {
 
 #[test]
 fn test_hardware_wallet_error_recovery() {
-    let starforge_binary = env!("CARGO_BIN_EXE_starforge");
-
-    let output1 = Command::new(starforge_binary)
+    let home = isolated_home();
+    let output1 = starforge(home.path())
         .arg("wallet")
         .arg("list")
         .output()
         .expect("First wallet list should work");
 
-    let output2 = Command::new(starforge_binary)
+    let output2 = starforge(home.path())
         .arg("wallet")
         .arg("list")
         .output()
@@ -124,15 +130,14 @@ fn test_hardware_wallet_error_recovery() {
 
 #[test]
 fn test_hardware_wallet_api_consistency() {
-    let starforge_binary = env!("CARGO_BIN_EXE_starforge");
-
-    let wallet_help = Command::new(starforge_binary)
+    let home = isolated_home();
+    let wallet_help = starforge(home.path())
         .arg("wallet")
         .arg("--help")
         .output()
         .expect("Wallet help should be available");
 
-    let import_help = Command::new(starforge_binary)
+    let import_help = starforge(home.path())
         .arg("wallet")
         .arg("import")
         .arg("--help")
@@ -155,9 +160,8 @@ fn test_hardware_wallet_api_consistency() {
 
 #[test]
 fn test_hardware_wallet_offline_behavior() {
-    let starforge_binary = env!("CARGO_BIN_EXE_starforge");
-
-    let output = Command::new(starforge_binary)
+    let home = isolated_home();
+    let output = starforge(home.path())
         .arg("wallet")
         .arg("export")
         .arg("--format")
@@ -187,9 +191,8 @@ fn test_hardware_wallet_offline_behavior() {
 
 #[test]
 fn test_hardware_wallet_deploy_flag_documented() {
-    let starforge_binary = env!("CARGO_BIN_EXE_starforge");
-
-    let output = Command::new(starforge_binary)
+    let home = isolated_home();
+    let output = starforge(home.path())
         .arg("deploy")
         .arg("--help")
         .output()
@@ -205,9 +208,8 @@ fn test_hardware_wallet_deploy_flag_documented() {
 
 #[test]
 fn test_hardware_wallet_tx_send_flag_documented() {
-    let starforge_binary = env!("CARGO_BIN_EXE_starforge");
-
-    let output = Command::new(starforge_binary)
+    let home = isolated_home();
+    let output = starforge(home.path())
         .arg("tx")
         .arg("send")
         .arg("--help")
@@ -224,9 +226,8 @@ fn test_hardware_wallet_tx_send_flag_documented() {
 
 #[test]
 fn test_hardware_wallet_multisig_sign_flag_documented() {
-    let starforge_binary = env!("CARGO_BIN_EXE_starforge");
-
-    let output = Command::new(starforge_binary)
+    let home = isolated_home();
+    let output = starforge(home.path())
         .arg("wallet")
         .arg("multisig")
         .arg("sign")
@@ -247,9 +248,8 @@ fn test_hardware_wallet_multisig_sign_flag_documented() {
 
 #[test]
 fn test_hardware_wallet_connect_timeout_flag_documented() {
-    let starforge_binary = env!("CARGO_BIN_EXE_starforge");
-
-    let output = Command::new(starforge_binary)
+    let home = isolated_home();
+    let output = starforge(home.path())
         .arg("wallet")
         .arg("connect")
         .arg("--help")
@@ -267,11 +267,78 @@ fn test_hardware_wallet_connect_timeout_flag_documented() {
     );
 }
 
+// -- Optional-backend coverage: these only run when the crate is compiled with
+// `--features hardware-wallet`, which exercises the real hidapi/trezor-client
+// code paths. CI runners have no physical device attached, so the assertions
+// below pin down the disconnect / device-approval-required behavior rather
+// than requiring hardware.
+
+#[cfg(feature = "hardware-wallet")]
 #[test]
-fn test_hardware_wallet_timeout_behavior() {
+fn test_hardware_wallet_connect_reports_disconnect_without_device() {
     let starforge_binary = env!("CARGO_BIN_EXE_starforge");
 
     let output = Command::new(starforge_binary)
+        .args(["wallet", "connect", "ledger", "--timeout", "1s"])
+        .output()
+        .expect("Failed to run wallet connect");
+
+    assert!(
+        !output.status.success(),
+        "Connect should fail when no physical Ledger is attached"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let combined = format!("{}{}", stderr, stdout).to_lowercase();
+    assert!(
+        combined.contains("ledger") || combined.contains("device") || combined.contains("connect"),
+        "Disconnect error should name the device or connection state"
+    );
+}
+
+#[cfg(feature = "hardware-wallet")]
+#[test]
+fn test_hardware_wallet_hw_status_reports_disconnect_without_device() {
+    let starforge_binary = env!("CARGO_BIN_EXE_starforge");
+
+    let output = Command::new(starforge_binary)
+        .args(["wallet", "hw-status", "trezor"])
+        .output()
+        .expect("Failed to run wallet hw-status");
+
+    assert!(
+        !output.status.success(),
+        "hw-status should fail when no physical Trezor is attached"
+    );
+}
+
+#[cfg(feature = "hardware-wallet")]
+#[test]
+fn test_hardware_wallet_import_rejects_unapproved_device() {
+    let starforge_binary = env!("CARGO_BIN_EXE_starforge");
+
+    let output = Command::new(starforge_binary)
+        .args([
+            "wallet",
+            "import",
+            "ci-hw-import-test",
+            "--hardware",
+            "ledger",
+        ])
+        .output()
+        .expect("Failed to attempt hardware import");
+
+    assert!(
+        !output.status.success(),
+        "Import from an unapproved/absent hardware device must fail, not silently succeed"
+    );
+}
+
+#[test]
+fn test_hardware_wallet_timeout_behavior() {
+    let home = isolated_home();
+    let output = starforge(home.path())
         .arg("wallet")
         .arg("connect")
         .arg("--timeout")

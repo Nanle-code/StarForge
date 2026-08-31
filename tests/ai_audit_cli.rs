@@ -264,7 +264,7 @@ fn test_audit_args_valid_json_output() {
         .out
         .unwrap()
         .extension()
-        .map_or(false, |ext| ext == "json"));
+        .is_some_and(|ext| ext == "json"));
 }
 
 #[test]
@@ -284,7 +284,7 @@ fn test_audit_args_valid_html_output() {
         .out
         .unwrap()
         .extension()
-        .map_or(false, |ext| ext == "html"));
+        .is_some_and(|ext| ext == "html"));
 }
 
 #[test]

@@ -499,9 +499,9 @@ pub fn list_proposals(
 
     Ok(proposals
         .into_iter()
-        .filter(|p| network.is_none_or(|n| p.network == n))
-        .filter(|p| contract_id.is_none_or(|c| p.contract_id == c))
-        .filter(|p| status.is_none_or(|s| p.status.to_string() == s))
+        .filter(|p| network.map_or(true, |n| p.network == n))
+        .filter(|p| contract_id.map_or(true, |c| p.contract_id == c))
+        .filter(|p| status.map_or(true, |s| p.status.to_string() == s))
         .collect())
 }
 
@@ -700,16 +700,34 @@ mod tests {
 
     fn with_isolated_governance<F: FnOnce()>(f: F) {
         let _home_guard = crate::utils::lock_home_env();
-        let _guard = TEST_MUTEX.get_or_init(|| Mutex::new(())).lock().unwrap();
+        // Recover from poisoning: one failing test must not cascade into every
+        // other test that shares this lock.
+        let _guard = TEST_MUTEX
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let home = test_home();
+        let config_dir = home.path().join(".starforge");
         env::set_var("HOME", home.path());
         env::set_var("USERPROFILE", home.path());
+        env::set_var(crate::utils::config::CONFIG_DIR_ENV, &config_dir);
         f();
     }
 
-    fn write_test_wasm(dir: &Path) -> PathBuf {
+    /// Write a minimal WASM file whose hash is unique to `tag` and to this
+    /// process.
+    ///
+    /// A proposal is keyed by the hash of its WASM, so two tests writing
+    /// identical bytes collide in any store they end up sharing — and so do
+    /// two runs, if the store outlives them. The tag separates tests and the
+    /// process id separates runs, which keeps these tests independent of how
+    /// well the governance directory happens to be isolated.
+    fn write_test_wasm(dir: &Path, tag: &str) -> PathBuf {
         let path = dir.join("test.wasm");
-        fs::write(&path, b"\0asm\x01\x00\x00\x00").unwrap();
+        let mut bytes = b"\0asm\x01\x00\x00\x00".to_vec();
+        bytes.extend_from_slice(tag.as_bytes());
+        bytes.extend_from_slice(&std::process::id().to_le_bytes());
+        fs::write(&path, bytes).unwrap();
         path
     }
 
@@ -717,7 +735,7 @@ mod tests {
     fn create_and_vote_reaches_threshold() {
         with_isolated_governance(|| {
             let dir = tempfile::tempdir().unwrap();
-            let wasm = write_test_wasm(dir.path());
+            let wasm = write_test_wasm(dir.path(), "create_and_vote");
 
             let proposal = create_proposal(
                 "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM".to_string(),
@@ -757,7 +775,7 @@ mod tests {
     fn double_vote_rejected() {
         with_isolated_governance(|| {
             let dir = tempfile::tempdir().unwrap();
-            let wasm = write_test_wasm(dir.path());
+            let wasm = write_test_wasm(dir.path(), "double_vote");
             let voter = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF".to_string();
 
             let proposal = create_proposal(
@@ -781,7 +799,7 @@ mod tests {
     fn timelock_zero_allows_immediate_execute() {
         with_isolated_governance(|| {
             let dir = tempfile::tempdir().unwrap();
-            let wasm = write_test_wasm(dir.path());
+            let wasm = write_test_wasm(dir.path(), "timelock_zero");
 
             let proposal = create_proposal(
                 "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM".to_string(),
@@ -822,7 +840,7 @@ mod tests {
     fn audit_trail_records_proposal_lifecycle() {
         with_isolated_governance(|| {
             let dir = tempfile::tempdir().unwrap();
-            let wasm = write_test_wasm(dir.path());
+            let wasm = write_test_wasm(dir.path(), "audit_trail");
 
             let proposal = create_proposal(
                 "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM".to_string(),
@@ -844,7 +862,7 @@ mod tests {
     fn emergency_requires_guardian() {
         with_isolated_governance(|| {
             let dir = tempfile::tempdir().unwrap();
-            let wasm = write_test_wasm(dir.path());
+            let wasm = write_test_wasm(dir.path(), "emergency_guardian");
             let guardian = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF".to_string();
 
             add_emergency_guardian(guardian.clone()).unwrap();

@@ -31,8 +31,8 @@ use serde::{Deserialize, Serialize};
 
 // ── GF(256) arithmetic ───────────────────────────────────────────────────────
 
-/// Irreducible polynomial for GF(2^8): x^8 + x^4 + x^3 + x + 1 = 0x11B.
-const IRREDUCIBLE: u16 = 0x11B;
+/// Irreducible polynomial for GF(2^8): x^8 + x^4 + x^3 + x^2 + 1 = 0x11D.
+const IRREDUCIBLE: u16 = 0x11D;
 
 /// Lookup table for GF(256) logarithms (base 2 = primitive element).
 /// Index 0 is unused (log(0) is undefined); we store log[i+1] = log of the
@@ -185,21 +185,26 @@ pub fn split(secret: &[u8], threshold: usize, total_shares: usize) -> Result<Vec
     // is the concatenation of poly_i(x) for each byte position i.
     let secret_len = secret.len();
 
+    // Generate coefficients for all polynomials: one polynomial per secret byte.
+    // coeffs[0] is the secret (constant term), coeffs[1..=degree] are random.
+    let mut all_coeffs = Vec::with_capacity(secret_len);
+    for &secret_byte in secret {
+        let mut coeffs = vec![0u8; degree + 1];
+        coeffs[0] = secret_byte;
+        for c in coeffs[1..].iter_mut() {
+            *c = rng.next_u32() as u8;
+        }
+        all_coeffs.push(coeffs);
+    }
+
     let mut shares: Vec<RecoveryShare> = Vec::with_capacity(total_shares);
 
     for share_idx in 1..=total_shares {
         let x = share_idx as u8;
         let mut payload_bytes = Vec::with_capacity(secret_len);
 
-        for byte_idx in 0..secret_len {
-            // Build polynomial: secret[byte_idx] is the constant term,
-            // remaining coefficients are random.
-            let mut coeffs = vec![0u8; degree + 1];
-            coeffs[0] = secret[byte_idx];
-            for c in coeffs[1..].iter_mut() {
-                *c = rng.next_u32() as u8;
-            }
-            payload_bytes.push(poly_eval(&coeffs, x));
+        for coeffs in &all_coeffs {
+            payload_bytes.push(poly_eval(coeffs, x));
         }
 
         shares.push(RecoveryShare {

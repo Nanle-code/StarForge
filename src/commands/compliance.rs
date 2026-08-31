@@ -8,8 +8,6 @@ use crate::utils::print as p;
 use anyhow::Result;
 use clap::{Args, Subcommand};
 use colored::Colorize;
-use colored::*;
-use std::collections::HashMap;
 
 #[derive(Subcommand)]
 pub enum ComplianceCommands {
@@ -202,7 +200,7 @@ fn handle_init() -> Result<()> {
             enabled_mark,
             policy.name.white(),
             severity_color,
-            &policy.id[..12].cyan()
+            policy.id[..12].cyan()
         );
     }
 
@@ -244,7 +242,7 @@ fn handle_check(args: CheckArgs) -> Result<()> {
     p::kv("Network", &report.network);
     p::kv(
         "Timestamp",
-        &report.timestamp.get(..19).unwrap_or(&report.timestamp),
+        report.timestamp.get(..19).unwrap_or(&report.timestamp),
     );
 
     println!();
@@ -252,7 +250,7 @@ fn handle_check(args: CheckArgs) -> Result<()> {
     println!(
         "  {} {}\n",
         "Policy Checks".bright_white(),
-        &format!("({})", report.checks.len()).dimmed()
+        format!("({})", report.checks.len()).dimmed()
     );
     p::separator();
 
@@ -277,7 +275,7 @@ fn handle_check(args: CheckArgs) -> Result<()> {
         println!(
             "  {} {}\n",
             "Regulatory Checks".bright_white(),
-            &format!("({})", report.regulatory_checks.len()).dimmed()
+            format!("({})", report.regulatory_checks.len()).dimmed()
         );
         p::separator();
 
@@ -309,7 +307,7 @@ fn handle_check(args: CheckArgs) -> Result<()> {
         println!(
             "  {} {}\n",
             "Best Practices".bright_white(),
-            &format!("({})", report.best_practices.len()).dimmed()
+            format!("({})", report.best_practices.len()).dimmed()
         );
         p::separator();
 
@@ -430,7 +428,7 @@ fn handle_list_policies() -> Result<()> {
         let type_str = format!("{:?}", policy.policy_type);
         println!(
             "  {:<14} {:<36} {:<12} {:<10} {:<8}",
-            &policy.id[..12].cyan(),
+            policy.id[..12].cyan(),
             policy.name.truncate_or_pad(34),
             type_str,
             sev,
@@ -461,11 +459,11 @@ fn handle_show_policy(args: ShowPolicyArgs) -> Result<()> {
     p::kv("Enabled", if policy.enabled { "yes" } else { "no" });
     p::kv(
         "Created",
-        &policy.created_at.get(..19).unwrap_or(&policy.created_at),
+        policy.created_at.get(..19).unwrap_or(&policy.created_at),
     );
     p::kv(
         "Updated",
-        &policy.updated_at.get(..19).unwrap_or(&policy.updated_at),
+        policy.updated_at.get(..19).unwrap_or(&policy.updated_at),
     );
 
     if !policy.config.is_empty() {
@@ -540,8 +538,8 @@ fn handle_list_reports(args: ListReportsArgs) -> Result<()> {
         let ts = report.timestamp.get(..16).unwrap_or(&report.timestamp);
         println!(
             "  {:<14} {:<20} {:<12} {:<8} {:<8} {:<12}",
-            &report.request_id[..12].cyan(),
-            &report.contract_id.chars().take(18).collect::<String>(),
+            report.request_id[..12].cyan(),
+            report.contract_id.chars().take(18).collect::<String>(),
             report.network,
             status,
             report.blocking_count.to_string().red(),
@@ -579,7 +577,7 @@ fn handle_show_report(args: ShowReportArgs) -> Result<()> {
     p::kv("Network", &report.network);
     p::kv(
         "Timestamp",
-        &report.timestamp.get(..19).unwrap_or(&report.timestamp),
+        report.timestamp.get(..19).unwrap_or(&report.timestamp),
     );
     let status_str = if report.all_passed {
         format!("{}", "PASSED".green())
@@ -595,7 +593,7 @@ fn handle_show_report(args: ShowReportArgs) -> Result<()> {
     println!(
         "  {} {}\n",
         "Check Results".bright_white(),
-        &format!("({})", report.checks.len()).dimmed()
+        format!("({})", report.checks.len()).dimmed()
     );
     p::separator();
 
@@ -619,7 +617,7 @@ fn handle_show_report(args: ShowReportArgs) -> Result<()> {
         println!(
             "  {} {}\n",
             "Regulatory Checks".bright_white(),
-            &format!("({})", report.regulatory_checks.len()).dimmed()
+            format!("({})", report.regulatory_checks.len()).dimmed()
         );
         p::separator();
 
@@ -645,7 +643,7 @@ fn handle_show_report(args: ShowReportArgs) -> Result<()> {
         println!(
             "  {} {}\n",
             "Best Practices".bright_white(),
-            &format!("({})", report.best_practices.len()).dimmed()
+            format!("({})", report.best_practices.len()).dimmed()
         );
         p::separator();
 
@@ -864,7 +862,7 @@ fn handle_dashboard() -> Result<()> {
             println!(
                 "  {} {} | {} | {} | blocking: {}",
                 status,
-                &report.request_id[..12].cyan(),
+                report.request_id[..12].cyan(),
                 report.network,
                 ts.dimmed(),
                 report.blocking_count.to_string().red(),
