@@ -5,7 +5,9 @@ edition = "2021"
 rust-version = "1.80"
 description = "A developer productivity CLI for Stellar and Soroban workflows"
 license = "MIT"
-repository = "https://github.com/YOUR_USERNAME/starforge"
+repository = "https://github.com/onajidavid87-web/StarForge"
+homepage = "https://github.com/onajidavid87-web/StarForge"
+documentation = "https://docs.rs/starforge"
 keywords = ["stellar", "soroban", "blockchain", "cli", "web3"]
 
 [[bin]]
@@ -15,7 +17,7 @@ path = "src/main.rs"
 [lib]
 name = "starforge"
 path = "src/lib.rs"
-crate-type = ["cdylib", "rlib"]
+crate-type = ["rlib"]
 
 # Package-wide lint policy. These lints are intentionally relaxed for the crate
 # (including integration tests, which use lightweight mock structs and helpers).
@@ -85,8 +87,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"]
 tracing-appender = "0.2"
 bip39 = { version = "2", features = ["rand", "std"] }
 hmac = "0.12"
-rustyline = "14.0.0"
-zeroize = { version = "1", features = ["derive"] }
+rustyline = "13.0"
 zip = "0.6"
 tempfile = "3.8"
 wasm-bindgen = "0.2"

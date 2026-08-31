@@ -2,6 +2,12 @@
 name = "starforge-wasm"
 version = "0.1.0"
 edition = "2021"
+description = "WebAssembly API surface for StarForge"
+license = "MIT"
+repository = "https://github.com/onajidavid87-web/StarForge"
+homepage = "https://github.com/onajidavid87-web/StarForge"
+documentation = "https://docs.rs/starforge-wasm"
+keywords = ["stellar", "soroban", "wasm", "wallet", "web3"]
 
 [lib]
 crate-type = ["cdylib"]

@@ -50,7 +50,7 @@ pub mod benchmarking;
 pub mod bindings;
 pub mod bridge;
 pub mod call_graph;
-pub mod cargo_lock;
+pub mod cargo_metadata;
 pub mod completion;
 pub mod compliance;
 pub mod config;
