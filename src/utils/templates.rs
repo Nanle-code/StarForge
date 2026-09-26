@@ -346,11 +346,11 @@ pub fn check_template_compatibility(entry: &TemplateEntry) -> CompatibilityStatu
         entry.cli_version_min.as_deref(),
         entry.cli_version_max.as_deref(),
     );
-    
+
     if !matches!(cli_status, CompatibilityStatus::Compatible) {
         return cli_status;
     }
-    
+
     // Then check Soroban SDK version compatibility if constraints are present
     if entry.soroban_sdk_min.is_some() || entry.soroban_sdk_max.is_some() {
         let detected_sdk = detect_soroban_sdk_version(entry);
@@ -360,7 +360,7 @@ pub fn check_template_compatibility(entry: &TemplateEntry) -> CompatibilityStatu
                 entry.soroban_sdk_min.as_deref(),
                 entry.soroban_sdk_max.as_deref(),
             );
-            
+
             if !matches!(sdk_status, CompatibilityStatus::Compatible) {
                 return CompatibilityStatus::SorobanSdkIncompatible {
                     sdk_min: entry.soroban_sdk_min.clone(),
@@ -370,7 +370,7 @@ pub fn check_template_compatibility(entry: &TemplateEntry) -> CompatibilityStatu
             }
         }
     }
-    
+
     CompatibilityStatus::Compatible
 }
 
@@ -386,7 +386,7 @@ fn detect_soroban_sdk_version(entry: &TemplateEntry) -> Option<String> {
             }
         }
     }
-    
+
     // For remote templates, we can't detect the version without downloading
     // Return None to skip SDK compatibility checks
     None
@@ -412,7 +412,7 @@ fn extract_soroban_sdk_version_from_cargo_toml(content: &str) -> Option<String> 
                         .trim_start_matches('<')
                         .trim_start_matches('=')
                         .trim();
-                    
+
                     if !version.is_empty() {
                         return Some(version.to_string());
                     }
@@ -1592,11 +1592,25 @@ pub fn paginate<T: Clone>(
 }
 
 pub async fn get_template(name: &str) -> Result<TemplateEntry> {
-    let versions = get_templates_by_name(name).await?;
-    versions
-        .into_iter()
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("Template '{}' not found in registry", name))
+    let registry = load_registry().await?;
+    let mut versions: Vec<TemplateEntry> = registry
+        .templates
+        .iter()
+        .filter(|t| t.name == name)
+        .cloned()
+        .collect();
+        
+    versions.sort_by(|a, b| {
+        let a_ver = semver::Version::parse(&a.version).unwrap_or_else(|_| semver::Version::new(0, 0, 0));
+        let b_ver = semver::Version::parse(&b.version).unwrap_or_else(|_| semver::Version::new(0, 0, 0));
+        b_ver.cmp(&a_ver)
+    });
+    
+    versions.into_iter().next().ok_or_else(|| {
+        let names: Vec<&str> = registry.templates.iter().map(|t| t.name.as_str()).collect();
+        let suggestion = crate::utils::suggestion::did_you_mean(name, &names).unwrap_or_default();
+        anyhow::anyhow!("Template '{}' not found in registry{}", name, suggestion)
+    })
 }
 
 pub async fn get_templates_by_name(name: &str) -> Result<Vec<TemplateEntry>> {
@@ -2075,10 +2089,10 @@ pub async fn publish_template_versioned(
     let (source_root, _temp_guard) = resolve_template_source(template_path)?;
 
     validate_template_structure_with_constraints(
-        &source_root, 
-        &name, 
-        &description, 
-        &author, 
+        &source_root,
+        &name,
+        &description,
+        &author,
         &version,
         cli_version_min.as_deref(),
         cli_version_max.as_deref(),
