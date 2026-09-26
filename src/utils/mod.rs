@@ -106,6 +106,7 @@ pub mod history_search;
 pub mod horizon;
 pub mod http_client;
 pub mod interactive;
+pub mod keychain;
 pub mod latency_budget;
 pub mod logging;
 pub mod migration_ai;

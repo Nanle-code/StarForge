@@ -1,6 +1,6 @@
 use crate::utils::{
-    audit, config, confirmation, crypto, hardware_wallet, horizon, mnemonic, multisig, output,
-    print as p, stellar_cli_identity,
+    audit, config, confirmation, crypto, hardware_wallet, horizon, keychain, mnemonic, multisig,
+    output, print as p, stellar_cli_identity,
 };
 use anyhow::{Context, Result};
 use bip39::{Language, Mnemonic};
@@ -300,6 +300,25 @@ pub enum WalletCommands {
     },
     /// Derive all 10 Stellar addresses (m/44'/148'/0..9') from a BIP39 recovery phrase
     Derive,
+    /// Move wallet secrets into an OS-native secret backend
+    ///
+    /// Only `--to keychain` is supported. Each plaintext wallet secret is
+    /// written to the macOS Keychain, the Windows Credential Manager, or the
+    /// Linux Secret Service, and the configuration is rewritten to keep only a
+    /// `keychain:<key>` reference instead of the secret.
+    ///
+    /// On hosts without a usable OS keychain (for example a headless CI
+    /// runner), a permission-restricted `secrets.json` fallback next to the
+    /// config is used instead, and the command prints a notice. Migration is
+    /// idempotent and never drops a key.
+    ///
+    /// Example:
+    /// starforge wallet migrate --to keychain
+    Migrate {
+        /// Target secret backend. Only `keychain` is supported.
+        #[arg(long)]
+        to: String,
+    },
     /// Multi-signature account management
     #[command(subcommand)]
     Multisig(MultisigCommands),
@@ -490,6 +509,7 @@ pub async fn handle(cmd: WalletCommands) -> Result<()> {
             hardware,
         } => sign_message(name, message, hardware),
         WalletCommands::Derive => derive_addresses(),
+        WalletCommands::Migrate { to } => migrate_secrets(&to),
         WalletCommands::TuneKdf {
             name,
             mem,
@@ -499,6 +519,56 @@ pub async fn handle(cmd: WalletCommands) -> Result<()> {
         } => tune_wallet_kdf(&name, mem, iterations, parallelism, use_global),
         WalletCommands::Multisig(cmd) => handle_multisig(cmd).await,
     }
+}
+
+/// Move plaintext wallet secrets into an OS-native secret backend, leaving a
+/// `keychain:<key>` reference in the configuration.
+fn migrate_secrets(to: &str) -> Result<()> {
+    if to != "keychain" {
+        anyhow::bail!(
+            "Unsupported secret backend '{}'. Only 'keychain' is supported.",
+            to
+        );
+    }
+
+    p::header("Migrate Wallet Secrets to Keychain");
+
+    // Keep the legacy TOML mirror in sync when a config.toml is present.
+    let config_file = config::config_path();
+    if config_file.exists() {
+        keychain::migrate_to_keychain(&config_file)?;
+    }
+
+    // The SQLite store is the authoritative configuration; migrate it too.
+    let mut cfg = config::load()?;
+    let report = keychain::migrate_config(&mut cfg)?;
+    if report.secrets_stored > 0 {
+        config::save(&cfg)?;
+    }
+
+    println!("  backend          : {}", report.backend);
+    println!("  secrets migrated : {}", report.secrets_stored);
+    println!("  already migrated : {}", report.already_migrated.len());
+    println!("  with no secret   : {}", report.skipped.len());
+    if !report.migrated.is_empty() {
+        println!("  wallets          : {}", report.migrated.join(", "));
+    }
+    println!();
+
+    if keychain::is_available() {
+        println!("  Secrets now live in the OS keychain; the config keeps only a reference.");
+    } else {
+        println!(
+            "  {} OS keychain unavailable on this host; secrets were written to the",
+            "note:".yellow()
+        );
+        println!(
+            "  permission-restricted file fallback ({}) for headless CI.",
+            keychain::SECRETS_FILE_NAME
+        );
+    }
+
+    Ok(())
 }
 
 fn tune_wallet_kdf(

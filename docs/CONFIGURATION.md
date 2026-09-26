@@ -188,11 +188,36 @@ the duplicate silently shadowed the other on lookup.
 
 ---
 
+## Secret storage backend (OS keychain)
+
+Wallet secrets can be moved out of the configuration and into an OS-native
+secret store (macOS Keychain, Windows Credential Manager, or the freedesktop
+Secret Service):
+
+```bash norun
+$ starforge wallet migrate --to keychain
+```
+
+- The backend is opt-in at build time via the `keychain` cargo feature (no new
+  dependency; it shells out to the platform tool) and at runtime via the
+  command above.
+- After migration the configuration stores only a `keychain:<key>` reference
+  per wallet; the secret itself lives in the OS store. `validate_config`
+  accepts those references.
+- Migration is idempotent and never drops a key: re-running it reports the
+  wallets as already migrated.
+- **Headless-CI fallback.** When the `keychain` feature is disabled or the
+  platform tool is missing, the command writes secrets to a
+  permission-restricted `secrets.json` next to the config (0600 on Unix) and
+  prints a notice, so CI jobs still migrate without a live keychain.
+
+---
+
 ## Security
 
-- Wallet secrets in a configuration are stored either as plaintext StrKeys or
-  as encrypted bundles; `validate_config` accepts both shapes but never logs
-  either. Error messages quote the wallet name, not the key.
+- Wallet secrets in a configuration are stored either as plaintext StrKeys,
+  encrypted bundles, or `keychain:` references created by a keychain
+  migration; `validate_config` accepts all shapes but never logs any of them. Error messages quote the wallet name, not the key.
 - An overlay cannot replace an existing wallet, so a hostile overlay file
   cannot swap out a deployer key.
 - An overlay cannot set `install_id`, which is used for deterministic
