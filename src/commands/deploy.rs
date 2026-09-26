@@ -412,6 +412,10 @@ async fn run_dry_run(
 
 pub async fn handle(args: DeployArgs) -> Result<()> {
     let emit_json = args.json || output::is_json_mode_enabled();
+    // Unify the subcommand's own `--dry-run` with the global one so either
+    // placement (`starforge --dry-run deploy` or `starforge deploy --dry-run`)
+    // behaves identically. See docs/DRY_RUN_SEMANTICS.md.
+    let dry_run = args.dry_run || crate::utils::dry_run::is_enabled();
     if emit_json {
         #[derive(serde::Serialize)]
         struct DeployResponse {
@@ -436,7 +440,7 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
             wasm: args.wasm.display().to_string(),
             network: args.network.clone(),
             wallet: wallet_name.clone(),
-            dry_run: args.dry_run,
+            dry_run,
             execute: args.execute,
             simulated: args.simulate,
             success: true,
@@ -459,7 +463,14 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
     let mut wasm_bytes = fs::read(&wasm_path)?;
     let mut wasm_size_kb = wasm_bytes.len() as f64 / 1024.0;
 
-    if args.optimize {
+    if args.optimize && dry_run {
+        // A dry run must not touch the filesystem: report the planned
+        // optimization without writing the optimized artifact (#943).
+        p::header("WASM Optimization");
+        p::kv("Input WASM", &args.wasm.display().to_string());
+        p::info("Dry-run: optimization is planned but no optimized artifact is written.");
+        p::separator();
+    } else if args.optimize {
         let optimized_path = args.wasm.with_file_name(format!(
             "{}-optimized.wasm",
             args.wasm.file_stem().unwrap_or_default().to_string_lossy()
@@ -685,7 +696,7 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
     }
 
     // --dry-run: validate everything and print deployment plan, then exit.
-    if args.dry_run {
+    if dry_run {
         return run_dry_run(
             &wasm_path,
             &wasm_bytes,
