@@ -235,6 +235,8 @@ enum Commands {
         about = "Contract health monitoring, performance tracking, security events, alerting, and dashboard"
     )]
     ContractMonitor,
+    #[command(about = "Manage per-network contract and account aliases")]
+    Alias,
 }
 
 /// Internal / developer-only top-level commands that are excluded from the
