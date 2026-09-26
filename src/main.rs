@@ -23,6 +23,13 @@ struct Cli {
     #[arg(long, global = true)]
     json: bool,
 
+    /// Simulate every state-changing command: print the full plan of operations
+    /// (and costs) it would perform, then exit without writing any file or
+    /// submitting any transaction. Combine with `--json` for a machine-readable
+    /// plan. See docs/DRY_RUN_SEMANTICS.md.
+    #[arg(long, global = true)]
+    dry_run: bool,
+
     /// Suppress the ASCII banner and decorative output
     #[arg(long, short = 'q', global = true)]
     quiet: bool,
@@ -464,6 +471,13 @@ async fn run() {
     OUTPUT_MODE_INIT.call_once(|| {});
     utils::output::set_json_mode(cli.json);
     utils::output::set_plain_mode(cli.plain);
+    // `--dry-run` is process-global (it may be passed before or after the
+    // subcommand): record it so every command handler can short-circuit its
+    // mutations behind a shared plan. Detection also scans the raw arguments
+    // so it does not depend on where clap attached the global value.
+    let dry_run_requested = cli.dry_run
+        || std::env::args_os().any(|arg| arg.to_str() == Some("--dry-run"));
+    utils::dry_run::set_enabled(dry_run_requested);
     if utils::output::is_plain_mode_enabled() {
         // Global override: neutralizes every `colored` call in the codebase,
         // not only the ones in utils::print that also swap their Unicode
