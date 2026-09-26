@@ -365,6 +365,8 @@ pub struct ConfigOverlay {
     /// rather than a silent overwrite — wallets hold key material.
     #[serde(default)]
     pub wallets: Vec<WalletEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_sinks: Option<crate::utils::event_sinks::EventSinksConfig>,
 }
 
 impl ConfigOverlay {
@@ -426,6 +428,9 @@ pub fn merge_configs(base: Config, overlay: ConfigOverlay) -> Result<Config> {
     if let Some(trust) = overlay.plugin_trust {
         merged.plugin_trust = trust;
     }
+    if let Some(sinks) = overlay.event_sinks {
+        merged.event_sinks = Some(sinks);
+    }
     for (name, net) in overlay.networks {
         merged.networks.insert(name, net);
     }
@@ -481,6 +486,8 @@ pub struct Config {
     #[serde(default)]
     pub ai_telemetry: AiTelemetryConfig,
     pub wallets: Vec<WalletEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_sinks: Option<crate::utils::event_sinks::EventSinksConfig>,
 }
 
 /// Local knobs for the AI usage-telemetry system (issue #482).
@@ -734,7 +741,12 @@ pub fn upgrade_wallet_kdf(
         .wallets
         .iter_mut()
         .find(|w| w.name == wallet_name)
-        .ok_or_else(|| anyhow::anyhow!("Wallet '{}' not found", wallet_name))?;
+        .ok_or_else(|| {
+            let names: Vec<&str> = cfg.wallets.iter().map(|w| w.name.as_str()).collect();
+            let suggestion =
+                crate::utils::suggestion::did_you_mean(wallet_name, &names).unwrap_or_default();
+            anyhow::anyhow!("Wallet '{}' not found{}", wallet_name, suggestion)
+        })?;
 
     let secret_bundle = wallet
         .secret_key
@@ -1931,10 +1943,16 @@ pub fn save_config_file(config: &Config) -> Result<()> {
 }
 
 pub fn get_network_config(cfg: &Config, network: &str) -> Result<NetworkConfig> {
-    cfg.networks
-        .get(network)
-        .cloned()
-        .ok_or_else(|| anyhow::anyhow!("Network '{}' not found in configuration", network))
+    cfg.networks.get(network).cloned().ok_or_else(|| {
+        let names: Vec<&str> = cfg.networks.keys().map(|k| k.as_str()).collect();
+        let suggestion =
+            crate::utils::suggestion::did_you_mean(network, &names).unwrap_or_default();
+        anyhow::anyhow!(
+            "Network '{}' not found in configuration{}",
+            network,
+            suggestion
+        )
+    })
 }
 
 pub const RESERVED_NETWORKS: &[&str] = &["testnet", "mainnet", "docker-testnet"];
@@ -2038,4 +2056,25 @@ pub fn rename_custom_network(config: &mut Config, old_name: &str, new_name: &str
     }
 
     Ok(())
+}
+impl Config {
+    pub fn get_wallet(&self, name: &str) -> anyhow::Result<&WalletEntry> {
+        if let Some(w) = self.wallets.iter().find(|w| w.name == name) {
+            return Ok(w);
+        }
+        let candidates: Vec<&str> = self.wallets.iter().map(|w| w.name.as_str()).collect();
+        let suggestion =
+            crate::utils::suggestion::did_you_mean(name, &candidates).unwrap_or_default();
+        anyhow::bail!("Wallet '{}' not found{}", name, suggestion);
+    }
+
+    pub fn get_network(&self, name: &str) -> anyhow::Result<&NetworkConfig> {
+        if let Some(n) = self.networks.get(name) {
+            return Ok(n);
+        }
+        let candidates: Vec<&str> = self.networks.keys().map(|k| k.as_str()).collect();
+        let suggestion =
+            crate::utils::suggestion::did_you_mean(name, &candidates).unwrap_or_default();
+        anyhow::bail!("Network '{}' not found{}", name, suggestion);
+    }
 }
