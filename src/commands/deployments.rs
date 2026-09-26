@@ -1,5 +1,6 @@
 use crate::utils::deploy_history::{
-    get_record, last_successful, load_history, set_verified, DeployStatus,
+    annotation, annotations, get_record, last_successful, load_history, set_verified,
+    DeployStatus,
 };
 use crate::utils::deployment_monitor;
 use crate::utils::deployment_monitoring_service::{
@@ -38,6 +39,8 @@ pub enum DeploymentsCommands {
     /// Show a phased timeline of an in-flight deployment, polling RPC until
     /// finalization (or the bounded retry budget is exhausted)
     Status(StatusArgs),
+    /// List deployment annotations (notes / change-log snippets)
+    Annotations(AnnotationsArgs),
 }
 
 #[derive(Args)]
@@ -186,7 +189,83 @@ pub async fn handle(cmd: DeploymentsCommands) -> Result<()> {
         DeploymentsCommands::Ci(args) => handle_ci(args),
         DeploymentsCommands::Monitor(args) => handle_monitor(args),
         DeploymentsCommands::Status(args) => handle_status(args).await,
+        DeploymentsCommands::Annotations(args) => handle_annotations(args),
     }
+}
+
+#[derive(Args)]
+pub struct AnnotationsArgs {
+    /// Deployment ID to show the annotation for (prefix match supported);
+    /// omit to list all annotated deployments
+    #[arg(long)]
+    pub id: Option<String>,
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// Render the human-readable side of a deployment annotation. Returns `None`
+/// when the annotation carries neither a note nor a changelog.
+fn render_annotation(entry: &crate::utils::deploy_history::DeploymentAnnotation) -> Option<String> {
+    let mut lines = Vec::new();
+    if let Some(ref note) = entry.note {
+        lines.push(format!("    Note      : {}", note));
+    }
+    if let Some(ref changelog) = entry.changelog {
+        lines.push(format!("    Changelog : {}", changelog));
+    }
+    if lines.is_empty() {
+        None
+    } else {
+        Some(lines.join("\n"))
+    }
+}
+
+fn handle_annotations(args: AnnotationsArgs) -> Result<()> {
+    if let Some(ref id) = args.id {
+        let Some(entry) = annotation(id)? else {
+            anyhow::bail!(
+                "No annotation found for deployment '{}' (it may not exist, or carries no note/changelog)",
+                id
+            );
+        };
+        if args.json {
+            println!("{}", serde_json::to_string_pretty(&entry)?);
+        } else {
+            p::header("Deployment Annotation");
+            p::kv("Deployment", &entry.deployment_id);
+            if let Some(block) = render_annotation(&entry) {
+                println!("{}", block);
+            }
+        }
+        return Ok(());
+    }
+
+    let entries = annotations()?;
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&entries)?);
+        return Ok(());
+    }
+
+    p::header("Deployment Annotations");
+    if entries.is_empty() {
+        p::info("No annotated deployments found.");
+        p::info("Attach one with `starforge deploy --note \"...\"` or `--changelog \"...\"`.");
+        return Ok(());
+    }
+    for entry in &entries {
+        println!(
+            "  {}  {}",
+            "▸".cyan(),
+            entry.deployment_id[..8.min(entry.deployment_id.len())].bold()
+        );
+        if let Some(block) = render_annotation(entry) {
+            println!("{}", block);
+        }
+    }
+    p::separator();
+    println!("  {} annotation(s).", entries.len());
+    Ok(())
 }
 
 fn handle_history(args: HistoryArgs) -> Result<()> {
@@ -214,17 +293,24 @@ fn handle_history(args: HistoryArgs) -> Result<()> {
         return Ok(());
     }
 
+    let annotated: std::collections::HashSet<&str> = records
+        .iter()
+        .filter(|r| r.note.is_some() || r.changelog.is_some())
+        .map(|r| r.id.as_str())
+        .collect();
+
     p::separator();
     println!(
-        "  {:<10}  {:<10}  {:<10}  {:<12}  {:<16}  {}",
+        "  {:<10}  {:<10}  {:<10}  {:<12}  {:<16}  {:<28}  {}",
         "ID".dimmed(),
         "Network".dimmed(),
         "Status".dimmed(),
         "Wallet".dimmed(),
         "Timestamp".dimmed(),
         "Contract / WASM".dimmed(),
+        "Note".dimmed(),
     );
-    println!("  {}", "─".repeat(90).dimmed());
+    println!("  {}", "─".repeat(120).dimmed());
 
     for rec in &shown {
         let status_colored = match rec.status {
@@ -240,19 +326,37 @@ fn handle_history(args: HistoryArgs) -> Result<()> {
             .chars()
             .take(28)
             .collect::<String>();
+        let note = rec
+            .note
+            .as_deref()
+            .unwrap_or(if annotated.contains(rec.id.as_str()) {
+                "(changelog only)"
+            } else {
+                ""
+            })
+            .chars()
+            .take(24)
+            .collect::<String>();
 
         println!(
-            "  {:<10}  {:<10}  {:<10}  {:<12}  {:<16}  {}",
+            "  {:<10}  {:<10}  {:<10}  {:<12}  {:<16}  {:<28}  {}",
             rec.id[..8.min(rec.id.len())].cyan(),
             rec.network.as_str(),
             status_colored,
             rec.wallet.chars().take(10).collect::<String>(),
             rec.timestamp.get(..16).unwrap_or(&rec.timestamp),
             contract,
+            note,
         );
     }
     p::separator();
     println!("  Showing {} of {} records.", shown.len(), records.len());
+    println!(
+        "  {}",
+        "Annotations: `deployments annotations` lists notes and changelogs."
+            .dimmed()
+            .to_string()
+    );
     Ok(())
 }
 
