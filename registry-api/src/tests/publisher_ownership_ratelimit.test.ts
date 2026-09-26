@@ -4,6 +4,8 @@ import { resetRateLimiterStore, createRateLimiter } from "../middleware/rateLimi
 import { ownershipHistoryStore } from "../models/OwnershipHistory";
 import { templateStore } from "../routes/templates";
 import { userStore } from "../models/User";
+import { organizationStore } from "../models/Organization";
+import { ownershipTransferStore } from "../models/OwnershipTransfer";
 import { Request, Response, NextFunction } from "express";
 
 describe("Publisher Authentication, Rate Limiting & Ownership History", () => {
@@ -17,6 +19,8 @@ describe("Publisher Authentication, Rate Limiting & Ownership History", () => {
     await ownershipHistoryStore.clear();
     await templateStore.clear();
     await userStore.clear();
+    await organizationStore.clear();
+    await ownershipTransferStore.clear();
 
     // Register User A
     const signupA = await request(app).post("/api/auth/signup").send({
@@ -83,9 +87,16 @@ describe("Publisher Authentication, Rate Limiting & Ownership History", () => {
         .set("Authorization", `Bearer ${tokenUserA}`)
         .send({ new_username: "publisherB" });
 
-      expect(transferRes.status).toBe(200);
+      expect(transferRes.status).toBe(202);
       expect(transferRes.body.success).toBe(true);
-      expect(transferRes.body.new_publisher_id).toBe(userIdB);
+      expect(transferRes.body.transfer_id).toBeDefined();
+
+      const confirmRes = await request(app)
+        .post("/api/templates/starforge-escrow/transfer-ownership/confirm")
+        .set("Authorization", `Bearer ${tokenUserB}`)
+        .send({ transfer_id: transferRes.body.transfer_id });
+      expect(confirmRes.status).toBe(200);
+      expect(confirmRes.body.new_publisher_id).toBe(userIdB);
 
       // 4. Verify auditable ownership history after transfer
       const updatedHistoryRes = await request(app).get(
@@ -117,6 +128,38 @@ describe("Publisher Authentication, Rate Limiting & Ownership History", () => {
   });
 
   describe("Boundary Cases", () => {
+    it("should publish a namespaced template for an organization member", async () => {
+      const orgRes = await request(app)
+        .post("/api/orgs")
+        .set("Authorization", `Bearer ${tokenUserA}`)
+        .send({ slug: "stellar-tools", name: "Stellar Tools" });
+      expect(orgRes.status).toBe(201);
+
+      const memberRes = await request(app)
+        .post("/api/orgs/stellar-tools/members")
+        .set("Authorization", `Bearer ${tokenUserA}`)
+        .send({ username: "publisherB", role: "maintainer" });
+      expect(memberRes.status).toBe(200);
+
+      const publishRes = await request(app)
+        .post("/api/templates/publish")
+        .set("Authorization", `Bearer ${tokenUserB}`)
+        .send({
+          name: "escrow",
+          org: "stellar-tools",
+          version: "1.0.0",
+          description: "Shared escrow template",
+          author: "Stellar Tools",
+          content: Buffer.from("org-template").toString("base64"),
+        });
+
+      expect(publishRes.status).toBe(201);
+      const template = await request(app).get("/api/templates/@stellar-tools%2Fescrow/latest");
+      expect(template.status).toBe(200);
+      expect(template.body.name).toBe("@stellar-tools/escrow");
+      expect(template.body.namespace).toBe("@stellar-tools");
+    });
+
     it("should enforce rate limit threshold and set headers when threshold exceeded", async () => {
       // Send requests up to rate limit threshold
       for (let i = 0; i < 10; i++) {

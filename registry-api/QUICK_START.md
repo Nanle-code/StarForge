@@ -135,6 +135,18 @@ starforge registry publish ./my-template \
   --tags "example,educational"
 ```
 
+For shared publishing, create an organization, add a maintainer, and publish
+under its namespace:
+
+```bash
+starforge registry org create stellar-tools --name "Stellar Tools"
+starforge registry org add-member stellar-tools teammate --role maintainer
+starforge registry publish ./my-template --org stellar-tools
+```
+
+Ownership transfers are two-party: the current owner requests a transfer and
+the receiving user or organization admin confirms the returned `transfer_id`.
+
 ### 5. Install template
 
 ```bash

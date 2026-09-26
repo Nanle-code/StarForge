@@ -80,14 +80,14 @@ The script automatically:
 
 #### Platform compatibility
 
-| OS              | Architecture            | Supported                                                                    |
-| --------------- | ----------------------- | ---------------------------------------------------------------------------- |
-| Linux           | x86\_64                 | ✅                                                                            |
-| Linux           | aarch64                 | ✅                                                                            |
-| macOS           | x86\_64                 | ✅                                                                            |
-| macOS           | aarch64 (Apple Silicon) | ✅                                                                            |
-| Windows         | x86\_64                 | ✅ (`.zip` from [Releases](https://github.com/Nanle-code/StarForge/releases)) |
-| FreeBSD / other | —                       | Not supported                                                                |
+| OS | Architecture | Supported |
+|---|---|---|
+| Linux | x86\_64 | ✅ |
+| Linux | aarch64 | ✅ |
+| macOS | x86\_64 | ✅ |
+| macOS | aarch64 (Apple Silicon) | ✅ |
+| Windows | x86\_64 | ✅ (`.zip` from [Releases](https://github.com/Nanle-code/StarForge/releases)) |
+| FreeBSD / other | — | Not supported |
 
 Windows binaries are built and smoke-tested in CI on every push and pull
 request: CI verifies that `starforge.exe` starts and that its core `--help` and

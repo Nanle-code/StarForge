@@ -9,6 +9,7 @@ import path from "path";
 import authRoutes from "./routes/auth";
 import templateRoutes from "./routes/templates";
 import reviewRoutes from "./routes/reviews";
+import organizationRoutes from "./routes/organizations";
 import errorHandler from "./middleware/errorHandler";
 import logger from "./utils/logger";
 
@@ -50,6 +51,7 @@ app.get("/health", (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/templates", templateRoutes);
 app.use("/api/reviews", reviewRoutes);
+app.use("/api/orgs", organizationRoutes);
 
 // 404 handler
 app.use((req, res) => {

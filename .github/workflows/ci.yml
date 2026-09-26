@@ -24,7 +24,7 @@ env:
 jobs:
   canonical-urls:
     name: Canonical Repository URLs
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Reject links to non-canonical StarForge repositories
@@ -32,11 +32,12 @@ jobs:
 
   fmt:
     name: Rustfmt
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: stable
           components: rustfmt
       # NON-BLOCKING on purpose: master is not rustfmt-clean yet (a handful of
       # files under src/commands, src/utils and tests/ still need
@@ -52,11 +53,12 @@ jobs:
 
   msrv:
     name: MSRV (Rust 1.80)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.80.0
-      - uses: Swatinem/rust-cache@v2
+        with:
+          toolchain: 1.80.0
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libudev-dev
       - name: Verify compilation on Rust 1.80 MSRV
@@ -64,10 +66,12 @@ jobs:
 
   deny:
     name: Cargo Deny
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
       - name: Install cargo-deny
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
@@ -76,11 +80,12 @@ jobs:
 
   secure-defaults:
     name: Secure Defaults Audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+        with:
+          toolchain: stable
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libudev-dev
       - name: Run secure defaults audit
@@ -88,11 +93,12 @@ jobs:
 
   doctests:
     name: Documentation Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+        with:
+          toolchain: stable
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libudev-dev
       - name: Run doctests
@@ -100,7 +106,7 @@ jobs:
 
   feature-matrix:
     name: Feature Matrix
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -108,7 +114,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+        with:
+          toolchain: stable
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libudev-dev libusb-1.0-0-dev build-essential
       - name: Build
@@ -123,12 +130,12 @@ jobs:
 
   docs-cheatsheet:
     name: Docs Cheat Sheet (anti-drift)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      # Deliberately uncached: build.rs must actually run to regenerate the
-      # cheat sheet, and a restored target/ could let it be skipped.
+        with:
+          toolchain: stable
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libudev-dev
       - name: Build (regenerates cheat sheet from clap metadata)
@@ -154,11 +161,12 @@ jobs:
 
   clippy:
     name: Clippy Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: stable
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: Install system dependencies
@@ -168,11 +176,12 @@ jobs:
 
   smoke:
     name: CLI Smoke Tests (Linux)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+        with:
+          toolchain: stable
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libudev-dev
       - name: Build
@@ -192,7 +201,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+        with:
+          toolchain: stable
       - name: Build CLI
         run: cargo build --locked
       - name: Cross-platform CLI Integration Tests
@@ -208,7 +218,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+        with:
+          toolchain: stable
       - name: Build CLI
         run: cargo build --locked
       - name: Cross-platform CLI Integration Tests
@@ -220,7 +231,7 @@ jobs:
 
   reproducible-wasm:
     name: Reproducible WASM Build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Build docker builder image

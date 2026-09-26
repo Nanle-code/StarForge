@@ -1526,8 +1526,8 @@ fn python_ident(input: &str) -> String {
         "and" | "as" | "assert" | "async" | "await" | "break" | "case" | "class" | "continue"
         | "def" | "del" | "elif" | "else" | "except" | "False" | "finally" | "for" | "from"
         | "global" | "if" | "import" | "in" | "is" | "lambda" | "match" | "None" | "nonlocal"
-        | "not" | "or" | "pass" | "raise" | "return" | "True" | "try" | "type"
-        | "while" | "with" | "yield" => format!("{}", ident) + "_",
+        | "not" | "or" | "pass" | "raise" | "return" | "True" | "try" | "type" | "while"
+        | "with" | "yield" => format!("{}", ident) + "_",
         _ => ident,
     }
 }

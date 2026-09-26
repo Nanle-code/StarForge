@@ -207,7 +207,7 @@ impl PluginManager {
                 capabilities:
                     "native plugin loading is disabled; enable the unsafe-native-plugins feature"
                         .into(),
-            })
+            });
         }
 
         #[cfg(feature = "unsafe-native-plugins")]
@@ -343,6 +343,29 @@ impl PluginManager {
                 }
                 let plugin_core_version = decl.core_version.to_string();
                 for plugin in registrar.plugins {
+                    let capabilities = plugin.capabilities();
+
+                    // Permission sandbox enforcement
+                    if plugin_trust == TrustLevel::Unknown {
+                        let mut denied = Vec::new();
+                        for cap in &capabilities {
+                            match cap {
+                                AICapability::NetworkAccess
+                                | AICapability::FileSystemAccess
+                                | AICapability::ExecuteCode => {
+                                    denied.push(format!("{:?}", cap));
+                                }
+                                _ => {}
+                            }
+                        }
+                        if !denied.is_empty() {
+                            return Err(PluginLoadError::PermissionDenied {
+                                path: path_display,
+                                capabilities: denied.join(", "),
+                            });
+                        }
+                    }
+
                     let name = plugin.name().to_string();
                     self.ai_plugins
                         .insert(name, (plugin, plugin_core_version.clone()));

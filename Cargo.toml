@@ -88,7 +88,7 @@ regex    = "1.10"
 toml     = "=0.8.8"
 semver   = "1.0"
 colored  = "=2.1.0"
-comfy-table  = "=8.0.0"
+comfy-table  = "=7.1.1"
 dirs     = "=5.0.1"
 anyhow   = "1.0"
 thiserror = "2.0"
@@ -171,4 +171,4 @@ lto = true
 [build-dependencies]
 clap = { version = "4.4.18", features = ["derive"] }
 clap_complete = "4.4.10"
-clap_mangen = "=0.2.21"
+clap_mangen = "=0.2.30"

@@ -34,6 +34,8 @@ impl Default for RegistryConfig {
 #[derive(Debug, Serialize)]
 pub struct PublishTemplateRequest {
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub org: Option<String>,
     pub version: String,
     pub description: String,
     pub author: String,
@@ -248,6 +250,47 @@ impl RegistryClient {
 
         let result: PublishTemplateResponse = resp.json().await?;
         Ok(result)
+    }
+
+    pub async fn create_organization(&self, slug: &str, name: &str) -> Result<()> {
+        let url = format!("{}/api/orgs", self.registry_url);
+        let body = serde_json::json!({ "slug": slug, "name": name });
+        let mut req = http_client::get_client().post(&url).json(&body);
+        for (key, value) in self.build_headers() {
+            req = req.header(&key, &value);
+        }
+        let resp = req.send().await?;
+        if !resp.status().is_success() {
+            anyhow::bail!(
+                "Organization creation failed with status {}: {}",
+                resp.status(),
+                resp.text().await.unwrap_or_default()
+            );
+        }
+        Ok(())
+    }
+
+    pub async fn add_organization_member(
+        &self,
+        slug: &str,
+        username: &str,
+        role: &str,
+    ) -> Result<()> {
+        let url = format!("{}/api/orgs/{}/members", self.registry_url, slug);
+        let body = serde_json::json!({ "username": username, "role": role });
+        let mut req = http_client::get_client().post(&url).json(&body);
+        for (key, value) in self.build_headers() {
+            req = req.header(&key, &value);
+        }
+        let resp = req.send().await?;
+        if !resp.status().is_success() {
+            anyhow::bail!(
+                "Adding organization member failed with status {}: {}",
+                resp.status(),
+                resp.text().await.unwrap_or_default()
+            );
+        }
+        Ok(())
     }
 
     /// Authenticate with the remote registry.
