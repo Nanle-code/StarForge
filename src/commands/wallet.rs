@@ -5,7 +5,7 @@ use crate::utils::{
 use anyhow::{Context, Result};
 use bip39::{Language, Mnemonic};
 use chrono::Utc;
-use clap::Subcommand;
+use clap::{Subcommand, ValueEnum};
 use colored::*;
 use ed25519_dalek::{Signer, SigningKey};
 use rand::RngCore;
@@ -300,9 +300,42 @@ pub enum WalletCommands {
     },
     /// Derive all 10 Stellar addresses (m/44'/148'/0..9') from a BIP39 recovery phrase
     Derive,
+    /// Sign a base64 transaction envelope XDR with a browser wallet or a local key
+    ///
+    /// Example:
+    /// starforge wallet sign-tx --transaction unsigned.xdr --signer browser
+    SignTx {
+        /// Path to a file containing the base64 transaction envelope XDR
+        #[arg(long)]
+        transaction: PathBuf,
+        /// Signer backend: `browser` uses a one-time localhost handoff
+        #[arg(long, value_enum, default_value = "browser")]
+        signer: TxSignerKind,
+        /// Wallet name to use when `--signer local`
+        #[arg(long)]
+        wallet: Option<String>,
+        /// Network for the signing passphrase
+        #[arg(long, default_value = "testnet", value_parser = ["testnet", "mainnet"])]
+        network: String,
+        /// Where to write the signed XDR (defaults to stdout)
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Seconds to wait for the browser wallet before aborting
+        #[arg(long, default_value_t = crate::utils::browser_signer::DEFAULT_HANDOFF_TIMEOUT_SECS)]
+        timeout: u64,
+    },
     /// Multi-signature account management
     #[command(subcommand)]
     Multisig(MultisigCommands),
+}
+
+/// Backend used by `starforge wallet sign-tx`.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum TxSignerKind {
+    /// Sign with a browser wallet via a one-time localhost handoff
+    Browser,
+    /// Sign with a locally stored secret key
+    Local,
 }
 
 #[derive(Subcommand)]
@@ -497,6 +530,14 @@ pub async fn handle(cmd: WalletCommands) -> Result<()> {
             parallelism,
             use_global,
         } => tune_wallet_kdf(&name, mem, iterations, parallelism, use_global),
+        WalletCommands::SignTx {
+            transaction,
+            signer,
+            wallet,
+            network,
+            output,
+            timeout,
+        } => sign_transaction_file(transaction, signer, wallet, network, output, timeout),
         WalletCommands::Multisig(cmd) => handle_multisig(cmd).await,
     }
 }
@@ -700,6 +741,80 @@ fn sign_message(
     p::kv_accent("Message", &message);
     p::kv("Signature (hex)", &hex::encode(sig.to_bytes()));
     p::separator();
+    Ok(())
+}
+
+/// Sign a base64 transaction envelope XDR with a browser wallet or a local key.
+///
+/// `--signer browser` never loads a secret into the CLI: it opens a one-time
+/// localhost page (see [`crate::utils::browser_signer`]) that a Stellar Wallets
+/// Kit compatible wallet signs against, then returns the signed XDR here.
+fn sign_transaction_file(
+    transaction: PathBuf,
+    signer: TxSignerKind,
+    wallet: Option<String>,
+    network: String,
+    output: Option<PathBuf>,
+    timeout: u64,
+) -> Result<()> {
+    config::validate_file_path(&transaction, None)?;
+    config::validate_network(&network)?;
+
+    let raw = fs::read_to_string(&transaction).with_context(|| {
+        format!(
+            "Failed to read transaction XDR from {}",
+            transaction.display()
+        )
+    })?;
+    let xdr = raw.trim().to_string();
+    if xdr.is_empty() {
+        anyhow::bail!("Transaction file '{}' is empty", transaction.display());
+    }
+
+    p::header("Sign Transaction XDR");
+    p::kv("Transaction", &transaction.display().to_string());
+    p::kv("Network", &network);
+    p::kv("Signer", &format!("{:?}", signer));
+
+    let signed = match signer {
+        TxSignerKind::Browser => {
+            let request =
+                crate::utils::browser_signer::BrowserSignRequest::new(xdr, network.as_str());
+            let handoff = crate::utils::browser_signer::LocalhostHandoffSigner::new(
+                std::time::Duration::from_secs(timeout),
+            );
+            crate::utils::browser_signer::sign_with(&handoff, &request)?
+        }
+        TxSignerKind::Local => {
+            let name = wallet.ok_or_else(|| {
+                anyhow::anyhow!("--wallet <name> is required when using --signer local")
+            })?;
+            let cfg = config::load()?;
+            let entry = cfg
+                .wallets
+                .iter()
+                .find(|w| w.name == name)
+                .ok_or_else(|| anyhow::anyhow!("Wallet '{}' not found", name))?;
+            let secret = crate::utils::wallet_signer::resolve_local_secret(entry, &name)?;
+            let request =
+                crate::utils::wallet_signer::SigningRequest::local_secret(secret, &network);
+            crate::utils::wallet_signer::sign_transaction_xdr(&xdr, &request)?
+        }
+    };
+
+    match output {
+        Some(path) => {
+            fs::write(&path, &signed)
+                .with_context(|| format!("Failed to write signed XDR to {}", path.display()))?;
+            p::success("Signed transaction XDR written");
+            p::kv("Output", &path.display().to_string());
+        }
+        None => {
+            p::separator();
+            println!("{}", signed);
+        }
+    }
+
     Ok(())
 }
 

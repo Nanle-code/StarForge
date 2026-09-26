@@ -49,6 +49,7 @@ pub mod batch_forecast;
 pub mod benchmarking;
 pub mod bindings;
 pub mod bridge;
+pub mod browser_signer;
 pub mod call_graph;
 pub mod cargo_lock;
 pub mod cargo_metadata;
