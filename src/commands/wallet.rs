@@ -1,6 +1,7 @@
 use crate::utils::{
-    audit, config, confirmation, crypto, hardware_wallet, horizon, mnemonic, multisig, output,
-    print as p, stellar_cli_identity,
+    audit, config, confirmation, crypto,
+    dry_run::{self, DryRunPlan, PlannedOperation},
+    hardware_wallet, horizon, mnemonic, multisig, output, print as p, stellar_cli_identity,
 };
 use anyhow::{Context, Result};
 use bip39::{Language, Mnemonic};
@@ -371,6 +372,11 @@ pub enum MultisigCommands {
 }
 
 pub async fn handle(cmd: WalletCommands) -> Result<()> {
+    if dry_run::is_enabled() {
+        if let Some(plan) = dry_run_plan(&cmd) {
+            return plan.emit(output::is_json_mode_enabled());
+        }
+    }
     match cmd {
         WalletCommands::Create {
             name,
@@ -498,6 +504,310 @@ pub async fn handle(cmd: WalletCommands) -> Result<()> {
             use_global,
         } => tune_wallet_kdf(&name, mem, iterations, parallelism, use_global),
         WalletCommands::Multisig(cmd) => handle_multisig(cmd).await,
+    }
+}
+
+/// Build the plan shown by `--dry-run` for a mutating `wallet` subcommand.
+///
+/// Read-only commands (`list`, `show`, `connect`, `hw-address`, `hw-status`,
+/// `sign`, `derive`, `multisig list/show`) return `None`: there is nothing to
+/// simulate, so they run normally.
+fn dry_run_plan(cmd: &WalletCommands) -> Option<DryRunPlan> {
+    match cmd {
+        WalletCommands::Create {
+            name,
+            fund,
+            network,
+            encrypt,
+            mnemonic,
+            ..
+        } => {
+            let plan = DryRunPlan::new(
+                "wallet create",
+                format!("Create a new wallet named '{name}'"),
+            )
+            .maybe_network(network.clone())
+            .operation(
+                PlannedOperation::new(
+                    "wallet.write",
+                    name.clone(),
+                    format!(
+                        "would generate a keypair and persist wallet '{name}' in the local store"
+                    ),
+                )
+                .detail("Fund after create", dry_run::yes_no(*fund))
+                .detail("Encrypt at rest", dry_run::yes_no(*encrypt))
+                .detail("BIP39 mnemonic", dry_run::yes_no(*mnemonic)),
+            )
+            .writes_filesystem();
+            Some(if *fund {
+                plan.submits_transactions()
+            } else {
+                plan
+            })
+        }
+        WalletCommands::Fund { name } => Some(
+            DryRunPlan::new("wallet fund", format!("Fund wallet '{name}' via the network faucet"))
+                .operation(PlannedOperation::new(
+                    "wallet.funding",
+                    name.clone(),
+                    format!("would request testnet funds for '{name}' and submit the funding transaction"),
+                ))
+                .submits_transactions(),
+        ),
+        WalletCommands::Remove { name } => Some(
+            DryRunPlan::new("wallet remove", format!("Remove wallet '{name}' from local storage"))
+                .operation(PlannedOperation::new(
+                    "wallet.remove",
+                    name.clone(),
+                    format!("would delete the stored key material for '{name}'"),
+                ))
+                .writes_filesystem()
+                .warn("Removing a wallet is irreversible"),
+        ),
+        WalletCommands::Rename { old_name, new_name } => Some(
+            DryRunPlan::new(
+                "wallet rename",
+                format!("Rename wallet '{old_name}' to '{new_name}'"),
+            )
+            .operation(PlannedOperation::new(
+                "wallet.rename",
+                new_name.clone(),
+                format!("would rename wallet '{old_name}' to '{new_name}' in the local store"),
+            ))
+            .writes_filesystem(),
+        ),
+        WalletCommands::Merge {
+            from,
+            to,
+            network,
+            remove_local,
+            ..
+        } => Some(
+            DryRunPlan::new(
+                "wallet merge",
+                format!("Merge wallet '{from}' into '{to}'"),
+            )
+            .maybe_network(network.clone())
+            .operation(
+                PlannedOperation::new(
+                    "wallet.merge",
+                    from.clone(),
+                    format!("would close account '{from}' and send its XLM balance to '{to}'"),
+                )
+                .detail("Remove source locally", dry_run::yes_no(*remove_local)),
+            )
+            .submits_transactions()
+            .writes_filesystem(),
+        ),
+        WalletCommands::Rotate {
+            name,
+            fund,
+            network,
+            encrypt,
+            backup,
+            ..
+        } => {
+            let mut operation = PlannedOperation::new(
+                "wallet.rotate",
+                name.clone(),
+                format!("would generate a new keypair and replace wallet '{name}' in place"),
+            )
+            .detail("Fund replacement", dry_run::yes_no(*fund))
+            .detail("Encrypt replacement", dry_run::yes_no(*encrypt));
+            if let Some(backup) = backup {
+                operation = operation.detail("Backup snapshot", backup.display().to_string());
+            }
+            Some(
+                DryRunPlan::new("wallet rotate", format!("Rotate wallet '{name}'"))
+                    .maybe_network(network.clone())
+                    .operation(operation)
+                    .writes_filesystem()
+                    .submits_transactions(),
+            )
+        }
+        WalletCommands::Export {
+            name,
+            all,
+            output,
+            shares,
+            threshold,
+            shares_dir,
+            ..
+        } => {
+            let target = if *all {
+                "all wallets".to_string()
+            } else {
+                name.clone().unwrap_or_else(|| "selected wallet".to_string())
+            };
+            let mut operation = PlannedOperation::new(
+                "file.write",
+                output.display().to_string(),
+                format!("would export {target} to {}", output.display()),
+            );
+            if let (Some(shares), Some(threshold)) = (shares, threshold) {
+                operation = operation.detail(
+                    "Recovery shares",
+                    format!("{threshold}-of-{shares} split"),
+                );
+            }
+            if let Some(dir) = shares_dir {
+                operation = operation.detail("Shares directory", dir.display().to_string());
+            }
+            Some(
+                DryRunPlan::new("wallet export", format!("Export {target}"))
+                    .operation(operation)
+                    .writes_filesystem()
+                    .warn("Exported backups contain secret key material"),
+            )
+        }
+        WalletCommands::Import {
+            name,
+            file,
+            mnemonic,
+            key,
+            from_stellar_cli,
+            network,
+            hardware,
+            ..
+        } => {
+            let target = name.clone().unwrap_or_else(|| "imported wallet".to_string());
+            let source = if let Some(file) = file {
+                format!("backup file {}", file.display())
+            } else if *mnemonic {
+                "BIP39 recovery phrase".to_string()
+            } else if key.is_some() {
+                "raw secret key".to_string()
+            } else if let Some(identity) = from_stellar_cli {
+                format!("stellar-cli identity '{identity}'")
+            } else if hardware.is_some() {
+                "connected hardware wallet".to_string()
+            } else {
+                "provided source".to_string()
+            };
+            Some(
+                DryRunPlan::new("wallet import", format!("Import wallet '{target}'"))
+                    .maybe_network(network.clone())
+                    .operation(
+                        PlannedOperation::new(
+                            "wallet.write",
+                            target.clone(),
+                            format!("would import wallet '{target}' from {source}"),
+                        )
+                        .detail("Redacts secret material", "yes (values are never shown in a plan)"),
+                    )
+                    .writes_filesystem(),
+            )
+        }
+        WalletCommands::ImportShares { shares, output } => Some(
+            DryRunPlan::new(
+                "wallet import-shares",
+                "Reconstruct a wallet backup from recovery shares",
+            )
+            .operation(
+                PlannedOperation::new(
+                    "file.write",
+                    output.display().to_string(),
+                    format!(
+                        "would reconstruct the backup from {} share(s) and write it to {}",
+                        shares.len(),
+                        output.display()
+                    ),
+                )
+                .detail("Shares provided", shares.len().to_string()),
+            )
+            .writes_filesystem(),
+        ),
+        WalletCommands::TuneKdf { name, use_global, .. } => Some(
+            DryRunPlan::new(
+                "wallet tune-kdf",
+                format!("Update KDF parameters for wallet '{name}'"),
+            )
+            .operation(
+                PlannedOperation::new(
+                    "wallet.write",
+                    name.clone(),
+                    format!("would re-encrypt wallet '{name}' with new Argon2id parameters"),
+                )
+                .detail("Use global parameters", dry_run::yes_no(*use_global)),
+            )
+            .writes_filesystem(),
+        ),
+        WalletCommands::Multisig(MultisigCommands::Create {
+            name,
+            threshold,
+            signers,
+            network,
+            xdr_output,
+        }) => {
+            let mut operation = PlannedOperation::new(
+                "multisig.write",
+                name.clone(),
+                format!("would store a {threshold}-of-N multi-sig config for '{name}'"),
+            )
+            .detail("Signers", signers.clone());
+            if let Some(path) = xdr_output {
+                operation = operation.detail("Setup transaction", path.display().to_string());
+            }
+            Some(
+                DryRunPlan::new("wallet multisig create", format!("Create multi-sig config for '{name}'"))
+                    .maybe_network(network.clone())
+                    .operation(operation)
+                    .writes_filesystem(),
+            )
+        }
+        WalletCommands::Multisig(MultisigCommands::Sign {
+            name,
+            transaction,
+            output,
+            ..
+        }) => Some(
+            DryRunPlan::new(
+                "wallet multisig sign",
+                format!("Sign multi-sig transaction for '{name}'"),
+            )
+            .operation(
+                PlannedOperation::new(
+                    "multisig.sign",
+                    transaction.display().to_string(),
+                    format!("would add local signatures to '{}'", transaction.display()),
+                )
+                .detail(
+                    "Output",
+                    output
+                        .as_ref()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_else(|| "in-place update".to_string()),
+                ),
+            )
+            .writes_filesystem(),
+        ),
+        WalletCommands::Multisig(MultisigCommands::Submit {
+            name,
+            transaction,
+            network,
+        }) => Some(
+            DryRunPlan::new(
+                "wallet multisig submit",
+                format!("Submit multi-sig transaction for '{name}'"),
+            )
+            .maybe_network(network.clone())
+            .operation(PlannedOperation::new(
+                "multisig.submit",
+                transaction.display().to_string(),
+                format!("would submit '{}' to the network", transaction.display()),
+            ))
+            .submits_transactions(),
+        ),
+        WalletCommands::List { .. }
+        | WalletCommands::Show { .. }
+        | WalletCommands::Connect { .. }
+        | WalletCommands::HwAddress { .. }
+        | WalletCommands::HwStatus { .. }
+        | WalletCommands::Sign { .. }
+        | WalletCommands::Derive
+        | WalletCommands::Multisig(MultisigCommands::List)
+        | WalletCommands::Multisig(MultisigCommands::Show { .. }) => None,
     }
 }
 
