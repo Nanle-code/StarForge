@@ -56,11 +56,13 @@ pub struct Assertion {
 }
 
 pub async fn handle(args: InvokeScriptArgs) -> Result<()> {
+    // Unify the subcommand's own `--dry-run` with the global flag.
+    let dry_run = args.dry_run || crate::utils::dry_run::is_enabled();
     let script = load(&args.file)?;
     validate(&script)?;
     let cfg = config::load()?;
     let network_default = cfg.network;
-    p::header(if args.dry_run {
+    p::header(if dry_run {
         "Invoke Script (dry run)"
     } else {
         "Invoke Script"
@@ -99,7 +101,7 @@ pub async fn handle(args: InvokeScriptArgs) -> Result<()> {
         for (arg_index, (value, arg_type)) in call_args.iter().zip(types.iter()).enumerate() {
             println!("  arg[{}] ({}) = {}", arg_index, arg_type, value);
         }
-        if args.dry_run {
+        if dry_run {
             continue;
         }
 

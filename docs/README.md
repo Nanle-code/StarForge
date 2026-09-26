@@ -15,6 +15,8 @@ replacing it.
   mapping, identity import, and what stellar-cli still does better.
 - [Command reference](COMMAND_REFERENCE.md) and
   [cheat sheet](COMMAND_CHEATSHEET.md).
+- [Unified `--dry-run` semantics](DRY_RUN_SEMANTICS.md): the plan-first
+  guarantee shared by every state-changing command.
 
 Every page here is also plain Markdown in the
 [`docs/` directory](https://github.com/Nanle-code/StarForge/tree/master/docs).

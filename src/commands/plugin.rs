@@ -3,6 +3,7 @@ use crate::plugins::manifest;
 use crate::plugins::registry::{self, RegisteredCommand, TrustLevel, UninstallOptions};
 use crate::plugins::{PluginLoadError, PluginManager};
 use crate::utils::config;
+use crate::utils::dry_run::{self, DryRunPlan, PlannedOperation};
 use crate::utils::output;
 use crate::utils::print as p;
 use anyhow::{Context, Result};
@@ -96,6 +97,11 @@ pub enum PluginCommands {
 }
 
 pub async fn handle(cmd: PluginCommands) -> Result<()> {
+    if dry_run::is_enabled() {
+        if let Some(plan) = dry_run_plan(&cmd) {
+            return plan.emit(output::is_json_mode_enabled());
+        }
+    }
     match cmd {
         PluginCommands::Install {
             name,
@@ -118,6 +124,74 @@ pub async fn handle(cmd: PluginCommands) -> Result<()> {
         PluginCommands::Update { name, yes } => update(name, yes),
         PluginCommands::Commands { name } => commands(name),
         PluginCommands::Search { query } => search(query).await,
+    }
+}
+
+/// Build the plan shown by `--dry-run` for a mutating `plugin` subcommand.
+///
+/// Listing, loading, verifying, auditing, command discovery, and searching are
+/// read-only and return `None`.
+fn dry_run_plan(cmd: &PluginCommands) -> Option<DryRunPlan> {
+    match cmd {
+        PluginCommands::Install {
+            name,
+            path,
+            source,
+            force,
+        } => {
+            let mut operation = PlannedOperation::new(
+                "plugin.register",
+                name.clone(),
+                format!("would register plugin '{name}' in the local registry"),
+            );
+            if let Some(path) = path {
+                operation = operation.detail("Library", path.display().to_string());
+            }
+            if let Some(source) = source {
+                operation = operation.detail("Source", source.clone());
+            }
+            if *force {
+                operation = operation.detail("Force", "yes (may accept an untrusted source)");
+            }
+            Some(
+                DryRunPlan::new("plugin install", format!("Register plugin '{name}'"))
+                    .operation(operation)
+                    .writes_filesystem(),
+            )
+        }
+        PluginCommands::Uninstall { name, purge, .. } => Some(
+            DryRunPlan::new("plugin uninstall", format!("Remove plugin '{name}'"))
+                .operation(
+                    PlannedOperation::new(
+                        "plugin.unregister",
+                        name.clone(),
+                        format!("would remove plugin '{name}' from the local registry"),
+                    )
+                    .detail("Purge library file", dry_run::yes_no(*purge)),
+                )
+                .writes_filesystem(),
+        ),
+        PluginCommands::Update { name, .. } => {
+            let target = name.clone().unwrap_or_else(|| "all installed plugins".to_string());
+            Some(
+                DryRunPlan::new("plugin update", format!("Update {target}"))
+                    .operation(
+                        PlannedOperation::new(
+                            "plugin.update",
+                            target.clone(),
+                            format!("would check sources and replace outdated libraries for {target}"),
+                        )
+                        .detail("Preserves config and trust settings", "yes"),
+                    )
+                    .writes_filesystem(),
+            )
+        }
+        PluginCommands::List { .. }
+        | PluginCommands::Load
+        | PluginCommands::Verify { .. }
+        | PluginCommands::Audit { .. }
+        | PluginCommands::Commands { .. }
+        | PluginCommands::Search { .. } => None,
     }
 }
 
