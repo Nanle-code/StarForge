@@ -4,6 +4,7 @@ use anyhow::Result;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static ALLOW_MISMATCH: AtomicBool = AtomicBool::new(false);
+static ALLOW_PLAINTEXT_MAINNET: AtomicBool = AtomicBool::new(false);
 
 pub fn set_allow_mismatch(allowed: bool) {
     ALLOW_MISMATCH.store(allowed, Ordering::Relaxed);
@@ -11,6 +12,14 @@ pub fn set_allow_mismatch(allowed: bool) {
 
 pub fn allow_mismatch() -> bool {
     ALLOW_MISMATCH.load(Ordering::Relaxed)
+}
+
+pub fn set_allow_plaintext_mainnet(allowed: bool) {
+    ALLOW_PLAINTEXT_MAINNET.store(allowed, Ordering::Relaxed);
+}
+
+pub fn allow_plaintext_mainnet() -> bool {
+    ALLOW_PLAINTEXT_MAINNET.load(Ordering::Relaxed)
 }
 
 pub fn compare_passphrases(configured: &str, observed: &str) -> Result<()> {

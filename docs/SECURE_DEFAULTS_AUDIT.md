@@ -34,6 +34,8 @@ These items are verified by `tests/secure_defaults_audit.rs` and run in CI on ev
 | A13 | **File permissions restricted** — sensitive files created with 0600 mode on Unix | `0o600` | ⬜ |
 | A14 | **Data directory permissions restricted** — data dir created with 0700 mode on Unix | `0o700` | ⬜ |
 | A15 | **Network passphrase validated** — default networks include correct Stellar passphrases | Non-empty | ⬜ |
+| A16 | **Plaintext mainnet signing blocked** — local plaintext secret keys cannot sign mainnet by default | Blocked unless explicitly overridden | ⬜ |
+| A17 | **Plaintext mainnet override audited** — explicit override emits a warning and records an audit entry | Warning + audit log | ⬜ |
 
 ---
 

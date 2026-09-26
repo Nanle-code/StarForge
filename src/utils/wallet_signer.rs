@@ -47,6 +47,7 @@ impl SigningRequest {
             )
         })?;
 
+        enforce_mainnet_plaintext_policy(wallet, network)?;
         let secret = resolve_local_secret(wallet, &wallet.name)?;
         Ok(Self {
             local_secret: Some(secret),
@@ -130,6 +131,67 @@ pub fn prompt_hardware_confirmation(
 }
 
 /// Resolve a plaintext secret key from a wallet entry, decrypting when needed.
+fn enforce_mainnet_plaintext_policy(
+    wallet: &config::WalletEntry,
+    network: &str,
+) -> Result<()> {
+    enforce_mainnet_plaintext_policy_with_override(
+        wallet,
+        network,
+        crate::utils::network_guard::allow_plaintext_mainnet(),
+    )
+}
+
+fn enforce_mainnet_plaintext_policy_with_override(
+    wallet: &config::WalletEntry,
+    network: &str,
+    allow_override: bool,
+) -> Result<()> {
+    let Some(secret) = wallet.secret_key.as_ref() else {
+        return Ok(());
+    };
+
+    let plaintext = !secret.contains(':') && secret.starts_with('S') && secret.len() == 56;
+
+    if network != "mainnet" || !plaintext {
+        return Ok(());
+    }
+
+    if !allow_override {
+        anyhow::bail!(
+            "Refusing mainnet signing with plaintext wallet '{}'. Encrypt the wallet before signing with `starforge wallet create --encrypt <name>` or `starforge wallet import --encrypt`. Alternatively use a hardware wallet with `--hardware ledger` or `--hardware trezor`. If you deliberately accept the risk, retry with `--allow-plaintext-mainnet`.",
+            wallet.name
+        );
+    }
+
+    crate::utils::print::warn(
+        "WARNING: plaintext mainnet signing override enabled. Your secret key is stored unencrypted at rest."
+    );
+
+    let mut details = std::collections::HashMap::new();
+    details.insert("network".to_string(), "mainnet".to_string());
+    details.insert("wallet".to_string(), wallet.name.clone());
+    details.insert("plaintext_secret".to_string(), "true".to_string());
+    details.insert("override".to_string(), "allow-plaintext-mainnet".to_string());
+
+    if let Err(e) = crate::utils::audit::log_action(
+        "allow_plaintext_mainnet_signing",
+        "cli",
+        "wallet",
+        &wallet.name,
+        details,
+        true,
+        None,
+    ) {
+        crate::utils::print::warn(&format!(
+            "Could not write plaintext-mainnet override audit entry: {}",
+            e
+        ));
+    }
+
+    Ok(())
+}
+
 pub fn resolve_local_secret(
     wallet: &config::WalletEntry,
     wallet_name: &str,
@@ -218,7 +280,7 @@ mod tests {
     #[test]
     fn local_signing_request_produces_encoded_xdr() {
         let request = SigningRequest::local_secret(
-            Zeroizing::new("SABCDEFGHIJKLMNOPQRSTUVWXYZ012345678901234567890".to_string()),
+            Zeroizing::new("SABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890123456789012345678".to_string()),
             "testnet",
         );
         let signed = sign_transaction_xdr("mock_tx_payload", &request).unwrap();
@@ -226,6 +288,69 @@ mod tests {
         let decoded = general_purpose::STANDARD.decode(signed).unwrap();
         let decoded_str = String::from_utf8(decoded).unwrap();
         assert!(decoded_str.contains("signed_"));
+    }
+
+    fn test_wallet(secret_key: Option<&str>) -> config::WalletEntry {
+        config::WalletEntry {
+            name: "mainnet-test".to_string(),
+            public_key: "GTESTPUBLICKEY".to_string(),
+            secret_key: secret_key.map(str::to_string),
+            network: "mainnet".to_string(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            funded: true,
+            kdf_options: None,
+            rotation_history: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn plaintext_mainnet_signing_is_blocked_by_default() {
+        let wallet = test_wallet(Some(
+            "SABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890123456789012345678",
+        ));
+
+        let result = enforce_mainnet_plaintext_policy_with_override(&wallet, "mainnet", false);
+
+        assert!(result.is_err());
+        let message = result.unwrap_err().to_string();
+        assert!(message.contains("Refusing mainnet signing"));
+        assert!(message.contains("--allow-plaintext-mainnet"));
+        assert!(message.contains("--encrypt"));
+        assert!(message.contains("--hardware"));
+    }
+
+    #[test]
+    fn plaintext_mainnet_signing_override_is_allowed() {
+        let wallet = test_wallet(Some(
+            "SABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890123456789012345678",
+        ));
+
+        let result = enforce_mainnet_plaintext_policy_with_override(&wallet, "mainnet", true);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn encrypted_mainnet_signing_does_not_require_override() {
+        let wallet = test_wallet(Some("enc:v1:encrypted-wallet-secret"));
+
+        assert!(enforce_mainnet_plaintext_policy_with_override(&wallet, "mainnet", false).is_ok());
+    }
+
+    #[test]
+    fn plaintext_testnet_signing_does_not_require_override() {
+        let wallet = test_wallet(Some(
+            "SABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890123456789012345678",
+        ));
+
+        assert!(enforce_mainnet_plaintext_policy_with_override(&wallet, "testnet", false).is_ok());
+    }
+
+    #[test]
+    fn hardware_wallet_without_local_secret_does_not_require_override() {
+        let wallet = test_wallet(None);
+
+        assert!(enforce_mainnet_plaintext_policy_with_override(&wallet, "mainnet", false).is_ok());
     }
 
     #[test]
