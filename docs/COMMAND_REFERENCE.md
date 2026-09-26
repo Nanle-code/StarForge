@@ -228,9 +228,154 @@ Coverage analysis tracks Soroban contract functions, line spans, branch paths, u
 
 | Subcommand | Purpose |
 |------------|---------|
-| `tx send` | Payment (`--from`, `--to`, `--amount`, `--asset`) |
+| `tx send` | Payment (`--from`, `--to`, `--amount`, `--asset`, `--fee-payer`) |
 | `tx batch` | Batch operations from JSON (`--file`, `--from`) |
 | `tx history <PUBKEY>` | Recent transactions (`--limit`, `--cursor`, `--successful`) |
+
+---
+
+## `account` — sponsored reserves (CAP-33)
+
+Stellar accounts must hold a base reserve before they can exist. CAP-33 lets
+one account sponsor another's reserve, which is what makes **gasless onboarding**
+possible: a brand-new user can receive and use an account without ever holding
+XLM.
+
+| Subcommand | Purpose |
+|------------|---------|
+| `account create` | Create an account with a sponsor paying its reserve (`--sponsor`, `--to`, `--starting-balance`, `--fee-payer`, `--no-fee-payer`, `--yes`, `--json`) |
+| `account end-sponsorship` | Release the sponsor's reserve (`--wallet`, `--fee-payer`, `--yes`, `--json`) |
+
+`--fee-payer` is a CAP-15 fee bump: a third wallet signs the outer envelope and
+pays the network fee, so even the *sponsoring* transaction can be submitted
+without the sponsor spending anything.
+
+It is opt-in. Without it, the transaction is submitted unwrapped and the signer
+pays the fee directly, which is cheaper — a bump always charges at least twice
+the base fee. Passing the signer's own name is rejected rather than silently
+doubling the cost.
+
+### Gasless onboarding recipe
+
+Three parties, and the new user spends nothing at any step.
+
+**1. The sponsor funds its own account once.** It needs enough XLM to cover the
+reserve it is fronting plus transaction fees.
+
+```bash
+starforge wallet create sponsor --fund
+```
+
+**2. The new user generates a key locally and shares only the public key.**
+No funds are required to generate a key.
+
+```bash
+starforge wallet create alice
+starforge wallet show alice          # copy the G... address
+```
+
+**3. The sponsor creates the account and pays the reserve.** The user's address
+is passed with `--to`, the sponsor's wallet with `--sponsor`. Without a third
+wallet, the sponsor also pays the network fee:
+
+```bash
+starforge account create \
+  --sponsor sponsor \
+  --to <ALICE_G...> \
+  --starting-balance 5000000 \
+  --network testnet \
+  --yes
+```
+
+Before confirming, StarForge prints exactly who pays what:
+
+```
+Sponsor                    GSPONSOR...
+New account                GALICE...
+Base reserve (sponsored)   5000000 (0.5000000 XLM)
+Paid by new account        0 (0.0000000 XLM)
+Network fee (sponsor)      200 (0.0000200 XLM)
+Sponsor total outlay       10000200 (1.0000200 XLM)
+```
+
+Add `--fee-payer <WALLET>` only when a *different*, fee-only wallet should
+cover the network fee, so the sponsor pays just the reserve and the funded
+amount:
+
+```bash
+starforge account create \
+  --sponsor sponsor \
+  --to <ALICE_G...> \
+  --starting-balance 5000000 \
+  --network testnet \
+  --fee-payer fees \
+  --yes
+```
+
+The preview then shows both layers explicitly:
+
+```
+Who Pays What
+  Inner source            GSponsor...   (signs the reserve)
+  Fee payer               GFees...      (signs the fee bump)
+  Inner fee (not charged) 200 (0.0000200 XLM)
+  Bump fee (total)        400 (0.0000400 XLM)
+  Paid by inner source    0 (0.0000000 XLM)
+```
+
+The inner transaction's own fee is not charged at all: the fee bump covers it,
+so only the fee payer's amount is actually debited.
+
+**4. The new user transacts without ever holding XLM.** A fee wallet covers the
+fee bump, so the account only ever needs its sponsored reserve.
+
+```bash
+starforge tx send \
+  --from alice \
+  --to <RECIPIENT_G...> \
+  --amount 10 \
+  --fee-payer fees \
+  --network testnet \
+  --yes
+```
+
+**5. End the sponsorship once the account can sustain its own reserve.** The
+sponsor's reserve is returned; from then on the account pays its own base
+reserve. This step is signed by the *sponsored* account.
+
+```bash
+starforge account end-sponsorship --wallet alice --network testnet --yes
+```
+
+### How it works
+
+`account create` builds a single transaction containing two operations:
+
+1. `BeginSponsoringFutureReserves` — the sponsor opens the sponsorship.
+2. `CreateAccount` — the new account is created with `startingBalance` funded
+   and its base reserve sponsored.
+
+Both operations are committed atomically, so the account never exists in an
+unsponsored state. The sponsor signs the transaction; the new account does not
+sign, because it does not exist yet and therefore has no key in a wallet to
+sign with.
+
+Ending the sponsorship is a separate, single-operation
+`EndSponsoringFutureReserves` transaction sourced and signed by the sponsored
+account, which by then exists and can sign for itself.
+
+### Notes and limits
+
+- The fee payer must be a **local wallet**: a fee bump requires the fee
+  source's signature, so a bare `G...` address cannot authorise one.
+- `--starting-balance` is the amount sent *to* the new account and is separate
+  from the sponsored reserve. Pass `0` for an account that will be funded later.
+- Sponsoring is unlimited in count but the sponsor must stay funded: each open
+  sponsorship locks one base reserve against the sponsor's minimum balance.
+- Always end sponsorships you no longer need, or the sponsor's balance stays
+  reduced.
+- `--json` emits a stable machine-readable payload on both subcommands for
+  scripted onboarding flows.
 
 ---
 

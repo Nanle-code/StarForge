@@ -34,6 +34,7 @@ fn cheat_sheet_covers_top_level_commands() {
     let contents = cheat_sheet();
     for cmd in [
         "wallet",
+        "account",
         "contract",
         "deploy",
         "network",

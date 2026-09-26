@@ -543,6 +543,70 @@ pub async fn submit_payment_with_signing(
     }
 }
 
+/// Submit an envelope that is already fully signed.
+///
+/// Used by the fee-bump and sponsorship flows, where more than one party
+/// contributes a signature and re-signing a single-secret request would either
+/// drop a signature or fail on the wrapped layer. The caller is responsible for
+/// having signed the inner transaction and, if present, the fee bump.
+pub async fn submit_signed_envelope(
+    signed_xdr: &str,
+    network: &str,
+) -> Result<TransactionSubmitResult> {
+    crate::utils::network_guard::verify(network).await?;
+    submit_signed_xdr(signed_xdr, network).await
+}
+
+async fn submit_signed_xdr(
+    signed_xdr: &str,
+    network: &str,
+) -> Result<TransactionSubmitResult> {
+    let horizon = horizon_url(network)?;
+    let url = format!("{}/transactions", horizon);
+    let form_data = [("tx", urlencoding::encode(signed_xdr))];
+
+    let res = HTTP_CLIENT
+        .post(&url)
+        .form(&form_data)
+        .send()
+        .await
+        .with_context(|| "Failed to submit transaction to Horizon")?;
+
+    let status = res.status();
+
+    if status == 200 {
+        let result: serde_json::Value = res
+            .json()
+            .await
+            .with_context(|| "Failed to parse transaction response")?;
+
+        let hash = result
+            .get("hash")
+            .and_then(|h| h.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        Ok(TransactionSubmitResult {
+            hash,
+            successful: true,
+        })
+    } else {
+        let error_text = res
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
+
+        if let Ok(horizon_error) = serde_json::from_str::<HorizonError>(&error_text) {
+            let detail = horizon_error
+                .detail
+                .unwrap_or_else(|| "No additional details".to_string());
+            anyhow::bail!("Transaction failed: {} - {}", horizon_error.title, detail);
+        } else {
+            anyhow::bail!("Transaction failed with status {}: {}", status, error_text);
+        }
+    }
+}
+
 pub async fn submit_multisig_transaction(
     signed_transaction_xdr: &str,
     network: &str,
