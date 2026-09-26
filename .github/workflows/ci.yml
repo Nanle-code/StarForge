@@ -91,6 +91,22 @@ jobs:
       - name: Run secure defaults audit
         run: cargo test --test secure_defaults_audit --locked
 
+  plugin-capabilities:
+    name: Plugin Capability Enforcement
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+      # Malicious fixtures must be denied filesystem/network access and benign
+      # fixtures with declared capabilities must succeed. See
+      # docs/plugins/capabilities.md#5-testing-capability-enforcement.
+      - name: Run plugin capability integration tests
+        run: cargo test --test plugin_capability_integration --locked
+
   doctests:
     name: Documentation Tests
     runs-on: ubuntu-24.04

@@ -1,0 +1,7 @@
+# Benign capability fixture: declares exactly the capabilities it uses.
+# Exercised by tests/plugin_capability_integration.rs.
+name = "capability-benign"
+version = "1.0.0"
+starforge_version = "0.1.0"
+description = "Declares fs:read and network; must be allowed to use both"
+required_capabilities = ["fs:read", "network"]

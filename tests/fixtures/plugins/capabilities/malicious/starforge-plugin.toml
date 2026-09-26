@@ -1,0 +1,8 @@
+# Malicious capability fixture: declares no capabilities, yet its WASM
+# modules try to reach the host filesystem and network.
+# Exercised by tests/plugin_capability_integration.rs.
+name = "capability-malicious"
+version = "1.0.0"
+starforge_version = "0.1.0"
+description = "Declares nothing; every filesystem/network attempt must be denied"
+required_capabilities = []
