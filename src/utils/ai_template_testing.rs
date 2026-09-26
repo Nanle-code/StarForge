@@ -10,6 +10,7 @@
 //! - **SDK / Network Compatibility** — version constraints and feature flag checks
 //! - **Test Reporting** — structured, machine-readable results with scoring
 
+use crate::utils::templates::SOROBAN_SDK_VERSION;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -113,7 +114,7 @@ pub struct TestConfig {
     pub run_performance: bool,
     pub run_compatibility: bool,
     pub run_docs: bool,
-    /// Soroban SDK version to test compatibility against (e.g. "21.0.0").
+    /// Soroban SDK version to test compatibility against (e.g. `SOROBAN_SDK_VERSION`).
     pub target_sdk_version: Option<String>,
     /// Minimum Rust edition expected in Cargo.toml.
     pub min_rust_edition: Option<String>,
@@ -127,7 +128,7 @@ impl Default for TestConfig {
             run_performance: true,
             run_compatibility: true,
             run_docs: true,
-            target_sdk_version: Some("21.0.0".to_string()),
+            target_sdk_version: Some(SOROBAN_SDK_VERSION.to_string()),
             min_rust_edition: Some("2021".to_string()),
         }
     }
@@ -1239,9 +1240,9 @@ fn run_compatibility_phase(template_dir: &Path, config: &TestConfig) -> Result<P
                         description: "soroban-sdk dependency format is not recognized.".to_string(),
                         file: Some("Cargo.toml".to_string()),
                         line: None,
-                        suggestion: Some(
-                            "Use soroban-sdk = \"21.0.0\" format for version pinning.".to_string(),
-                        ),
+                        suggestion: Some(format!(
+                            "Use soroban-sdk = \"{SOROBAN_SDK_VERSION}\" format for version pinning."
+                        )),
                     });
                 } else if let Some(target) = &config.target_sdk_version {
                     if version_str.contains(target) {
@@ -1508,10 +1509,10 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-soroban-sdk = "21.0.0"
+soroban-sdk = "22.0.0"
 
 [dev-dependencies]
-soroban-sdk = { version = "21.0.0", features = ["testutils"] }
+soroban-sdk = { version = "22.0.0", features = ["testutils"] }
 
 [profile.release]
 opt-level = "z"
@@ -1824,7 +1825,7 @@ impl UnwrapContract {
 
         fs::write(
             template_dir.join("Cargo.toml"),
-            "[package]\nname = \"test\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nsoroban-sdk = \"21.0.0\"\n\n[lib]\ncrate-type = [\"rlib\"]\n",
+            "[package]\nname = \"test\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nsoroban-sdk = \"22.0.0\"\n\n[lib]\ncrate-type = [\"rlib\"]\n",
         )
         .unwrap();
 
@@ -1849,7 +1850,7 @@ impl UnwrapContract {
 
         fs::write(
             template_dir.join("Cargo.toml"),
-            "[package]\nname = \"test\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nsoroban-sdk = \"21.0.0\"\n\n[lib]\ncrate-type = [\"cdylib\"]\n\n[profile.release]\nopt-level = \"z\"\n",
+            "[package]\nname = \"test\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nsoroban-sdk = \"22.0.0\"\n\n[lib]\ncrate-type = [\"cdylib\"]\n\n[profile.release]\nopt-level = \"z\"\n",
         )
         .unwrap();
 

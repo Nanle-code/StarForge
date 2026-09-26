@@ -234,6 +234,52 @@ The Security Team triages these daily.
 
 ---
 
+## Soroban SDK version and upgrade cadence
+
+StarForge keeps generated projects and bundled templates on the **current**
+Soroban SDK / protocol line. There is exactly one place to change the version:
+
+| Source of truth | What it covers |
+|---|---|
+| `SOROBAN_SDK_VERSION` in `src/utils/templates.rs` | Version written into every scaffolded project's `Cargo.toml` (`starforge new contract`) and used as the AI template test target |
+| `STELLAR_XDR_VERSION` in `src/utils/templates.rs` | Mirrors `SOROBAN_SDK_VERSION` for any generator that needs an `stellar-xdr` pin (kept in lock-step with the root `Cargo.toml`) |
+
+Template manifests under `templates/examples/*/Cargo.toml` and
+`templates/test-helpers/Cargo.toml` must declare the same version literal so
+that `cargo test` inside a template exercises the same SDK users get.
+
+### When to bump
+
+Bump the SDK in the **same pull request** as any of the following:
+
+1. The root `Cargo.toml` bumps its `soroban-sdk` dev-dependency or `stellar-xdr`
+   dependency.
+2. `stellar/rs-soroban-sdk` publishes a new protocol-matching release that
+   StarForge intends to support.
+3. A compatibility fix only exists on a newer SDK.
+
+The supported line is the version StarForge itself compiles against; older SDKs
+are not pinned in generators.
+
+### Upgrade checklist
+
+1. Update `SOROBAN_SDK_VERSION` (and `STELLAR_XDR_VERSION`) in
+   `src/utils/templates.rs`.
+2. Update every `templates/examples/*/Cargo.toml` and
+   `templates/test-helpers/Cargo.toml` to the same version.
+3. Update the example snippet in `DEVELOPER_GUIDE.md` if it shows a version.
+4. Fix any API breakages in generated code (`src/commands/new.rs`) and template
+   `src/lib.rs` files.
+5. Run each template's test suite:
+   `cargo test --manifest-path templates/examples/<name>/Cargo.toml`.
+6. Add an `## [Unreleased]` entry to `CHANGELOG.md` noting the bump.
+
+`TEMPLATE_COMPATIBILITY_MATRIX.md` documents the accepted `soroban_sdk_min` /
+`soroban_sdk_max` range for marketplace templates; widen it only after the
+built-in templates and generators have moved.
+
+---
+
 ## Version bumping
 
 When updating an existing template:
