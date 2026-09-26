@@ -362,6 +362,44 @@
                                         ]
                       },
                       {
+                          "name":  "custom-account",
+                          "version":  "1.0.0",
+                          "description":  "Custom smart wallet with ed25519 and passkey signers and a per-period spending limit",
+                          "author":  "StarForge",
+                          "tags":  [
+                                       "wallet",
+                                       "account-abstraction",
+                                       "passkey",
+                                       "security",
+                                       "spending-limit"
+                                   ],
+                          "source":  {
+                                         "type":  "builtin",
+                                         "id":  "custom-account"
+                                     },
+                          "created_at":  "2025-01-01T00:00:00Z",
+                          "updated_at":  "2025-01-01T00:00:00Z",
+                          "downloads":  0,
+                          "verified":  true,
+                          "documented":  true,
+                          "maintenance":  "active",
+                          "license":  "MIT",
+                          "security_review":  {
+                                                  "status":  "audited",
+                                                  "audited_at":  "2025-04-10T00:00:00Z",
+                                                  "auditor":  "StarForge Security Team",
+                                                  "findings":  null,
+                                                  "score":  96
+                                              },
+                          "changelog":  [
+                                            {
+                                                "version":  "1.0.0",
+                                                "date":  "2025-01-01",
+                                                "notes":  "Initial release"
+                                            }
+                                        ]
+                      },
+                      {
                           "name":  "sep41-token",
                           "version":  "1.0.0",
                           "description":  "Full SEP-41 fungible token with mint, transfer, burn, approve, and transfer_from",
