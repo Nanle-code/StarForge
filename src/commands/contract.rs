@@ -197,11 +197,14 @@ pub struct CallGraphArgs {
 }
 
 #[derive(Args)]
+#[command(disable_help_flag = true)]
 pub struct InvokeArgs {
     /// Contract ID to invoke
+    #[arg(allow_hyphen_values = true)]
     pub contract_id: String,
     /// Function name to call
-    pub function: String,
+    #[arg(allow_hyphen_values = true)]
+    pub function: Option<String>,
     /// Function arguments (use multiple --arg flags)
     #[arg(long = "arg", action = clap::ArgAction::Append)]
     pub args: Vec<String>,
@@ -223,6 +226,9 @@ pub struct InvokeArgs {
     /// HD derivation path for hardware wallet signing
     #[arg(long, default_value = crate::utils::hardware_wallet::STELLAR_HD_PATH)]
     pub hd_path: String,
+    /// Dynamic typed arguments
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true, hide = true)]
+    pub slop: Vec<String>,
 }
 
 #[derive(Args)]
@@ -698,36 +704,102 @@ fn handle_build(args: BuildArgs) -> Result<()> {
     Ok(())
 }
 
+fn fetch_contract_spec(contract_id: &str, network: &str) -> Result<crate::utils::bindings::ContractMetadata> {
+    let output = std::process::Command::new("stellar")
+        .args(["contract", "fetch", "--id", contract_id, "--network", network])
+        .output()?;
+    
+    if !output.status.success() {
+        anyhow::bail!("Failed to fetch contract WASM for {}: {}", contract_id, String::from_utf8_lossy(&output.stderr));
+    }
+    
+    let entries = crate::utils::bindings::read_spec_entries(&output.stdout)?;
+    Ok(crate::utils::bindings::parse_spec_entries(&entries))
+}
+
 async fn handle_invoke(args: InvokeArgs) -> Result<()> {
+    if args.contract_id == "--help" || args.contract_id == "-h" {
+        use clap::CommandFactory;
+        let mut cmd = InvokeArgs::command();
+        cmd.print_help()?;
+        return Ok(());
+    }
+
     p::header("Invoke Soroban Contract");
 
     config::validate_contract_id(&args.contract_id)?;
     config::validate_network(&args.network)?;
 
-    // Validate arguments and types match
-    if args.args.len() != args.types.len() && !args.types.is_empty() {
-        anyhow::bail!(
-            "Argument count mismatch: {} args but {} types specified",
-            args.args.len(),
-            args.types.len()
-        );
+    let function_name = args.function.clone().unwrap_or_default();
+    let wants_contract_help = function_name.is_empty() || function_name == "--help" || function_name == "-h";
+    let wants_func_help = args.slop.contains(&"--help".to_string()) || args.slop.contains(&"-h".to_string());
+
+    let metadata = fetch_contract_spec(&args.contract_id, &args.network)?;
+
+    if wants_contract_help {
+        println!("Available functions for contract {}:\n", args.contract_id);
+        for f in &metadata.functions {
+            let inputs = f.inputs.iter().map(|i| format!("{}: {}", i.name, i.type_name)).collect::<Vec<_>>().join(", ");
+            println!("  - {} ({})", f.name, inputs);
+        }
+        return Ok(());
     }
 
-    // Default to string type if no types specified
-    let arg_types = if args.types.is_empty() {
-        vec!["string".to_string(); args.args.len()]
-    } else {
-        args.types.clone()
-    };
+    let func_spec = metadata.functions.iter().find(|f| f.name == function_name)
+        .ok_or_else(|| anyhow::anyhow!("Function '{}' not found in contract", function_name))?;
+
+    if wants_func_help {
+        println!("Usage: starforge contract invoke {} {} [OPTIONS]\n", args.contract_id, function_name);
+        println!("Arguments:");
+        for i in &func_spec.inputs {
+            println!("  --{} <{}>", i.name, i.type_name);
+        }
+        return Ok(());
+    }
+
+    let mut parsed_args = args.args.clone();
+    let mut parsed_types = args.types.clone();
+
+    if !parsed_types.is_empty() || !parsed_args.is_empty() {
+        p::warn("The --type flag is deprecated. Arguments are now typed automatically from the contract spec.");
+        if parsed_args.len() != parsed_types.len() && !parsed_types.is_empty() {
+            anyhow::bail!("Argument count mismatch: {} args but {} types specified", parsed_args.len(), parsed_types.len());
+        }
+        if parsed_types.is_empty() {
+            parsed_types = vec!["string".to_string(); parsed_args.len()];
+        }
+    } else if !func_spec.inputs.is_empty() {
+        let mut cmd = clap::Command::new(&func_spec.name)
+            .no_binary_name(true)
+            .ignore_errors(false);
+            
+        for input in &func_spec.inputs {
+            cmd = cmd.arg(
+                clap::Arg::new(&input.name)
+                    .long(&input.name)
+                    .required(true)
+                    .help(input.type_name.clone())
+            );
+        }
+        
+        let matches = cmd.try_get_matches_from(&args.slop)
+            .map_err(|e| anyhow::anyhow!("Invalid arguments for '{}':\n{}", function_name, e))?;
+            
+        for input in &func_spec.inputs {
+            let val: String = matches.get_one::<String>(&input.name).unwrap().clone();
+            parsed_args.push(val);
+            parsed_types.push(input.type_name.clone());
+        }
+    }
 
     p::separator();
     p::kv("Contract ID", &args.contract_id);
-    p::kv("Function", &args.function);
+    p::kv("Function", &function_name);
     p::kv("Network", &args.network);
 
-    if !args.args.is_empty() {
-        p::kv("Arguments", &format!("{} args", args.args.len()));
-        for (i, (arg, arg_type)) in args.args.iter().zip(arg_types.iter()).enumerate() {
+    if !parsed_args.is_empty() {
+        p::kv("Arguments", &format!("{} args", parsed_args.len()));
+        for (i, (arg, arg_type)) in parsed_args.iter().zip(parsed_types.iter()).enumerate() {
             p::kv(
                 &format!("  Arg {}", i + 1),
                 &format!("{} ({})", arg, arg_type),
@@ -797,9 +869,9 @@ async fn handle_invoke(args: InvokeArgs) -> Result<()> {
 
     let outcome = soroban::invoke_contract(
         &args.contract_id,
-        &args.function,
-        &args.args,
-        &arg_types,
+        &function_name,
+        &parsed_args,
+        &parsed_types,
         &args.network,
         submit_wallet.as_ref(),
         signing_request.as_ref(),
