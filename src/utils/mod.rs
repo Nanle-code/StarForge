@@ -148,6 +148,7 @@ pub mod security_scanner;
 pub mod sep10;
 pub mod shamir;
 pub mod simulation_resources;
+pub mod smoke_tests;
 pub mod social;
 pub mod soroban;
 pub mod state_diff;

@@ -814,7 +814,17 @@ fn recovery_hints(command: &str, err: &anyhow::Error) -> Vec<String> {
             }
         }
         "deploy" => {
-            if msg.contains("wasm") || msg.contains("not found") || msg.contains("no such file") {
+            if msg.contains("smoke tests failed") {
+                hints.push("The contract is deployed; only the post-deploy checks failed.".into());
+                hints.push(
+                    "Fix the contract or the [[smoke_tests]] entry in starforge-project.toml."
+                        .into(),
+                );
+                hints.push("Deploy without running smoke tests: --skip-smoke".into());
+            } else if msg.contains("wasm")
+                || msg.contains("not found")
+                || msg.contains("no such file")
+            {
                 hints.push("Build your contract first: stellar contract build".into());
                 hints.push("Make sure you pass the correct --wasm path to deploy.".into());
             } else if msg.contains("account") || msg.contains("not found on") {

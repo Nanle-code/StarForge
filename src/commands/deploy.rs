@@ -6,7 +6,9 @@ use crate::utils::{
         DeployRecord, DeployStatus,
     },
     deploy_policy, deployment_monitor, horizon, notifications, optimizer, output, print as p,
-    simulation_resources, soroban, wallet_signer,
+    project_config, simulation_resources,
+    smoke_tests::{self, SmokeContext, SmokeTest},
+    soroban, wallet_signer,
     wasm_hash::{compute_wasm_hash, BuildEnvironment},
     wasm_preflight,
 };
@@ -78,6 +80,65 @@ pub struct DeployArgs {
     /// Comma-separated checklist item ids satisfied for this deploy (see deploy policy)
     #[arg(long, value_delimiter = ',')]
     pub checklist: Option<Vec<String>>,
+    /// Do not run the `[[smoke_tests]]` declared in `starforge-project.toml`
+    /// after a successful `--execute` deploy
+    #[arg(long)]
+    pub skip_smoke: bool,
+}
+
+/// Smoke tests declared in the discovered project manifest, plus the
+/// directory they run from. Loading validates them, so a bad declaration
+/// stops the command before anything is deployed.
+fn load_smoke_tests(skip: bool) -> Result<Option<(Vec<SmokeTest>, PathBuf)>> {
+    if skip {
+        return Ok(None);
+    }
+    let start = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    Ok(project_config::find_and_load_project_lockfile(&start)?
+        .filter(|(_, lockfile)| !lockfile.smoke_tests.is_empty())
+        .map(|(path, lockfile)| {
+            (
+                lockfile.smoke_tests,
+                smoke_tests::workdir_for_manifest(&path),
+            )
+        }))
+}
+
+/// Run post-deploy smoke tests against a confirmed deployment and report
+/// each result. Returns a [`smoke_tests::SmokeTestFailure`] error if any failed.
+fn run_post_deploy_smoke_tests(
+    tests: &[SmokeTest],
+    workdir: PathBuf,
+    contract_id: &str,
+    network: &str,
+    source: &str,
+) -> Result<()> {
+    p::header("Post-deploy Smoke Tests");
+    let ctx = SmokeContext {
+        contract_id: contract_id.to_string(),
+        network: network.to_string(),
+        source: source.to_string(),
+        workdir,
+    };
+    let report = smoke_tests::run_all(tests, &ctx);
+    for (line, result) in report.lines().iter().zip(&report.results) {
+        if result.outcome.is_pass() {
+            println!("  {}", line.green());
+        } else {
+            println!("  {}", line.red());
+        }
+    }
+    println!();
+    if report.all_passed() {
+        p::success(&format!("{} smoke test(s) passed", report.passed()));
+    } else {
+        p::error(&format!(
+            "{} of {} smoke test(s) failed. The deployment succeeded and the contract is live.",
+            report.failed(),
+            report.results.len()
+        ));
+    }
+    smoke_tests::into_result(&report, &ctx)
 }
 
 /// Extract a Soroban contract id (56-char `C…` strkey) from CLI stdout/stderr.
@@ -454,6 +515,10 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
             args.wasm
         );
     }
+
+    // Validate declared smoke tests up front: a broken declaration must fail
+    // here, never after a contract is already live.
+    let smoke = load_smoke_tests(args.skip_smoke)?;
 
     let mut wasm_path = args.wasm.clone();
     let mut wasm_bytes = fs::read(&wasm_path)?;
@@ -940,7 +1005,31 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
         p::success("Deployment executed successfully!");
         p::kv("Recorded deployment", &record_id[..8.min(record_id.len())]);
         println!("{}", stdout);
+
+        // Smoke tests run only against a confirmed deployment, which means
+        // the Stellar CLI returned a contract ID.
+        if let Some((tests, workdir)) = smoke {
+            match parsed_contract_id.as_deref() {
+                Some(contract_id) => run_post_deploy_smoke_tests(
+                    &tests,
+                    workdir,
+                    contract_id,
+                    &args.network,
+                    &wallet.public_key,
+                )?,
+                None => p::warn(&format!(
+                    "Skipped {} smoke test(s): no contract ID in Stellar CLI output to test against.",
+                    tests.len()
+                )),
+            }
+        }
     } else {
+        if let Some((tests, _)) = &smoke {
+            p::info(&format!(
+                "{} smoke test(s) declared; they run only after an executed deploy.",
+                tests.len()
+            ));
+        }
         p::info("Dry-run complete. Use --execute to deploy for real.");
     }
 

@@ -93,6 +93,10 @@ Security model:
 - `starforge config show` tells you which lockfile (if any) is participating,
   so an override is never mistaken for a personal setting.
 
+The lockfile can also declare `[[smoke_tests]]`, which `starforge deploy
+--execute` runs after a successful deploy. These entries are not config
+overrides. See [SMOKE_TESTS.md](SMOKE_TESTS.md) for the schema.
+
 Commands that only read configuration use the effective config. Commands
 that write configuration still operate on the user config only — project
 overrides are an input, never something persisted back.
