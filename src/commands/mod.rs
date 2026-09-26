@@ -105,3 +105,4 @@ pub mod upgrade;
 pub mod upgrade_auto;
 pub mod verify;
 pub mod wallet;
+pub mod snapshot;
