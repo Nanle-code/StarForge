@@ -211,6 +211,10 @@ enum Commands {
     /// Contract testing utilities for Soroban wasm
     Test(commands::test::TestArgs),
 
+    /// Create and manage deterministic live-ledger snapshots for local tests
+    #[command(subcommand)]
+    Snapshot(commands::snapshot::SnapshotCommands),
+
     /// Gas analysis and optimization helpers
     #[command(subcommand)]
     Gas(commands::gas::GasCommands),
@@ -496,6 +500,7 @@ async fn run() {
     }
 
     let command_name = match &cli.command {
+        Commands::Snapshot(_) => "snapshot",
         Commands::AiDebug(_) => "ai-debug",
         Commands::AiNavigate(_) => "ai-navigate",
         Commands::AiQualityGate(_) => "ai-quality-gate",
@@ -649,6 +654,7 @@ async fn run() {
         Commands::Tutorial(cmd) => commands::tutorial::handle(cmd).await,
         Commands::Benchmark(args) => commands::benchmark::handle(args).await,
         Commands::Test(args) => commands::test::handle(args).await,
+        Commands::Snapshot(cmd) => commands::snapshot::handle(cmd).await,
         Commands::Gas(args) => commands::gas::handle(args).await,
         Commands::Plugin(args) => commands::plugin::handle(args).await,
         Commands::Pr(cmd) => commands::pr::handle(cmd).await,

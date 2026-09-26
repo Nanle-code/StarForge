@@ -105,5 +105,4 @@ pub mod upgrade;
 pub mod upgrade_auto;
 pub mod verify;
 pub mod wallet;
-#[cfg(feature = "ui")]
-pub mod ui;
+pub mod snapshot;
