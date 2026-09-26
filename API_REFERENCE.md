@@ -885,6 +885,174 @@ starforge network test mainnet
 
 ## Transaction Commands
 
+### `starforge trust`
+
+Establish a trustline to accept a custom Stellar asset.
+
+**Usage:**
+```bash
+starforge trust --asset-code <CODE> --asset-issuer <ISSUER> --wallet <WALLET> [OPTIONS]
+```
+
+**Options:**
+- `--asset-code <CODE>` - Asset code (1-12 characters, e.g., USDC, EUR)
+- `--asset-issuer <ISSUER>` - Asset issuer's public key (G...)
+- `--limit <AMOUNT>` - Trust limit (optional, defaults to maximum)
+- `--wallet <WALLET>` - Wallet to use for signing (required)
+- `--network <NETWORK>` - Network to use (overrides config)
+- `--dry-run` - Simulate only, don't submit transaction
+- `--yes` - Skip confirmation prompt
+- `--json` - Output as JSON
+
+**Examples:**
+```bash
+# Establish trustline for USDC
+starforge trust \
+  --asset-code USDC \
+  --asset-issuer GABC... \
+  --wallet alice
+
+# Set custom trust limit
+starforge trust \
+  --asset-code EUR \
+  --asset-issuer GDEF... \
+  --limit 10000 \
+  --wallet alice
+
+# Dry-run on mainnet
+starforge trust \
+  --asset-code USDC \
+  --asset-issuer GABC... \
+  --wallet alice \
+  --network mainnet \
+  --dry-run
+
+# Skip confirmation (for CI)
+starforge trust \
+  --asset-code USDC \
+  --asset-issuer GABC... \
+  --wallet alice \
+  --yes
+```
+
+---
+
+### `starforge pay`
+
+Send a payment transaction on the Stellar network.
+
+**Usage:**
+```bash
+starforge pay --destination <ADDRESS> --amount <AMOUNT> --wallet <WALLET> [OPTIONS]
+```
+
+**Options:**
+- `--destination <ADDRESS>` - Destination account public key (G...)
+- `--amount <AMOUNT>` - Amount to send
+- `--asset-code <CODE>` - Asset code (optional, defaults to native XLM)
+- `--asset-issuer <ISSUER>` - Asset issuer's public key (required if asset-code provided)
+- `--wallet <WALLET>` - Wallet to use for signing (required)
+- `--network <NETWORK>` - Network to use (overrides config)
+- `--dry-run` - Simulate only, don't submit transaction
+- `--yes` - Skip confirmation prompt
+- `--json` - Output as JSON
+
+**Examples:**
+```bash
+# Send XLM (native asset)
+starforge pay \
+  --destination GDEF... \
+  --amount 100 \
+  --wallet alice
+
+# Send custom asset
+starforge pay \
+  --destination GDEF... \
+  --amount 50 \
+  --asset-code USDC \
+  --asset-issuer GABC... \
+  --wallet alice
+
+# Dry-run payment
+starforge pay \
+  --destination GDEF... \
+  --amount 10 \
+  --wallet alice \
+  --dry-run
+
+# Skip confirmation (for CI)
+starforge pay \
+  --destination GDEF... \
+  --amount 25 \
+  --wallet alice \
+  --yes \
+  --json
+```
+
+---
+
+### `starforge path-pay`
+
+Send a path payment with automatic DEX path finding.
+
+**Usage:**
+```bash
+starforge path-pay --destination <ADDRESS> --dest-amount <AMOUNT> --send-max <AMOUNT> --wallet <WALLET> [OPTIONS]
+```
+
+**Options:**
+- `--destination <ADDRESS>` - Destination account public key (G...)
+- `--dest-amount <AMOUNT>` - Exact amount destination should receive
+- `--dest-asset-code <CODE>` - Destination asset code (optional, defaults to XLM)
+- `--dest-asset-issuer <ISSUER>` - Destination asset issuer (required if dest-asset-code provided)
+- `--send-max <AMOUNT>` - Maximum amount willing to send
+- `--send-asset-code <CODE>` - Source asset code (optional, defaults to XLM)
+- `--send-asset-issuer <ISSUER>` - Source asset issuer (required if send-asset-code provided)
+- `--auto-path` - Find best payment path automatically via Horizon
+- `--wallet <WALLET>` - Wallet to use for signing (required)
+- `--network <NETWORK>` - Network to use (overrides config)
+- `--dry-run` - Simulate only, don't submit transaction
+- `--yes` - Skip confirmation prompt
+- `--json` - Output as JSON
+
+**Examples:**
+```bash
+# Path payment with auto path finding (XLM to USDC)
+starforge path-pay \
+  --destination GDEF... \
+  --dest-amount 100 \
+  --dest-asset-code USDC \
+  --dest-asset-issuer GABC... \
+  --send-max 150 \
+  --wallet alice \
+  --auto-path
+
+# Path payment between custom assets
+starforge path-pay \
+  --destination GDEF... \
+  --dest-amount 50 \
+  --dest-asset-code EUR \
+  --dest-asset-issuer GEUR... \
+  --send-max 55 \
+  --send-asset-code USDC \
+  --send-asset-issuer GABC... \
+  --wallet alice \
+  --auto-path
+
+# Dry-run path payment
+starforge path-pay \
+  --destination GDEF... \
+  --dest-amount 100 \
+  --dest-asset-code USDC \
+  --dest-asset-issuer GABC... \
+  --send-max 110 \
+  --wallet alice \
+  --dry-run \
+  --auto-path
+```
+
+---
+
 ### `starforge tx send`
 
 Send a Stellar payment transaction.

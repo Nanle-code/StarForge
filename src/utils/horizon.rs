@@ -3,6 +3,13 @@ use anyhow::{Context, Result};
 use once_cell::sync::Lazy;
 use reqwest::Client;
 use serde::Deserialize;
+use stellar_strkey::ed25519;
+use stellar_xdr::curr::{
+    AccountId, AlphaNum12, AlphaNum4, Asset, AssetCode12, AssetCode4, ChangeTrustAsset,
+    ChangeTrustOp, Int64, Limits, MuxedAccount, Operation, OperationBody, PathPaymentStrictReceiveOp,
+    PaymentOp, Preconditions, PublicKey, SequenceNumber, TimePoint, TimeBounds, Transaction,
+    TransactionEnvelope, TransactionExt, TransactionV1Envelope, Uint256, VecM, WriteXdr,
+};
 use std::time::Duration;
 
 fn build_http_client(timeout: Duration) -> Result<Client> {
@@ -677,4 +684,328 @@ fn build_payment_transaction_xdr(
 
     use base64::{engine::general_purpose, Engine as _};
     Ok(general_purpose::STANDARD.encode(mock_xdr))
+}
+
+/// Build a ChangeTrust operation transaction
+pub fn build_change_trust_transaction(
+    source_account: &str,
+    asset_code: &str,
+    asset_issuer: &str,
+    limit: Option<&str>,
+    sequence: u64,
+    network: &str,
+) -> Result<String> {
+    let source_pk = ed25519::PublicKey::from_string(source_account)
+        .with_context(|| format!("Invalid source account: {}", source_account))?;
+    let issuer_pk = ed25519::PublicKey::from_string(asset_issuer)
+        .with_context(|| format!("Invalid asset issuer: {}", asset_issuer))?;
+
+    let asset = parse_asset(asset_code, asset_issuer)?;
+    let trust_asset = match asset {
+        Asset::Native => anyhow::bail!("Cannot create trustline for native XLM"),
+        Asset::CreditAlphanum4(a) => ChangeTrustAsset::CreditAlphanum4(a),
+        Asset::CreditAlphanum12(a) => ChangeTrustAsset::CreditAlphanum12(a),
+        Asset::PoolShare(_) => anyhow::bail!("Pool share assets not supported yet"),
+    };
+
+    let limit_amount = if let Some(lim) = limit {
+        parse_amount(lim)?
+    } else {
+        i64::MAX // Max trustline
+    };
+
+    let change_trust_op = ChangeTrustOp {
+        line: trust_asset,
+        limit: Int64(limit_amount),
+    };
+
+    let operation = Operation {
+        source_account: None,
+        body: OperationBody::ChangeTrust(change_trust_op),
+    };
+
+    let tx = build_transaction(
+        &source_pk,
+        vec![operation],
+        sequence,
+        100, // base fee
+        network,
+    )?;
+
+    envelope_to_base64(&tx)
+}
+
+/// Build a Payment operation transaction
+pub fn build_payment_transaction(
+    source_account: &str,
+    destination: &str,
+    amount: &str,
+    asset_code: Option<&str>,
+    asset_issuer: Option<&str>,
+    sequence: u64,
+    network: &str,
+) -> Result<String> {
+    let source_pk = ed25519::PublicKey::from_string(source_account)
+        .with_context(|| format!("Invalid source account: {}", source_account))?;
+    let dest_pk = ed25519::PublicKey::from_string(destination)
+        .with_context(|| format!("Invalid destination account: {}", destination))?;
+
+    let asset = match (asset_code, asset_issuer) {
+        (None, None) => Asset::Native,
+        (Some(code), Some(issuer)) => parse_asset(code, issuer)?,
+        _ => anyhow::bail!("Asset code and issuer must be provided together"),
+    };
+
+    let amount_stroops = parse_amount(amount)?;
+
+    let payment_op = PaymentOp {
+        destination: MuxedAccount::Ed25519(Uint256(dest_pk.0)),
+        asset,
+        amount: Int64(amount_stroops),
+    };
+
+    let operation = Operation {
+        source_account: None,
+        body: OperationBody::Payment(payment_op),
+    };
+
+    let tx = build_transaction(&source_pk, vec![operation], sequence, 100, network)?;
+
+    envelope_to_base64(&tx)
+}
+
+/// Build a PathPaymentStrictReceive operation transaction
+pub fn build_path_payment_transaction(
+    source_account: &str,
+    send_asset_code: Option<&str>,
+    send_asset_issuer: Option<&str>,
+    send_max: &str,
+    destination: &str,
+    dest_asset_code: Option<&str>,
+    dest_asset_issuer: Option<&str>,
+    dest_amount: &str,
+    path: Vec<Asset>,
+    sequence: u64,
+    network: &str,
+) -> Result<String> {
+    let source_pk = ed25519::PublicKey::from_string(source_account)
+        .with_context(|| format!("Invalid source account: {}", source_account))?;
+    let dest_pk = ed25519::PublicKey::from_string(destination)
+        .with_context(|| format!("Invalid destination account: {}", destination))?;
+
+    let send_asset = match (send_asset_code, send_asset_issuer) {
+        (None, None) => Asset::Native,
+        (Some(code), Some(issuer)) => parse_asset(code, issuer)?,
+        _ => anyhow::bail!("Send asset code and issuer must be provided together"),
+    };
+
+    let dest_asset = match (dest_asset_code, dest_asset_issuer) {
+        (None, None) => Asset::Native,
+        (Some(code), Some(issuer)) => parse_asset(code, issuer)?,
+        _ => anyhow::bail!("Destination asset code and issuer must be provided together"),
+    };
+
+    let send_max_stroops = parse_amount(send_max)?;
+    let dest_amount_stroops = parse_amount(dest_amount)?;
+
+    let path_vec = VecM::try_from(path)
+        .map_err(|_| anyhow::anyhow!("Path too long (max 5 intermediate assets)"))?;
+
+    let path_payment_op = PathPaymentStrictReceiveOp {
+        send_asset,
+        send_max: Int64(send_max_stroops),
+        destination: MuxedAccount::Ed25519(Uint256(dest_pk.0)),
+        dest_asset,
+        dest_amount: Int64(dest_amount_stroops),
+        path: path_vec,
+    };
+
+    let operation = Operation {
+        source_account: None,
+        body: OperationBody::PathPaymentStrictReceive(path_payment_op),
+    };
+
+    let tx = build_transaction(&source_pk, vec![operation], sequence, 100, network)?;
+
+    envelope_to_base64(&tx)
+}
+
+/// Helper: Parse asset code and issuer into Asset
+fn parse_asset(asset_code: &str, asset_issuer: &str) -> Result<Asset> {
+    let issuer_pk = ed25519::PublicKey::from_string(asset_issuer)
+        .with_context(|| format!("Invalid asset issuer: {}", asset_issuer))?;
+
+    let issuer = AccountId(PublicKey::PublicKeyTypeEd25519(Uint256(issuer_pk.0)));
+
+    if asset_code.len() <= 4 {
+        let mut code_bytes = [0u8; 4];
+        let bytes = asset_code.as_bytes();
+        code_bytes[..bytes.len()].copy_from_slice(bytes);
+
+        Ok(Asset::CreditAlphanum4(AlphaNum4 {
+            asset_code: AssetCode4(code_bytes),
+            issuer,
+        }))
+    } else if asset_code.len() <= 12 {
+        let mut code_bytes = [0u8; 12];
+        let bytes = asset_code.as_bytes();
+        code_bytes[..bytes.len()].copy_from_slice(bytes);
+
+        Ok(Asset::CreditAlphanum12(AlphaNum12 {
+            asset_code: AssetCode12(code_bytes),
+            issuer,
+        }))
+    } else {
+        anyhow::bail!("Asset code must be 1-12 characters")
+    }
+}
+
+/// Helper: Parse amount string into stroops (7 decimal places)
+fn parse_amount(amount: &str) -> Result<i64> {
+    let parts: Vec<&str> = amount.split('.').collect();
+    let whole = parts[0].parse::<i64>().with_context(|| "Invalid amount")?;
+
+    let fractional = if parts.len() > 1 {
+        let frac_str = parts[1];
+        if frac_str.len() > 7 {
+            anyhow::bail!("Amount precision cannot exceed 7 decimal places");
+        }
+        let padded = format!("{:0<7}", frac_str);
+        padded.parse::<i64>().with_context(|| "Invalid amount")?
+    } else {
+        0
+    };
+
+    Ok(whole
+        .checked_mul(10_000_000)
+        .and_then(|w| w.checked_add(fractional))
+        .ok_or_else(|| anyhow::anyhow!("Amount overflow"))?)
+}
+
+/// Helper: Build a generic transaction with operations
+fn build_transaction(
+    source: &ed25519::PublicKey,
+    operations: Vec<Operation>,
+    sequence: u64,
+    base_fee: u32,
+    _network: &str,
+) -> Result<TransactionV1Envelope> {
+    let ops_vec = VecM::try_from(operations)
+        .map_err(|_| anyhow::anyhow!("Too many operations in transaction"))?;
+
+    let tx = Transaction {
+        source_account: MuxedAccount::Ed25519(Uint256(source.0)),
+        fee: base_fee,
+        seq_num: SequenceNumber(sequence as i64),
+        cond: Preconditions::None,
+        memo: stellar_xdr::curr::Memo::None,
+        operations: ops_vec,
+        ext: TransactionExt::V0,
+    };
+
+    Ok(TransactionV1Envelope {
+        tx,
+        signatures: VecM::try_from(Vec::new())
+            .map_err(|_| anyhow::anyhow!("Failed to create signatures vector"))?,
+    })
+}
+
+/// Helper: Encode transaction envelope to base64 XDR
+fn envelope_to_base64(envelope: &TransactionV1Envelope) -> Result<String> {
+    let tx_envelope = TransactionEnvelope::Tx(envelope.clone());
+    let xdr_bytes = tx_envelope
+        .to_xdr(Limits::none())
+        .with_context(|| "Failed to encode transaction to XDR")?;
+    use base64::{engine::general_purpose, Engine as _};
+    Ok(general_purpose::STANDARD.encode(xdr_bytes))
+}
+
+/// Fetch payment path from Horizon for path payments
+#[derive(Debug, Deserialize)]
+pub struct PathRecord {
+    pub source_asset_type: String,
+    pub source_asset_code: Option<String>,
+    pub source_asset_issuer: Option<String>,
+    pub source_amount: String,
+    pub destination_asset_type: String,
+    pub destination_asset_code: Option<String>,
+    pub destination_asset_issuer: Option<String>,
+    pub destination_amount: String,
+    pub path: Vec<PathAsset>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PathAsset {
+    pub asset_type: String,
+    pub asset_code: Option<String>,
+    pub asset_issuer: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PathsResponse {
+    #[serde(rename = "_embedded")]
+    embedded: PathsEmbedded,
+}
+
+#[derive(Debug, Deserialize)]
+struct PathsEmbedded {
+    records: Vec<PathRecord>,
+}
+
+/// Find payment paths using Horizon's /paths/strict-receive endpoint
+///
+/// # Security Note
+///
+/// This function transmits only public Stellar account addresses (source_account,
+/// destination_account) to Horizon, never secret keys. All built-in networks
+/// (testnet, mainnet) are enforced to use HTTPS in `config::get_network_config()`.
+/// Custom networks using non-HTTPS URLs generate a warning to the user.
+///
+/// CodeQL may flag this as "cleartext transmission of sensitive information" due to
+/// taint tracking from `validate_secret_key()` on the Wallet struct, but the secret_key
+/// field is never accessed or transmitted by this function.
+pub async fn find_payment_paths(
+    source_account: &str,
+    destination_account: &str,
+    destination_asset_code: Option<&str>,
+    destination_asset_issuer: Option<&str>,
+    destination_amount: &str,
+    network: &str,
+) -> Result<Vec<PathRecord>> {
+    let horizon = horizon_url(network)?;
+    
+    let dest_asset = match (destination_asset_code, destination_asset_issuer) {
+        (None, None) => "native".to_string(),
+        (Some(code), Some(issuer)) => format!("{}:{}", code, issuer),
+        _ => anyhow::bail!("Destination asset code and issuer must be provided together"),
+    };
+
+    let url = format!(
+        "{}/paths/strict-receive?source_account={}&destination_account={}&destination_asset_type={}&destination_amount={}",
+        horizon,
+        source_account,
+        destination_account,
+        if destination_asset_code.is_none() { "native" } else { "credit_alphanum4" },
+        destination_amount
+    );
+
+    let url = if let (Some(code), Some(issuer)) = (destination_asset_code, destination_asset_issuer) {
+        format!("{}&destination_asset_code={}&destination_asset_issuer={}", url, code, issuer)
+    } else {
+        url
+    };
+
+    let res = send_with_retry(|| HTTP_CLIENT.get(&url).send())
+        .await
+        .with_context(|| "Failed to fetch payment paths from Horizon")?;
+
+    if res.status() == 200 {
+        let paths_response: PathsResponse = res
+            .json()
+            .await
+            .with_context(|| "Failed to parse paths response")?;
+        Ok(paths_response.embedded.records)
+    } else {
+        anyhow::bail!("Failed to find payment paths: HTTP {}", res.status())
+    }
 }

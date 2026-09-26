@@ -1659,6 +1659,56 @@ mod tests {
     }
 
     #[test]
+    fn get_network_config_enforces_https_for_built_in_networks() {
+        let mut cfg = Config::default();
+        
+        // Try to use HTTP for testnet (should fail)
+        cfg.networks.get_mut("testnet").unwrap().horizon_url = "http://horizon-testnet.stellar.org".to_string();
+        let err = get_network_config(&cfg, "testnet").unwrap_err();
+        assert!(err.to_string().contains("must use HTTPS"), "Expected HTTPS enforcement error, got: {}", err);
+        
+        // Try to use HTTP for mainnet (should fail)
+        cfg.networks.get_mut("mainnet").unwrap().horizon_url = "http://horizon.stellar.org".to_string();
+        let err = get_network_config(&cfg, "mainnet").unwrap_err();
+        assert!(err.to_string().contains("must use HTTPS"), "Expected HTTPS enforcement error, got: {}", err);
+        
+        // docker-testnet is allowed to use HTTP (local development)
+        cfg.networks.get_mut("docker-testnet").unwrap().horizon_url = "http://localhost:8000".to_string();
+        assert!(get_network_config(&cfg, "docker-testnet").is_ok(), "docker-testnet should allow HTTP");
+    }
+
+    #[test]
+    fn get_network_config_allows_localhost_http_for_custom_networks() {
+        let mut cfg = Config::default();
+        
+        // Add custom network with localhost HTTP (should succeed with warning)
+        cfg.networks.insert(
+            "custom-local".to_string(),
+            NetworkConfig {
+                horizon_url: "http://localhost:9000".to_string(),
+                soroban_rpc_url: None,
+                friendbot_url: None,
+                passphrase: None,
+            },
+        );
+        
+        assert!(get_network_config(&cfg, "custom-local").is_ok(), "Custom network with localhost should be allowed");
+        
+        // Add custom network with 127.0.0.1 HTTP (should succeed with warning)
+        cfg.networks.insert(
+            "custom-local-ip".to_string(),
+            NetworkConfig {
+                horizon_url: "http://127.0.0.1:9000".to_string(),
+                soroban_rpc_url: None,
+                friendbot_url: None,
+                passphrase: None,
+            },
+        );
+        
+        assert!(get_network_config(&cfg, "custom-local-ip").is_ok(), "Custom network with 127.0.0.1 should be allowed");
+    }
+
+    #[test]
     fn default_config_includes_plugin_trust_sources() {
         let cfg = Config::default();
         assert_eq!(
@@ -1931,10 +1981,41 @@ pub fn save_config_file(config: &Config) -> Result<()> {
 }
 
 pub fn get_network_config(cfg: &Config, network: &str) -> Result<NetworkConfig> {
-    cfg.networks
+    let net_cfg = cfg
+        .networks
         .get(network)
         .cloned()
-        .ok_or_else(|| anyhow::anyhow!("Network '{}' not found in configuration", network))
+        .ok_or_else(|| anyhow::anyhow!("Network '{}' not found in configuration", network))?;
+
+    // Enforce HTTPS for built-in networks (testnet, mainnet, futurenet)
+    if is_reserved_network(network) {
+        if !net_cfg.horizon_url.starts_with("https://") && network != "docker-testnet" {
+            anyhow::bail!(
+                "Built-in network '{}' must use HTTPS. Horizon URL '{}' is insecure.",
+                network,
+                net_cfg.horizon_url
+            );
+        }
+    } else {
+        // Warn for custom networks using non-HTTPS URLs (but allow for local dev)
+        if !net_cfg.horizon_url.starts_with("https://")
+            && !net_cfg.horizon_url.starts_with("http://localhost")
+            && !net_cfg.horizon_url.starts_with("http://127.0.0.1")
+        {
+            eprintln!(
+                "⚠️  WARNING: Custom network '{}' uses non-HTTPS Horizon URL: {}",
+                network, net_cfg.horizon_url
+            );
+            eprintln!(
+                "   Transmitting data over HTTP may expose sensitive information."
+            );
+            eprintln!(
+                "   Consider using HTTPS for production networks."
+            );
+        }
+    }
+
+    Ok(net_cfg)
 }
 
 pub const RESERVED_NETWORKS: &[&str] = &["testnet", "mainnet", "docker-testnet"];
