@@ -125,7 +125,7 @@ pub struct MonitorArgs {
 }
 
 pub async fn handle(args: MonitorArgs) -> Result<()> {
-    let cfg = config::load()?;
+    let cfg = crate::utils::project_config::load_effective()?;
     let network = args.network.as_deref().unwrap_or(&cfg.network);
     config::validate_network(network)?;
 
@@ -300,12 +300,39 @@ async fn monitor_contract(contract_id: &str, args: &MonitorArgs, network: &str) 
         );
     }
 
+    let mut sinks: Vec<Box<dyn crate::utils::event_sinks::EventSink>> = Vec::new();
+    if let Some(ref event_sinks) = cfg.event_sinks {
+        if let Some(ref w) = event_sinks.webhook {
+            sinks.push(Box::new(crate::utils::event_sinks::WebhookSink::new(w)));
+        }
+        if let Some(ref n) = event_sinks.ndjson {
+            sinks.push(Box::new(crate::utils::event_sinks::NdjsonSink::new(n)));
+        }
+        if let Some(ref p) = event_sinks.postgres {
+            sinks.push(Box::new(
+                crate::utils::event_sinks::PostgresSink::new(p).await?,
+            ));
+        }
+    }
+
+    let mut highest_cursor: Option<String> = None;
+    for sink in &sinks {
+        if let Some(c) = sink.get_cursor().await? {
+            match &highest_cursor {
+                Some(hc) if c > *hc => highest_cursor = Some(c),
+                None => highest_cursor = Some(c),
+                _ => {}
+            }
+        }
+    }
+
     let rpc_url = soroban::rpc_url(network)?;
     let transport = EventStreamTransport::parse(&args.transport)?;
     let mut stream = SorobanEventStream::new(rpc_url.clone(), contract_id.to_string())
         .with_poll_interval(args.interval)
         .with_transport(transport)
-        .with_filters(stream_filters.clone());
+        .with_filters(stream_filters.clone())
+        .with_cursor(highest_cursor);
     if let Some(url) = &args.websocket_url {
         stream = stream.with_websocket_url(url.clone());
     }
@@ -357,10 +384,24 @@ async fn monitor_contract(contract_id: &str, args: &MonitorArgs, network: &str) 
     while running.load(Ordering::SeqCst) {
         match stream.next_batch().await {
             Ok(batch) => {
+                let mut matched_batch = Vec::new();
                 for event in batch {
                     if matches_monitor_filters(&event, &legacy_filter_set, &stream_filters) {
                         printed_any = true;
                         pipeline.process(&event)?;
+                        matched_batch.push(event.clone());
+                    }
+                }
+
+                if !matched_batch.is_empty() && !sinks.is_empty() {
+                    for sink in &mut sinks {
+                        if let Err(e) = sink.process_batch(&matched_batch).await {
+                            notifications::warn(&format!("Sink processing error: {}", e));
+                        } else if let Some(last) = matched_batch.last() {
+                            if let Err(e) = sink.save_cursor(last.id.clone()).await {
+                                notifications::warn(&format!("Failed to save cursor: {}", e));
+                            }
+                        }
                     }
                 }
 
