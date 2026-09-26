@@ -16,6 +16,12 @@ as described in [STABILITY.md](./STABILITY.md).
 
 ### Added
 
+- Deployment annotations (#750) — `starforge deploy` accepts optional
+  `--note` and `--changelog` flags that persist with the deployment history
+  record. `starforge deployments history` shows a Note column, and the new
+  `starforge deployments annotations` subcommand lists annotations (or shows
+  one for `--id`), including JSON output with structured `note` and
+  `changelog` fields.
 - `starforge bug-report` command — collects version, OS, active network,
   config path, and Stellar CLI presence into a prefilled GitHub issue
   template (`--output <file>` writes to disk) (#975).
