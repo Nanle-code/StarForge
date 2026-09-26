@@ -1,8 +1,9 @@
 use crate::utils::{
     audit, config, confirmation, horizon, print as p,
+    upgrade_rehearsal::{run_rehearsal, LedgerSnapshot, RehearsalEnvironment, RehearsalScript},
     wasm_hash::{compute_wasm_hash, BuildEnvironment},
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use clap::{Args, Subcommand};
 use colored::*;
@@ -16,6 +17,8 @@ use std::path::PathBuf;
 pub enum UpgradeCommands {
     /// Prepare and validate a contract upgrade
     Prepare(PrepareArgs),
+    /// Rehearse an upgrade against a ledger snapshot before proposing it
+    Rehearse(RehearseArgs),
     /// Automated compatibility checks, migration planning, and rollout helpers
     #[command(subcommand)]
     Auto(crate::commands::upgrade_auto::UpgradeAutoCommands),
@@ -50,6 +53,25 @@ pub struct PrepareArgs {
     /// Network to use
     #[arg(long, default_value = "testnet", value_parser = ["testnet", "mainnet"])]
     pub network: String,
+}
+
+#[derive(Args)]
+pub struct RehearseArgs {
+    /// Contract ID to rehearse the upgrade for
+    #[arg(long)]
+    pub contract: String,
+    /// Path to the new compiled .wasm file
+    #[arg(long)]
+    pub wasm: PathBuf,
+    /// Path to the rehearsal script (TOML) describing the calls to replay
+    #[arg(long)]
+    pub calls: PathBuf,
+    /// Path to a ledger snapshot (JSON) captured from the live contract
+    #[arg(long)]
+    pub snapshot: Option<PathBuf>,
+    /// Emit the rehearsal report as JSON (for governance proposals and CI)
+    #[arg(long, default_value = "false")]
+    pub json: bool,
 }
 
 #[derive(Args)]
@@ -325,6 +347,7 @@ fn short_id(id: &str) -> String {
 pub async fn handle(cmd: UpgradeCommands) -> Result<()> {
     match cmd {
         UpgradeCommands::Prepare(args) => handle_prepare(args).await,
+        UpgradeCommands::Rehearse(args) => handle_rehearse(args),
         UpgradeCommands::Auto(cmd) => crate::commands::upgrade_auto::handle(cmd).await,
         UpgradeCommands::Propose(args) => handle_propose(args),
         UpgradeCommands::EmergencyPropose(args) => handle_emergency_propose(args),
@@ -381,6 +404,85 @@ async fn handle_prepare(args: PrepareArgs) -> Result<()> {
         .cyan()
     );
     p::separator();
+    Ok(())
+}
+
+fn handle_rehearse(args: RehearseArgs) -> Result<()> {
+    p::header("Upgrade Rehearsal");
+
+    p::step(1, 4, "Loading rehearsal script…");
+    let script_raw = fs::read_to_string(&args.calls).with_context(|| {
+        format!(
+            "Failed to read rehearsal script '{}'",
+            args.calls.display()
+        )
+    })?;
+    let script = RehearsalScript::parse(&script_raw)?;
+
+    p::step(2, 4, "Validating new WASM…");
+    let (_, new_hash) = validate_wasm(&args.wasm)?;
+
+    p::step(3, 4, "Loading ledger snapshot…");
+    let snapshot = match &args.snapshot {
+        Some(path) => {
+            let raw = fs::read_to_string(path)
+                .with_context(|| format!("Failed to read ledger snapshot '{}'", path.display()))?;
+            Some(LedgerSnapshot::parse(&raw)?)
+        }
+        None => None,
+    };
+
+    let contract_id = if args.contract.trim().is_empty() {
+        script
+            .contract
+            .clone()
+            .or_else(|| snapshot.as_ref().and_then(|s| s.contract_id.clone()))
+            .unwrap_or_default()
+    } else {
+        args.contract.clone()
+    };
+    if contract_id.trim().is_empty() {
+        anyhow::bail!(
+            "No contract ID provided. Pass --contract <ID> or set `contract` in the rehearsal script."
+        );
+    }
+
+    let old_hash = snapshot
+        .as_ref()
+        .and_then(|s| s.wasm_hash.clone())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    p::step(4, 4, "Running scripted calls…");
+    let env = RehearsalEnvironment::from_snapshot(
+        snapshot.as_ref(),
+        &contract_id,
+        &old_hash,
+        &new_hash,
+        &script.storage,
+    );
+    let report = run_rehearsal(&script, &env);
+
+    if args.json {
+        println!("{}", report.render_json()?);
+    } else {
+        if let Some(description) = &script.description {
+            p::info(description);
+        }
+        print!("{}", report.render_text());
+        if report.passed {
+            p::success(
+                "Upgrade rehearsal passed — this report can be attached to a governance proposal.",
+            );
+        }
+    }
+
+    if !report.passed {
+        anyhow::bail!(
+            "Upgrade rehearsal FAILED: {} storage decode error(s), {} failed call(s)",
+            report.storage.decode_errors.len(),
+            report.calls_failed
+        );
+    }
     Ok(())
 }
 

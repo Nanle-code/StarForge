@@ -1,0 +1,19 @@
+{
+  "contract_id": "CDEMOCONTRACT",
+  "wasm_hash": "oldwasmhash000000000000000000000000000000000000000000000000000000",
+  "ledger": 1048576,
+  "entries": [
+    {
+      "key": "total_supply",
+      "value": "1000",
+      "value_type": "u128",
+      "tier": "persistent"
+    },
+    {
+      "key": "admin",
+      "value": "GADMINADDRESS",
+      "value_type": "address",
+      "tier": "instance"
+    }
+  ]
+}
