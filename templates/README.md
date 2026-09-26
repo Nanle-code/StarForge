@@ -158,6 +158,7 @@ Built-in example templates are provided under `templates/examples/`:
 - `escrow`: A DeFi token escrow with buyer, seller, and arbiter roles for marketplaces, freelance payments, and OTC trades.
 - `dao-governance`: A minimal DAO governance contract with member proposals and one-member-one-vote tallying.
 - `multisig-vault`: A threshold (M-of-N) multi-signature vault for shared-custody token transfers and treasuries.
+- `custom-account`: A custom smart wallet implementing `__check_auth`, with ed25519 and passkey (secp256r1) signers and a per-period spending limit.
 
 ## Template Placeholders
 
