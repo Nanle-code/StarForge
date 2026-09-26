@@ -24,6 +24,16 @@ as described in [STABILITY.md](./STABILITY.md).
 - `CHANGELOG.md` — this file; establishes Keep-a-Changelog discipline
   going forward (#973).
 
+### Changed
+
+- Generated projects and bundled templates now target Soroban SDK `22.0.0`
+  (previously `21.0.0`), matching the version StarForge itself builds against.
+  The version lives in the new `SOROBAN_SDK_VERSION` and `STELLAR_XDR_VERSION`
+  constants in `src/utils/templates.rs`, and `starforge new contract`, the
+  example templates, and `templates/test-helpers` all read from that single
+  source — no hard-coded SDK version strings remain in the generators (#910).
+- Documented the SDK upgrade cadence in `docs/TEMPLATE_CONTRIBUTING.md` (#910).
+
 ---
 
 ## [0.1.0] — 2024-11-01

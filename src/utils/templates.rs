@@ -11,6 +11,28 @@ use std::path::{Path, PathBuf};
 /// The running StarForge CLI version — used for template compatibility checks.
 pub const CLI_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// The Soroban SDK version targeted by every scaffold StarForge generates and
+/// by the bundled templates under `templates/`.
+///
+/// This is the **single source of truth** for the generated-project SDK
+/// version: `crate::commands::new` and the template tooling read this constant
+/// instead of hard-coding a version string. Keep it in lock-step with:
+///
+/// * the root `Cargo.toml` `soroban-sdk` dev-dependency,
+/// * `templates/examples/*/Cargo.toml`, and
+/// * `templates/test-helpers/Cargo.toml`.
+///
+/// See `docs/TEMPLATE_CONTRIBUTING.md` for the upgrade cadence.
+pub const SOROBAN_SDK_VERSION: &str = "22.0.0";
+
+/// The `stellar-xdr` version that matches [`SOROBAN_SDK_VERSION`].
+///
+/// Mirrors the root `Cargo.toml` `stellar-xdr` dependency so that any code
+/// emitting an XDR pin has one place to read from. No bundled template depends
+/// on `stellar-xdr` directly today; this constant is the canonical value for
+/// generators that need to reference it.
+pub const STELLAR_XDR_VERSION: &str = "22.0.0";
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TemplateRegistry {
     #[serde(default)]

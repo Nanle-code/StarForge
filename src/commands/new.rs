@@ -385,6 +385,9 @@ fn cargo_toml(name: &str, license: &str, author: &str) -> String {
     } else {
         format!("authors = [\"{author}\"]\n")
     };
+    // Single source of truth for the generated-project SDK version — see
+    // `crate::utils::templates::SOROBAN_SDK_VERSION`.
+    let soroban_sdk = templates::SOROBAN_SDK_VERSION;
     format!(
         r#"[package]
 name = "{name}"
@@ -395,10 +398,10 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-soroban-sdk = "21.0.0"
+soroban-sdk = "{soroban_sdk}"
 
 [dev-dependencies]
-soroban-sdk = {{ version = "21.0.0", features = ["testutils"] }}
+soroban-sdk = {{ version = "{soroban_sdk}", features = ["testutils"] }}
 
 [profile.release]
 opt-level = "z"
