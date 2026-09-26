@@ -58,3 +58,7 @@
 # Contributors
 
 - [Cargo metadata](CARGO_METADATA.md)
+
+# Testing and CI
+
+- [Nightly end-to-end suite (testnet)](NIGHTLY_E2E.md)
