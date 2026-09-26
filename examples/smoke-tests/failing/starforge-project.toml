@@ -1,0 +1,16 @@
+# Deliberately failing smoke test, for the docs and for trying out the
+# failure path. The deploy succeeds, then `counter-is-42` fails, so
+# `starforge deploy --execute` exits with code 9 (SMOKE_TEST_FAILURE),
+# not with a deploy error code.
+
+network = "testnet"
+
+[[smoke_tests]]
+name = "counter-starts-at-zero"
+invoke = { function = "get_count" }
+expect_output = "0"
+
+[[smoke_tests]]
+name = "counter-is-42"
+invoke = { function = "get_count" }
+expect_output = "42"

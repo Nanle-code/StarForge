@@ -22,6 +22,7 @@ use crate::utils::config::{
     merge_configs, AiTelemetryConfig, Config, ConfigOverlay, FeatureFlagsConfig, NetworkConfig,
     PluginTrustConfig,
 };
+use crate::utils::smoke_tests::{self, SmokeTest};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -61,6 +62,10 @@ pub struct ProjectLockfile {
     /// Networks to add, or to replace by name.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub networks: HashMap<String, NetworkConfig>,
+    /// Post-deploy smoke tests run by `starforge deploy --execute` (#753).
+    /// Not a config override: it never reaches the merged [`Config`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub smoke_tests: Vec<SmokeTest>,
 }
 
 impl ProjectLockfile {
@@ -93,7 +98,10 @@ impl ProjectLockfile {
 /// (`feautre_flags`) or a secret-bearing section (`wallets`) fails here
 /// instead of being ignored at load time.
 pub fn parse_project_lockfile_str(contents: &str) -> Result<ProjectLockfile> {
-    toml::from_str(contents).context("Invalid project lockfile TOML")
+    let lockfile: ProjectLockfile =
+        toml::from_str(contents).context("Invalid project lockfile TOML")?;
+    smoke_tests::validate(&lockfile.smoke_tests).context("Invalid project lockfile smoke_tests")?;
+    Ok(lockfile)
 }
 
 /// Load a [`ProjectLockfile`] from a TOML file.
@@ -341,5 +349,67 @@ soroban_rpc_url = "https://rpc.example.com"
         assert_eq!(merged.feature_flags.metrics_enabled, false);
         assert_eq!(merged.ai_telemetry.enabled, false);
         assert_eq!(merged.plugin_trust.trusted_publishers.len(), 1);
+    }
+
+    // ── Smoke tests (#753) ────────────────────────────────────────────────────
+
+    #[test]
+    fn smoke_tests_parse_from_manifest() {
+        let lock = parse_project_lockfile_str(
+            r#"
+[[smoke_tests]]
+name = "hello"
+invoke = { function = "hello", args = ["--to", "world"] }
+expect_contains = "world"
+
+[[smoke_tests]]
+name = "health"
+command = "echo ok"
+expect_output = "ok"
+timeout_secs = 10
+"#,
+        )
+        .unwrap();
+        assert_eq!(lock.smoke_tests.len(), 2);
+        assert_eq!(
+            lock.smoke_tests[0].invoke.as_ref().unwrap().function,
+            "hello"
+        );
+        assert_eq!(lock.smoke_tests[1].timeout_secs, Some(10));
+        // Smoke tests are not a config override.
+        let merged = apply_project_overrides(Config::default(), &lock).unwrap();
+        assert_eq!(merged, Config::default());
+    }
+
+    #[test]
+    fn sample_project_manifests_are_valid() {
+        let passing = parse_project_lockfile_str(include_str!(
+            "../../examples/smoke-tests/starforge-project.toml"
+        ))
+        .unwrap();
+        assert_eq!(passing.smoke_tests.len(), 3);
+
+        let failing = parse_project_lockfile_str(include_str!(
+            "../../examples/smoke-tests/failing/starforge-project.toml"
+        ))
+        .unwrap();
+        assert_eq!(failing.smoke_tests.len(), 2);
+    }
+
+    #[test]
+    fn manifest_without_smoke_tests_has_none() {
+        let lock = parse_project_lockfile_str("network = \"testnet\"").unwrap();
+        assert!(lock.smoke_tests.is_empty());
+    }
+
+    #[test]
+    fn invalid_smoke_tests_fail_manifest_validation() {
+        let err = parse_project_lockfile_str("[[smoke_tests]]\nname = \"empty\"\n").unwrap_err();
+        assert!(format!("{err:#}").contains("smoke_tests"), "{err:#}");
+
+        let err = parse_project_lockfile_str(
+            "[[smoke_tests]]\nname = \"typo\"\ncommand = \"echo\"\nexpect_contain = \"x\"\n",
+        );
+        assert!(err.is_err(), "unknown smoke test keys must be rejected");
     }
 }

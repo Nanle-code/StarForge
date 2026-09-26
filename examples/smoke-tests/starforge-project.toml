@@ -1,0 +1,27 @@
+# Sample project manifest with post-deploy smoke tests (#753).
+#
+# These tests target the `simple-counter` template
+# (templates/examples/simple-counter). `starforge deploy --execute` runs them
+# in order after the deploy is confirmed. See docs/SMOKE_TESTS.md.
+
+network = "testnet"
+
+# A freshly deployed counter must start at zero.
+[[smoke_tests]]
+name = "counter-starts-at-zero"
+invoke = { function = "get_count" }
+expect_output = "0"
+
+# The write path works and returns the new value.
+[[smoke_tests]]
+name = "increment-returns-one"
+invoke = { function = "increment" }
+expect_output = "1"
+timeout_secs = 90
+
+# Shell checks receive STARFORGE_CONTRACT_ID / STARFORGE_NETWORK /
+# STARFORGE_SOURCE. This one is POSIX sh; use `cmd` syntax on Windows.
+[[smoke_tests]]
+name = "contract-id-is-a-strkey"
+command = 'test "${#STARFORGE_CONTRACT_ID}" -eq 56 && test "${STARFORGE_CONTRACT_ID#C}" != "$STARFORGE_CONTRACT_ID"'
+timeout_secs = 5

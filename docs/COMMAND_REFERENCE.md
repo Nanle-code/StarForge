@@ -101,7 +101,12 @@ starforge multisig notify proposal.json --message "Please sign the treasury paym
 | `inspect storage` | Deep storage inspection |
 | `deploy --wasm <FILE>` | Prepare Soroban deployment |
 
-**`deploy` flags:** `--network`, `--wallet`, `--optimize`, `--simulate`, `--yes`, `--execute`, `--policy`, `--checklist`
+**`deploy` flags:** `--network`, `--wallet`, `--optimize`, `--simulate`, `--yes`, `--execute`, `--policy`, `--checklist`, `--skip-smoke`
+
+After a successful `--execute`, `deploy` runs the `[[smoke_tests]]` declared in
+`starforge-project.toml` against the new contract. A smoke failure exits with
+code **9** (`SMOKE_TEST_FAILURE`), which is distinct from a failed deploy.
+`--skip-smoke` opts out. See [SMOKE_TESTS.md](SMOKE_TESTS.md).
 
 Deploy policy files (`starforge-deploy-policy.toml`) gate allowed networks,
 required reviewers, and checklist items. Validate in CI with
