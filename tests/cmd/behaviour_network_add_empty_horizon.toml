@@ -1,0 +1,3 @@
+# Golden CLI case: network add rejects an empty --horizon-url
+description = "network add rejects an empty --horizon-url"
+args = ["network", "add", "golden-net", "--horizon-url", ""]

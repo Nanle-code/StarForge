@@ -1,0 +1,3 @@
+# Golden CLI case: multisig status reports a missing proposal file
+description = "multisig status reports a missing proposal file"
+args = ["multisig", "status", "does-not-exist-golden.json"]

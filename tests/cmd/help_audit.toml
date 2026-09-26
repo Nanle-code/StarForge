@@ -1,0 +1,3 @@
+# Golden CLI case: starforge audit --help
+description = "starforge audit --help"
+args = ["audit", "--help"]

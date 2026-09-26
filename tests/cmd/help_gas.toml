@@ -1,0 +1,3 @@
+# Golden CLI case: starforge gas --help
+description = "starforge gas --help"
+args = ["gas", "--help"]

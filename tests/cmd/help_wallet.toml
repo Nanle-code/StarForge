@@ -1,0 +1,3 @@
+# Golden CLI case: starforge wallet --help
+description = "starforge wallet --help"
+args = ["wallet", "--help"]

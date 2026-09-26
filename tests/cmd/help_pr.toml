@@ -1,0 +1,3 @@
+# Golden CLI case: starforge pr --help
+description = "starforge pr --help"
+args = ["pr", "--help"]

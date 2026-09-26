@@ -9,6 +9,7 @@ Welcome to StarForge! This guide will help you get started contributing to the p
 - [Development Setup](#development-setup)
 - [Building the Project](#building-the-project)
 - [Running Tests](#running-tests)
+- [Golden CLI Snapshot Tests](#golden-cli-snapshot-tests)
 - [Documentation Snippets](#documentation-snippets)
 - [Development Workflow](#development-workflow)
 - [Code Quality](#code-quality)
@@ -169,6 +170,31 @@ The project includes quick smoke tests to verify basic functionality:
 ```bash
 cargo test --test cli_smoke
 ```
+
+### Golden CLI Snapshot Tests
+
+`tests/cli_golden.rs` pins the observable output (stdout, stderr, exit code)
+of `starforge` against committed snapshots under `tests/cmd/`. It is a
+dependency-free stand-in for `trycmd`/`snapbox` (those crates are not in
+`Cargo.lock`, and CI asserts the lockfile is unchanged), using the same
+`TRYCMD=overwrite` workflow:
+
+```bash
+# Compare against the committed corpus
+cargo test --locked --test cli_golden
+
+# Intentionally refresh the snapshots (or run: bash scripts/gen-cli-snapshots.sh)
+TRYCMD=overwrite cargo test --locked --test cli_golden
+git diff -- tests/cmd
+```
+
+A case whose snapshot file is missing is generated automatically and passes
+(with a notice), so adding a new `tests/cmd/<case>.toml` never turns CI red
+before its snapshot is committed. Only snapshots whose exact bytes are known
+without running the binary are committed; run the `TRYCMD=overwrite` command
+above to populate the rest of the corpus. See
+[docs/CLI_GOLDEN_TESTS.md](docs/CLI_GOLDEN_TESTS.md) for the full workflow,
+determinism rules, and corpus layout.
 
 ### Run Optional-Feature Tests (hardware wallets)
 

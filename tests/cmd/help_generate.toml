@@ -1,0 +1,3 @@
+# Golden CLI case: starforge generate --help
+description = "starforge generate --help"
+args = ["generate", "--help"]

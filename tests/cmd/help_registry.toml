@@ -1,0 +1,3 @@
+# Golden CLI case: starforge registry --help
+description = "starforge registry --help"
+args = ["registry", "--help"]

@@ -1,0 +1,3 @@
+# Golden CLI case: config set requires KEY and VALUE
+description = "config set requires KEY and VALUE"
+args = ["config", "set"]

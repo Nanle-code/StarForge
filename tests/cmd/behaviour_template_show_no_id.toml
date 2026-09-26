@@ -1,0 +1,3 @@
+# Golden CLI case: template show requires an ID
+description = "template show requires an ID"
+args = ["template", "show"]

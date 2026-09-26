@@ -1,0 +1,3 @@
+# Golden CLI case: config set rejects a non-boolean telemetry value
+description = "config set rejects a non-boolean telemetry value"
+args = ["config", "set", "telemetry.enabled", "maybe"]

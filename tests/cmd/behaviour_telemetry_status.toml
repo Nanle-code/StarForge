@@ -1,0 +1,3 @@
+# Golden CLI case: telemetry status defaults to disabled
+description = "telemetry status defaults to disabled"
+args = ["telemetry", "status"]

@@ -1,0 +1,3 @@
+# Golden CLI case: removing a network that does not exist
+description = "removing a network that does not exist"
+args = ["network", "remove", "golden-missing-net"]

@@ -1,0 +1,3 @@
+# Golden CLI case: config show on the isolated default config
+description = "config show on the isolated default config"
+args = ["config", "show"]
