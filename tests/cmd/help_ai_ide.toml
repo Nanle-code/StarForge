@@ -1,0 +1,3 @@
+# Golden CLI case: starforge ai-ide --help
+description = "starforge ai-ide --help"
+args = ["ai-ide", "--help"]

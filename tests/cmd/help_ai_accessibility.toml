@@ -1,0 +1,3 @@
+# Golden CLI case: starforge ai-accessibility --help
+description = "starforge ai-accessibility --help"
+args = ["ai-accessibility", "--help"]

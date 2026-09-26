@@ -1,0 +1,3 @@
+# Golden CLI case: invalid --correlation-id is a usage error
+description = "invalid --correlation-id is a usage error"
+args = ["--correlation-id", "bad id!", "info"]

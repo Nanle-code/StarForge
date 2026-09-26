@@ -1,0 +1,3 @@
+# Golden CLI case: starforge complete --help
+description = "starforge complete --help"
+args = ["complete", "--help"]

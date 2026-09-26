@@ -1,0 +1,16 @@
+StarForge Progressive Disclosure
+===============================
+
+StarForge uses progressive disclosure to reduce help noise by hiding
+advanced/power-user flags by default. These flags are typically used
+by experienced users or for specialized workflows.
+
+To see all flags including hidden ones, you can:
+  1. Use --help-all to see this message
+  2. Set STARFORGE_SHOW_ALL_HELP=1 environment variable
+
+Common hidden flags include:
+  --allow-network-passphrase-mismatch : Allow signing with mismatched passphrase (unsafe)
+  --hardware <ledger|trezor>           : Use hardware wallet for signing
+  --compliance                        : Run AI-driven compliance checks
+

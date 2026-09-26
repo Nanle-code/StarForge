@@ -1,0 +1,3 @@
+# Golden CLI case: wallet create requires NAME
+description = "wallet create requires NAME"
+args = ["wallet", "create"]

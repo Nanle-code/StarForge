@@ -1,0 +1,3 @@
+# Golden CLI case: template search requires a QUERY
+description = "template search requires a QUERY"
+args = ["template", "search"]

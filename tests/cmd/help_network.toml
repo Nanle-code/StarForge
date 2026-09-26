@@ -1,0 +1,3 @@
+# Golden CLI case: starforge network --help
+description = "starforge network --help"
+args = ["network", "--help"]

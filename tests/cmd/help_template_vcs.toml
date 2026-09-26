@@ -1,0 +1,3 @@
+# Golden CLI case: starforge template-vcs --help
+description = "starforge template-vcs --help"
+args = ["template-vcs", "--help"]

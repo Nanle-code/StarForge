@@ -1,0 +1,3 @@
+# Golden CLI case: config db init in plain mode
+description = "config db init in plain mode"
+args = ["--plain", "config", "db", "init"]

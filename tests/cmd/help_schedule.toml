@@ -1,0 +1,3 @@
+# Golden CLI case: starforge schedule --help
+description = "starforge schedule --help"
+args = ["schedule", "--help"]

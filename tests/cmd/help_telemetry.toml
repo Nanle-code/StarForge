@@ -1,0 +1,3 @@
+# Golden CLI case: starforge telemetry --help
+description = "starforge telemetry --help"
+args = ["telemetry", "--help"]

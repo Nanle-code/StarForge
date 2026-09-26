@@ -1,0 +1,3 @@
+# Golden CLI case: built-in networks cannot be removed
+description = "built-in networks cannot be removed"
+args = ["network", "remove", "testnet"]

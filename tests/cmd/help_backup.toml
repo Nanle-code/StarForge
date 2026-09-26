@@ -1,0 +1,3 @@
+# Golden CLI case: starforge backup --help
+description = "starforge backup --help"
+args = ["backup", "--help"]

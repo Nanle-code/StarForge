@@ -1,0 +1,3 @@
+# Golden CLI case: unknown global flag: clap usage error
+description = "unknown global flag: clap usage error"
+args = ["--definitely-not-a-flag"]

@@ -1,0 +1,3 @@
+# Golden CLI case: starforge ai-contract-suggest --help
+description = "starforge ai-contract-suggest --help"
+args = ["ai-contract-suggest", "--help"]

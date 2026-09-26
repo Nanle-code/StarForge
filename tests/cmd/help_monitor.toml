@@ -1,0 +1,3 @@
+# Golden CLI case: starforge monitor --help
+description = "starforge monitor --help"
+args = ["monitor", "--help"]

@@ -1,0 +1,3 @@
+# Golden CLI case: starforge snapshot --help
+description = "starforge snapshot --help"
+args = ["snapshot", "--help"]

@@ -1,0 +1,3 @@
+# Golden CLI case: multisig templates lists the bundled scenarios
+description = "multisig templates lists the bundled scenarios"
+args = ["multisig", "templates"]

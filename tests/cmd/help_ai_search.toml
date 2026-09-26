@@ -1,0 +1,3 @@
+# Golden CLI case: starforge ai-search --help
+description = "starforge ai-search --help"
+args = ["ai-search", "--help"]

@@ -1,0 +1,3 @@
+# Golden CLI case: --log-format rejects values other than human/json
+description = "--log-format rejects values other than human/json"
+args = ["--log-format", "xml", "info"]

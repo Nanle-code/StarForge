@@ -1,0 +1,3 @@
+# Golden CLI case: starforge mutate --help
+description = "starforge mutate --help"
+args = ["mutate", "--help"]

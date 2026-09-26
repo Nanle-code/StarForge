@@ -1,0 +1,3 @@
+# Golden CLI case: starforge contract-monitor --help
+description = "starforge contract-monitor --help"
+args = ["contract-monitor", "--help"]

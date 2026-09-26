@@ -1,0 +1,3 @@
+# Golden CLI case: starforge orchestrate --help
+description = "starforge orchestrate --help"
+args = ["orchestrate", "--help"]
