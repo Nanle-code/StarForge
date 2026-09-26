@@ -1,0 +1,39 @@
+# Upgrade rehearsal script (see docs/governance/contract-upgrade-governance.md).
+#
+# `[[calls]]` replays a contract method against a captured ledger snapshot.
+# `function` resolves to the snapshot value of the matching storage key
+# (e.g. `total_supply`) or, for methods with no storage binding (e.g.
+# `set_paused`), to a deterministic `"ok"` acknowledgement. `expect` is
+# optional; when present the rehearsal fails if the observed value differs.
+#
+# `[[storage]]` declares the storage layout the *new* contract expects. Any key
+# whose declared type changes relative to the snapshot is reported as a decode
+# failure before the upgrade can be proposed.
+
+description = "Rehearse the token v2 upgrade against a testnet snapshot"
+
+[[calls]]
+name = "read_total_supply"
+function = "total_supply"
+expect = "1000"
+
+[[calls]]
+name = "read_admin"
+function = "admin"
+expect = "GADMINADDRESS"
+
+[[calls]]
+name = "pause_contract"
+function = "set_paused"
+args = [true]
+expect = "ok"
+
+[[storage]]
+key = "total_supply"
+value_type = "u128"
+tier = "persistent"
+
+[[storage]]
+key = "admin"
+value_type = "address"
+tier = "instance"

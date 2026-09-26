@@ -139,6 +139,7 @@ let fixture = FixtureBuilder::new("my_custom")
 | `json_contracts/` | JSON contract fixtures for CLI contract stability tests |
 | `snapshots/` | Snapshot files for deterministic fixture comparison |
 | `soroban_rpc/` | Mock Soroban RPC responses for offline testing |
+| `upgrade_rehearsal/` | Rehearsal scripts + ledger snapshot for `starforge upgrade rehearse` tests |
 
 ### minimal.wasm
 

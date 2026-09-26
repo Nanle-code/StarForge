@@ -1,0 +1,23 @@
+# Deliberately broken rehearsal script used by the unit tests.
+#
+# The snapshot stores `total_supply` as a `u128`, but the new contract declares
+# it as a `u32`. Widening/narrowing an existing storage key like this cannot be
+# decoded in place, so `compare_storage_layout` must report a decode failure and
+# the rehearsal must fail even though every scripted call still succeeds.
+
+description = "Broken storage change: total_supply narrowed from u128 to u32"
+
+[[calls]]
+name = "read_total_supply"
+function = "total_supply"
+expect = "1000"
+
+[[storage]]
+key = "total_supply"
+value_type = "u32"
+tier = "persistent"
+
+[[storage]]
+key = "admin"
+value_type = "address"
+tier = "instance"
