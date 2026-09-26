@@ -1,4 +1,9 @@
-use crate::utils::{config, output, print as p};
+use crate::utils::{
+    config,
+    dry_run::{self, DryRunPlan, PlannedOperation},
+    output,
+    print as p,
+};
 use anyhow::Result;
 use clap::Subcommand;
 use std::time::Duration;
@@ -57,6 +62,11 @@ pub enum NetworkCommands {
 }
 
 pub async fn handle(cmd: NetworkCommands) -> Result<()> {
+    if dry_run::is_enabled() {
+        if let Some(plan) = dry_run_plan(&cmd) {
+            return plan.emit(output::is_json_mode_enabled());
+        }
+    }
     match cmd {
         NetworkCommands::Show { json } => show(json),
         NetworkCommands::Switch { network } => switch(network),
@@ -76,6 +86,78 @@ pub async fn handle(cmd: NetworkCommands) -> Result<()> {
         NetworkCommands::Test { network, json } => test_network(network, json).await,
         NetworkCommands::Remove { name } => remove_network(name),
         NetworkCommands::Rename { old_name, new_name } => rename_network(old_name, new_name),
+    }
+}
+
+/// Build the plan shown by `--dry-run` for a mutating `network` subcommand.
+///
+/// `show` and `test` are read-only and return `None`.
+fn dry_run_plan(cmd: &NetworkCommands) -> Option<DryRunPlan> {
+    match cmd {
+        NetworkCommands::Switch { network } => Some(
+            DryRunPlan::new(
+                "network switch",
+                format!("Switch the active network to '{network}'"),
+            )
+            .network(network.clone())
+            .operation(PlannedOperation::new(
+                "config.write",
+                "active network",
+                format!("would set the active network to '{network}'"),
+            ))
+            .writes_filesystem(),
+        ),
+        NetworkCommands::Add {
+            name,
+            horizon_url,
+            soroban_rpc_url,
+            friendbot_url,
+            ..
+        } => {
+            let mut operation = PlannedOperation::new(
+                "config.write",
+                name.clone(),
+                format!("would add custom network '{name}' to the configuration"),
+            )
+            .detail("Horizon", horizon_url.clone());
+            if let Some(url) = soroban_rpc_url {
+                operation = operation.detail("Soroban RPC", url.clone());
+            }
+            if let Some(url) = friendbot_url {
+                operation = operation.detail("Friendbot", url.clone());
+            }
+            Some(
+                DryRunPlan::new("network add", format!("Add custom network '{name}'"))
+                    .network(name.clone())
+                    .operation(operation)
+                    .writes_filesystem(),
+            )
+        }
+        NetworkCommands::Remove { name } => Some(
+            DryRunPlan::new("network remove", format!("Remove custom network '{name}'"))
+                .network(name.clone())
+                .operation(PlannedOperation::new(
+                    "config.write",
+                    name.clone(),
+                    format!("would remove custom network '{name}' from the configuration"),
+                ))
+                .writes_filesystem()
+                .warn("If this is the active network, StarForge will switch back to testnet"),
+        ),
+        NetworkCommands::Rename { old_name, new_name } => Some(
+            DryRunPlan::new(
+                "network rename",
+                format!("Rename custom network '{old_name}' to '{new_name}'"),
+            )
+            .network(new_name.clone())
+            .operation(PlannedOperation::new(
+                "config.write",
+                new_name.clone(),
+                format!("would rename custom network '{old_name}' to '{new_name}'"),
+            ))
+            .writes_filesystem(),
+        ),
+        NetworkCommands::Show { .. } | NetworkCommands::Test { .. } => None,
     }
 }
 
