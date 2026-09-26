@@ -138,9 +138,9 @@ pub mod prompt_manager;
 pub mod quality_analysis;
 pub mod redaction;
 pub mod registry;
-pub mod rpc_budget;
 pub mod repl;
 pub mod rollback_testing;
+pub mod rpc_budget;
 pub mod sandbox;
 pub mod scheduler;
 pub mod security;
@@ -151,9 +151,9 @@ pub mod simulation_resources;
 pub mod social;
 pub mod soroban;
 pub mod state_diff;
-pub mod storage_layout;
 pub mod state_transition;
 pub mod stellar_cli_identity;
+pub mod storage_layout;
 pub mod stream;
 pub mod telemetry;
 pub mod template;
@@ -193,3 +193,5 @@ pub(crate) fn lock_home_env() -> std::sync::MutexGuard<'static, ()> {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
+pub mod event_sinks;
+pub mod suggestion;

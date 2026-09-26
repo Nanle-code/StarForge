@@ -61,6 +61,8 @@ pub struct ProjectLockfile {
     /// Networks to add, or to replace by name.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub networks: HashMap<String, NetworkConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_sinks: Option<crate::utils::event_sinks::EventSinksConfig>,
 }
 
 impl ProjectLockfile {
@@ -81,6 +83,7 @@ impl ProjectLockfile {
             feature_flags: self.feature_flags.clone(),
             ai_telemetry: self.ai_telemetry.clone(),
             plugin_trust: self.plugin_trust.clone(),
+            event_sinks: self.event_sinks.clone(),
             networks: self.networks.clone(),
             wallets: Vec::new(),
         }
