@@ -15,7 +15,7 @@ router.get(
   optionalAuth,
   async (req: Request, res: Response) => {
     try {
-      const { templateId } = req.params;
+      const templateId = req.params.templateId as string;
       const reviews = await reviewStore.findByTemplateId(templateId);
 
       res.json({
@@ -41,7 +41,7 @@ router.post(
   verifyToken,
   async (req: Request, res: Response) => {
     try {
-      const { templateId } = req.params;
+      const templateId = req.params.templateId as string;
       const { rating, comment } = req.body;
 
       if (rating < 1 || rating > 5) {
@@ -57,7 +57,7 @@ router.post(
       );
       if (existing) {
         // Update existing review
-        const updated = await reviewStore.update(existing.id, {
+        await reviewStore.update(existing.id, {
           rating,
           comment,
           updatedAt: new Date(),

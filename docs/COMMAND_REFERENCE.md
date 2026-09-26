@@ -95,7 +95,8 @@ starforge multisig notify proposal.json --message "Please sign the treasury paym
 |---------|---------|
 | `contract invoke` | Invoke contract function (`--simulate`) |
 | `contract invoke-script` | Run an ordered YAML or JSON invocation script (`--dry-run`) |
-| `contract inspect` | Inspect deployed contract metadata |
+| `contract build` | Build a Soroban contract with build provenance metadata |
+| `contract inspect` | Inspect deployed contract or local WASM metadata |
 | `contract generate-bindings <WASM_FILE>` | Generate Rust or TypeScript wrappers (`--lang rust\|ts`) |
 | `inspect storage` | Deep storage inspection |
 | `deploy --wasm <FILE>` | Prepare Soroban deployment |
@@ -230,6 +231,19 @@ Coverage analysis tracks Soroban contract functions, line spans, branch paths, u
 | `tx send` | Payment (`--from`, `--to`, `--amount`, `--asset`) |
 | `tx batch` | Batch operations from JSON (`--file`, `--from`) |
 | `tx history <PUBKEY>` | Recent transactions (`--limit`, `--cursor`, `--successful`) |
+
+---
+
+## `sep10`
+
+SEP-10 web authentication. Reads an anchor's `stellar.toml`, runs the
+challenge/response handshake with a saved wallet, and prints the JWT the anchor
+issues. See [SEP10_AUTH.md](SEP10_AUTH.md) for the full walkthrough, the validation
+rules, and the JSON output.
+
+| Subcommand | Purpose |
+|------------|---------|
+| `sep10 auth --domain <DOMAIN> --wallet <NAME>` | Authenticate and print the JWT (`--network`, `--toml-url`, `--json`, `--verbose`, `--output`) |
 
 ---
 

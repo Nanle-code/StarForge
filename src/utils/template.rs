@@ -364,6 +364,8 @@ async fn publish(
         version,
         cli_version_min,
         cli_version_max,
+        None,
+        None,
         license,
         repository,
         homepage,

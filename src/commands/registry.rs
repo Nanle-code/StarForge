@@ -161,6 +161,14 @@ pub enum RegistryCommands {
         /// Homepage URL
         #[arg(long)]
         homepage: Option<String>,
+        /// Organization namespace that owns the template (published as @org/name)
+        #[arg(long)]
+        org: Option<String>,
+    },
+    /// Manage registry organizations
+    Org {
+        #[command(subcommand)]
+        command: OrganizationCommands,
     },
     /// Download and install a template from remote registry
     Install {
@@ -191,6 +199,23 @@ pub enum RegistryCommands {
     },
 }
 
+#[derive(Subcommand)]
+pub enum OrganizationCommands {
+    /// Create an organization and make the current user its owner
+    Create {
+        slug: String,
+        #[arg(long)]
+        name: String,
+    },
+    /// Add or update an organization member role
+    AddMember {
+        slug: String,
+        username: String,
+        #[arg(long, default_value = "maintainer")]
+        role: String,
+    },
+}
+
 pub async fn handle(cmd: RegistryCommands) -> Result<()> {
     match cmd {
         RegistryCommands::Search {
@@ -214,6 +239,7 @@ pub async fn handle(cmd: RegistryCommands) -> Result<()> {
             license,
             repository,
             homepage,
+            org,
         } => {
             publish(
                 path,
@@ -225,9 +251,11 @@ pub async fn handle(cmd: RegistryCommands) -> Result<()> {
                 license,
                 repository,
                 homepage,
+                org,
             )
             .await
         }
+        RegistryCommands::Org { command } => organization(command).await,
         RegistryCommands::Install { name, version } => install(name, version).await,
         RegistryCommands::Review {
             name,
@@ -466,6 +494,7 @@ async fn publish(
     license: Option<String>,
     repository: Option<String>,
     homepage: Option<String>,
+    org: Option<String>,
 ) -> Result<()> {
     let config = registry::load_registry_config()?;
     if config.token.is_none() {
@@ -509,6 +538,7 @@ async fn publish(
 
     let publish_req = registry::PublishTemplateRequest {
         name: template_name,
+        org,
         version,
         description,
         author,
@@ -540,6 +570,28 @@ async fn publish(
     // Cleanup
     std::fs::remove_dir_all(&temp_dir).ok();
 
+    Ok(())
+}
+
+async fn organization(command: OrganizationCommands) -> Result<()> {
+    let config = registry::load_registry_config()?;
+    let client = registry::RegistryClient::new(config.url, config.token);
+    match command {
+        OrganizationCommands::Create { slug, name } => {
+            client.create_organization(&slug, &name).await?;
+            p::success(&format!("Organization '{}' created", slug));
+        }
+        OrganizationCommands::AddMember {
+            slug,
+            username,
+            role,
+        } => {
+            client
+                .add_organization_member(&slug, &username, &role)
+                .await?;
+            p::success(&format!("Added '{}' to '{}' as {}", username, slug, role));
+        }
+    }
     Ok(())
 }
 

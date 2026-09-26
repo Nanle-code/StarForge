@@ -81,16 +81,16 @@ pub enum WalletCommands {
         #[arg(long, default_value = "24", requires = "mnemonic", value_parser = ["12", "24"])]
         words: String,
         /// Account index for SEP-0005 path m/44'/148'/index' (requires --mnemonic)
-        #[arg(long, default_value = "0", requires = "mnemonic")]
+        #[arg(long, default_value = "0", requires = "mnemonic", hide = true)]
         account_index: u32,
         /// Argon2 memory cost in KiB (requires --encrypt)
-        #[arg(long, requires = "encrypt")]
+        #[arg(long, requires = "encrypt", hide = true)]
         mem: Option<u32>,
         /// Argon2 iteration count (requires --encrypt)
-        #[arg(long, requires = "encrypt")]
+        #[arg(long, requires = "encrypt", hide = true)]
         iterations: Option<u32>,
         /// Argon2 parallelism factor (requires --encrypt)
-        #[arg(long, requires = "encrypt")]
+        #[arg(long, requires = "encrypt", hide = true)]
         parallelism: Option<u32>,
     },
     /// List all saved wallets
@@ -104,7 +104,7 @@ pub enum WalletCommands {
         /// Wallet name
         name: String,
         /// Reveal the secret key in plaintext
-        #[arg(long, default_value = "false")]
+        #[arg(long, default_value = "false", hide = true)]
         reveal: bool,
     },
     /// Fund a wallet via a configured network faucet

@@ -10,6 +10,7 @@ on:
     branches: [main, master, develop]
     paths:
       - "registry-api/**"
+      - ".github/workflows/registry-api.yml"
 
 permissions:
   contents: read
@@ -42,6 +43,14 @@ jobs:
       - name: Install dependencies
         working-directory: registry-api
         run: npm ci
+
+      - name: Validate OpenAPI document
+        working-directory: registry-api
+        run: npx --yes @redocly/cli@1.27.1 lint openapi.json
+
+      - name: Check OpenAPI route sync
+        working-directory: registry-api
+        run: npm run check:openapi
 
       - name: Run linter
         working-directory: registry-api

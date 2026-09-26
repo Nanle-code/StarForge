@@ -18,6 +18,8 @@ export interface ITemplate {
   downloads: number;
   verified: boolean;
   publisherId: string;
+  namespace?: string;
+  organizationId?: string;
   createdAt: Date;
   updatedAt: Date;
   ratings: {
@@ -74,7 +76,7 @@ export class TemplateStore {
     query: string,
     tags?: string[],
     verified?: boolean,
-    minQuality?: number,
+    _minQuality?: number,
   ): Promise<ITemplate[]> {
     const results: ITemplate[] = [];
     const queryLower = query.toLowerCase();
@@ -148,6 +150,27 @@ export class TemplateStore {
         this.templates.set(id, {
           ...tpl,
           publisherId: newPublisherId,
+          updatedAt: new Date(),
+        });
+        count++;
+      }
+    }
+    return count;
+  }
+
+  async updateOrganizationForName(
+    name: string,
+    organizationId: string,
+    namespace: string,
+  ): Promise<number> {
+    let count = 0;
+    for (const [id, tpl] of this.templates.entries()) {
+      if (tpl.name.toLowerCase() === name.toLowerCase()) {
+        this.templates.set(id, {
+          ...tpl,
+          namespace,
+          organizationId,
+          publisherId: "organization",
           updatedAt: new Date(),
         });
         count++;

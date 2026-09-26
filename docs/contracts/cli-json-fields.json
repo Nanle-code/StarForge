@@ -63,9 +63,109 @@
           "type": "string",
           "stability": "stable",
           "description": "Decoded storage value."
+        },
+        {
+          "path": "metadata",
+          "type": "object|string|null",
+          "stability": "stable",
+          "description": "Build provenance metadata reported by the contract WASM, when available."
+        }
+      ]
+    },
+    "sep10 auth": {
+      "description": "JSON output emitted by `starforge sep10 auth --json`.",
+      "fields": [
+        {
+          "path": "home_domain",
+          "type": "string",
+          "stability": "experimental",
+          "description": "Anchor home domain that was authenticated."
+        },
+        {
+          "path": "web_auth_endpoint",
+          "type": "string",
+          "stability": "experimental",
+          "description": "SEP-10 authentication endpoint taken from stellar.toml."
+        },
+        {
+          "path": "account",
+          "type": "string",
+          "stability": "experimental",
+          "description": "Stellar account (G...) that authenticated."
+        },
+        {
+          "path": "signing_key",
+          "type": "string",
+          "stability": "experimental",
+          "description": "Anchor SIGNING_KEY that had to sign the challenge."
+        },
+        {
+          "path": "network_passphrase",
+          "type": "string",
+          "stability": "experimental",
+          "description": "Network passphrase the challenge was signed for."
+        },
+        {
+          "path": "challenge_data_name",
+          "type": "string",
+          "stability": "experimental",
+          "description": "manage_data key of the challenge (`<home_domain> auth`)."
+        },
+        {
+          "path": "challenge_seconds_remaining",
+          "type": "number",
+          "stability": "experimental",
+          "description": "Seconds left on the challenge time bounds when it was validated."
+        },
+        {
+          "path": "signatures_after_signing",
+          "type": "number",
+          "stability": "experimental",
+          "description": "Signature count on the submitted challenge (anchor + wallet)."
+        },
+        {
+          "path": "jwt",
+          "type": "string",
+          "stability": "experimental",
+          "description": "JWT the anchor issued."
+        },
+        {
+          "path": "jwt_claims",
+          "type": "object|null",
+          "stability": "experimental",
+          "description": "Decoded (not verified) JWT claims, or null when the token is opaque."
+        },
+        {
+          "path": "jwt_claims.iss",
+          "type": "string|null",
+          "stability": "experimental",
+          "description": "Token issuer claim."
+        },
+        {
+          "path": "jwt_claims.sub",
+          "type": "string|null",
+          "stability": "experimental",
+          "description": "Subject claim: the authenticated account."
+        },
+        {
+          "path": "jwt_claims.iat",
+          "type": "number|null",
+          "stability": "experimental",
+          "description": "Issued-at claim."
+        },
+        {
+          "path": "jwt_claims.exp",
+          "type": "number|null",
+          "stability": "experimental",
+          "description": "Expiry claim."
+        },
+        {
+          "path": "jwt_file",
+          "type": "string|null",
+          "stability": "experimental",
+          "description": "Path the JWT was also written to, or null when --output was not used."
         }
       ]
     }
   }
 }
-

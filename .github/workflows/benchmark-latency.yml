@@ -18,6 +18,7 @@ on:
       - 'Cargo.lock'
       - 'benches/**'
       - '.github/workflows/benchmark-latency.yml'
+      - 'scripts/check-latency-budgets.sh'
   pull_request:
     paths:
       - '**.rs'
@@ -25,6 +26,7 @@ on:
       - 'Cargo.lock'
       - 'benches/**'
       - '.github/workflows/benchmark-latency.yml'
+      - 'scripts/check-latency-budgets.sh'
 
   # Allow manual trigger for ad-hoc budget checks.
   workflow_dispatch:
@@ -56,14 +58,20 @@ jobs:
       - name: Run latency benchmarks
         run: |
           mkdir -p target/criterion
+          # For PR CI, run only critical interactive hot paths to keep CI fast
           # Criterion's harness takes a SINGLE positional filter, which it
-          # treats as a regex. Passing the three group names as separate
-          # arguments made it exit 2 with
-          # "unexpected argument 'cli_command_latency' found", so this step
-          # failed before any budget was ever measured. Use one alternation.
-          cargo bench --locked -- \
-            'cli_cold_start|cli_command_latency|latency_budget' \
-            2>&1 | tee target/criterion/latency-bench-output.txt
+          # treats as a regex. Use one alternation to run multiple groups.
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            # PR CI: Only critical interactive hot paths
+            cargo bench --locked -- \
+              'cli_cold_start_info|cli_cold_start_help|cli_wallet_list|cli_config_show|cli_info' \
+              2>&1 | tee target/criterion/latency-bench-output.txt
+          else
+            # Push to main: Full latency budget suite
+            cargo bench --locked -- \
+              'cli_cold_start|cli_command_latency|latency_budget' \
+              2>&1 | tee target/criterion/latency-bench-output.txt
+          fi
 
       # Parse Criterion output and check against latency budgets.
       # The check-latency-budgets.sh script extracts median values from the
@@ -71,7 +79,17 @@ jobs:
       # defined in the bash script (which mirror src/utils/latency_budget.rs).
       - name: Parse and check latency budget report
         id: budget-check
-        run: echo "✅ All latency budgets met."
+        run: |
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            bash scripts/check-latency-budgets.sh \
+              --input target/criterion/latency-bench-output.txt \
+              --report-path target/criterion/latency-budget-report.json \
+              --pr-mode
+          else
+            bash scripts/check-latency-budgets.sh \
+              --input target/criterion/latency-bench-output.txt \
+              --report-path target/criterion/latency-budget-report.json
+          fi
 
       - name: Upload Criterion report (artefact)
         if: always()

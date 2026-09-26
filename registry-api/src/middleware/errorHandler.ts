@@ -14,7 +14,7 @@ const errorHandler = (
   err: any,
   req: Request,
   res: Response,
-  next: NextFunction,
+  _next: NextFunction,
 ) => {
   logger.error("Request error", err);
 

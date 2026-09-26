@@ -17,13 +17,13 @@ pub enum ConfigCommands {
     /// Set global wallet encryption parameters (Argon2id)
     SetEncryption {
         /// Argon2 memory cost in KiB (e.g. 65536)
-        #[arg(long)]
+        #[arg(long, hide = true)]
         mem: Option<u32>,
         /// Argon2 iteration count (e.g. 3)
-        #[arg(long)]
+        #[arg(long, hide = true)]
         iterations: Option<u32>,
         /// Argon2 parallelism factor (e.g. 4)
-        #[arg(long)]
+        #[arg(long, hide = true)]
         parallelism: Option<u32>,
         /// Reset to library defaults
         #[arg(long, default_value = "false")]

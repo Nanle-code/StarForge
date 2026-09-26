@@ -313,7 +313,13 @@ fn run_interactive_loop(proposal_path: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
-fn create_proposal(threshold: u32, signers: &str, network: &str) -> Result<()> {
+fn create_proposal(
+    threshold: u32,
+    signers: &str,
+    network: &str,
+    timelock_delay: Option<u64>,
+    execution_window: Option<u64>,
+) -> Result<()> {
     p::info(&format!(
         "Creating {}-of-{} multi-sig proposal",
         threshold,
@@ -326,7 +332,10 @@ fn create_proposal(threshold: u32, signers: &str, network: &str) -> Result<()> {
         anyhow::bail!("Threshold cannot exceed number of signers");
     }
 
-    let proposal = multisig::Proposal::new(threshold, signer_list, network.to_string());
+    let mut proposal = multisig::Proposal::new(threshold, signer_list, network.to_string());
+    if let Some(delay) = timelock_delay {
+        proposal = proposal.with_timelock(delay, execution_window);
+    }
     let filename = format!("proposal_{}.json", uuid::Uuid::new_v4());
 
     save_proposal(std::path::Path::new(&filename), &proposal)?;
@@ -335,6 +344,12 @@ fn create_proposal(threshold: u32, signers: &str, network: &str) -> Result<()> {
     println!("  Proposal: {}", colored::Colorize::cyan(filename.as_str()));
     println!("  Threshold: {}/{}", threshold, signers.split(',').count());
     println!("  Network: {}", network);
+    if let Some(delay) = timelock_delay {
+        println!("  Timelock Delay: {}s", delay);
+        if let Some(window) = execution_window {
+            println!("  Execution Window: {}s", window);
+        }
+    }
     println!();
 
     p::success(&format!("Proposal created: {}", filename));

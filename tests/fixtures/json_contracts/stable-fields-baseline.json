@@ -10,8 +10,8 @@
       "live_until_ledger_seq",
       "instance_storage",
       "instance_storage[].key",
-      "instance_storage[].value"
+      "instance_storage[].value",
+      "metadata"
     ]
   }
 }
-

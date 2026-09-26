@@ -271,14 +271,33 @@ starforge deploy --wasm "$WASM" --wallet deployer --network mainnet --execute
 ## Contract commands
 
 ```bash norun
+# Build a contract with provenance metadata
+starforge contract build
+
+# Build without StarForge/source provenance metadata
+starforge contract build --no-provenance
+
 # Inspect a deployed contract instance
 starforge contract inspect <CONTRACT_ID>
-starforge contract inspect <CONTRACT_ID> --network mainnet
+
+# Inspect a local WASM's build metadata
+starforge contract inspect --wasm ./my_contract.wasm
+
+# Inspect deployed contract metadata as JSON
+starforge contract inspect <CONTRACT_ID> --json
+
+# Inspect local WASM metadata as JSON
+starforge contract inspect --wasm ./my_contract.wasm --json
 
 # Generate typed clients from a contract's embedded metadata
 starforge contract generate-bindings ./my_contract.wasm --lang rust
 starforge contract generate-bindings ./my_contract.wasm --lang ts
 ```
+
+> **Build provenance:** `contract build` embeds the Git repository URL, commit SHA,
+> and StarForge version in the WASM metadata. Because a repository URL may identify
+> a private project, use `--no-provenance` when that information should not be
+> embedded in the contract.
 
 > **Invoking contracts:** `starforge contract invoke` doesn't yet decode real
 > return values from simulation, and `--submit` doesn't sign with local wallets

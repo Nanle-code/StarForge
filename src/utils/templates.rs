@@ -1,4 +1,5 @@
 use crate::utils::http_client;
+use crate::utils::template_provenance::{self, TemplateProvenance};
 use crate::utils::template_schema;
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
@@ -178,6 +179,14 @@ pub struct TemplateEntry {
     /// `None` means no upper bound.
     #[serde(default)]
     pub cli_version_max: Option<String>,
+    /// Minimum Soroban SDK version required by this template (semver, e.g. "22.0.0").
+    /// `None` means no minimum — the template is compatible with all SDK versions.
+    #[serde(default)]
+    pub soroban_sdk_min: Option<String>,
+    /// Maximum Soroban SDK version supported by this template (semver, e.g. "23.0.0").
+    /// `None` means no upper bound.
+    #[serde(default)]
+    pub soroban_sdk_max: Option<String>,
     /// Whether the template ships user-facing documentation (e.g. a README).
     #[serde(default)]
     pub documented: bool,
@@ -202,6 +211,11 @@ pub struct TemplateEntry {
     /// Whether this template has been selected as featured by curators.
     #[serde(default)]
     pub featured: bool,
+    /// Keyless (Sigstore) signature and build provenance for the published
+    /// package, when it was signed at publish time. Installation verifies the
+    /// fetched package against this record before it reaches the user.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<TemplateProvenance>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -250,6 +264,12 @@ pub enum CompatibilityStatus {
     },
     /// Template metadata contains a malformed version string.
     MalformedMetadata { reason: String },
+    /// Template requires a specific Soroban SDK version
+    SorobanSdkIncompatible {
+        sdk_min: Option<String>,
+        sdk_max: Option<String>,
+        found_version: String,
+    },
 }
 
 /// Parse a semver string `"major.minor.patch"` into `(major, minor, patch)`.
@@ -320,11 +340,87 @@ pub fn check_version_range(
 /// `cli_version_max` are both `None`) are always considered compatible, ensuring
 /// full backward compatibility with pre-versioning templates.
 pub fn check_template_compatibility(entry: &TemplateEntry) -> CompatibilityStatus {
-    check_version_range(
+    // First check CLI version compatibility
+    let cli_status = check_version_range(
         CLI_VERSION,
         entry.cli_version_min.as_deref(),
         entry.cli_version_max.as_deref(),
-    )
+    );
+    
+    if !matches!(cli_status, CompatibilityStatus::Compatible) {
+        return cli_status;
+    }
+    
+    // Then check Soroban SDK version compatibility if constraints are present
+    if entry.soroban_sdk_min.is_some() || entry.soroban_sdk_max.is_some() {
+        let detected_sdk = detect_soroban_sdk_version(entry);
+        if let Some(sdk_version) = detected_sdk {
+            let sdk_status = check_version_range(
+                &sdk_version,
+                entry.soroban_sdk_min.as_deref(),
+                entry.soroban_sdk_max.as_deref(),
+            );
+            
+            if !matches!(sdk_status, CompatibilityStatus::Compatible) {
+                return CompatibilityStatus::SorobanSdkIncompatible {
+                    sdk_min: entry.soroban_sdk_min.clone(),
+                    sdk_max: entry.soroban_sdk_max.clone(),
+                    found_version: sdk_version,
+                };
+            }
+        }
+    }
+    
+    CompatibilityStatus::Compatible
+}
+
+/// Detect the Soroban SDK version from a template's Cargo.toml.
+/// Returns None if the version cannot be determined.
+fn detect_soroban_sdk_version(entry: &TemplateEntry) -> Option<String> {
+    // Try to read Cargo.toml from the template path if available
+    if let Some(ref path) = entry.path {
+        let cargo_toml_path = std::path::PathBuf::from(path).join("Cargo.toml");
+        if cargo_toml_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&cargo_toml_path) {
+                return extract_soroban_sdk_version_from_cargo_toml(&content);
+            }
+        }
+    }
+    
+    // For remote templates, we can't detect the version without downloading
+    // Return None to skip SDK compatibility checks
+    None
+}
+
+/// Extract Soroban SDK version from Cargo.toml content.
+fn extract_soroban_sdk_version_from_cargo_toml(content: &str) -> Option<String> {
+    // Look for soroban-sdk dependency
+    for line in content.lines() {
+        let line = line.trim();
+        if line.starts_with("soroban-sdk") || line.contains("soroban-sdk") {
+            // Try to extract version from patterns like:
+            // soroban-sdk = "22.0.0"
+            // soroban-sdk = { version = "22.0.0", features = [...] }
+            if let Some(start) = line.find('"') {
+                if let Some(end) = line.rfind('"') {
+                    let version_str = &line[start + 1..end];
+                    // Extract just the version number (handle potential operators like >=, ^)
+                    let version = version_str
+                        .trim_start_matches('^')
+                        .trim_start_matches(">=")
+                        .trim_start_matches('>')
+                        .trim_start_matches('<')
+                        .trim_start_matches('=')
+                        .trim();
+                    
+                    if !version.is_empty() {
+                        return Some(version.to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Validate that `entry` is compatible with the running CLI and return an
@@ -598,6 +694,9 @@ impl TemplateEntry {
         }
         if self.featured {
             badges.push("[FEATURED]".to_string());
+        }
+        if self.provenance.is_some() {
+            badges.push("[SIGNED]".to_string());
         }
         if self.is_trending() {
             badges.push("[TRENDING]".to_string());
@@ -1544,6 +1643,13 @@ pub fn generate_template_docs(entry: &TemplateEntry) -> String {
         if entry.verified { "yes" } else { "no" }
     ));
     md.push_str(&format!(
+        "- **Signed (Sigstore):** {}\n",
+        match entry.provenance.as_ref() {
+            Some(provenance) => provenance.summary(),
+            None => "no".to_string(),
+        }
+    ));
+    md.push_str(&format!(
         "- **Maintenance:** {}\n",
         entry.maintenance.label()
     ));
@@ -1644,6 +1750,61 @@ pub async fn add_template(entry: TemplateEntry) -> Result<()> {
     Ok(())
 }
 
+/// Attach (or replace) the Sigstore provenance record for a published template.
+///
+/// Called by `starforge template publish` once the package has been signed, so
+/// the bundle travels with the registry entry that `template install` later
+/// reads and verifies.
+pub async fn set_template_provenance(
+    name: &str,
+    version: &str,
+    provenance: TemplateProvenance,
+) -> Result<()> {
+    let mut registry = load_registry().await?;
+    let entry = registry
+        .templates
+        .iter_mut()
+        .find(|t| t.name == name && t.version == version)
+        .ok_or_else(|| anyhow::anyhow!("Template '{}@{}' not found in registry", name, version))?;
+
+    entry.provenance = Some(provenance);
+    save_registry(&registry)
+}
+
+/// Read the provenance record for a template, if it was published signed.
+pub async fn template_provenance_for(
+    name: &str,
+    version: Option<&str>,
+) -> Result<Option<TemplateProvenance>> {
+    let entry = get_template_by_name_and_version(name, version).await?;
+    Ok(entry.provenance)
+}
+
+/// Enforce the signed-templates policy and verify a fetched package against the
+/// provenance recorded in the registry.
+///
+/// Runs after the files are on disk but before the entry is handed back, so a
+/// tampered or unsigned package is rejected instead of being used to scaffold a
+/// project.
+fn verify_entry_provenance(entry: &TemplateEntry, package_path: &Path) -> Result<()> {
+    template_provenance::enforce_signed_policy(entry.provenance.as_ref(), &entry.name)?;
+
+    let Some(provenance) = entry.provenance.as_ref() else {
+        return Ok(());
+    };
+
+    // With the policy active a bundle must be verified cryptographically, not
+    // merely matched for integrity; otherwise an unsigned registry could claim
+    // a bundle it cannot produce.
+    let config = template_provenance::VerifyConfig {
+        require_crypto: template_provenance::require_signed_templates(),
+        cosign_bin: None,
+    };
+
+    template_provenance::verify_provenance(package_path, provenance, &config)?;
+    Ok(())
+}
+
 /// Remove a template from the registry.
 /// If `purge` is true, also deletes any cached/downloaded assets.
 pub async fn remove_template(name: &str, purge: bool) -> Result<()> {
@@ -1722,7 +1883,13 @@ pub fn fetch_template(entry: &TemplateEntry, dest: &Path) -> Result<()> {
         TemplateSource::Git { url, branch } => fetch_git_template(url, branch.as_deref(), dest),
         TemplateSource::Local { path } => fetch_local_template(Path::new(path), dest),
         TemplateSource::Builtin { id } => fetch_builtin_template(id, dest),
-    }
+    }?;
+
+    // Verify the bytes that were just materialized before they are used to
+    // scaffold anything.
+    verify_entry_provenance(entry, dest)?;
+
+    Ok(())
 }
 
 /// Copy a built-in example template (shipped under `templates/examples/<id>`)
@@ -1894,6 +2061,8 @@ pub async fn publish_template_versioned(
     version: String,
     cli_version_min: Option<String>,
     cli_version_max: Option<String>,
+    soroban_sdk_min: Option<String>,
+    soroban_sdk_max: Option<String>,
     license: Option<String>,
     repository: Option<String>,
     homepage: Option<String>,
@@ -1905,7 +2074,17 @@ pub async fn publish_template_versioned(
 
     let (source_root, _temp_guard) = resolve_template_source(template_path)?;
 
-    validate_template_structure(&source_root, &name, &description, &author, &version)?;
+    validate_template_structure_with_constraints(
+        &source_root, 
+        &name, 
+        &description, 
+        &author, 
+        &version,
+        cli_version_min.as_deref(),
+        cli_version_max.as_deref(),
+        soroban_sdk_min.as_deref(),
+        soroban_sdk_max.as_deref(),
+    )?;
 
     let storage_root = template_storage_dir()?.join(&name);
     let dest = storage_root.join(&version);
@@ -1961,6 +2140,8 @@ pub async fn publish_template_versioned(
         updated_at: created_at,
         cli_version_min,
         cli_version_max,
+        soroban_sdk_min,
+        soroban_sdk_max,
         documented: source_root.join("README.md").exists(),
         maintenance: MaintenanceStatus::Active,
         license,
@@ -1969,6 +2150,7 @@ pub async fn publish_template_versioned(
         documentation,
         categories: Vec::new(),
         featured: false,
+        provenance: None,
     };
 
     add_template(entry).await?;
@@ -1992,6 +2174,8 @@ pub fn validate_template_structure(
         version,
         None,
         None,
+        None,
+        None,
     )
 }
 
@@ -2009,6 +2193,8 @@ pub fn validate_template_structure_with_constraints(
     version: &str,
     cli_version_min: Option<&str>,
     cli_version_max: Option<&str>,
+    soroban_sdk_min: Option<&str>,
+    soroban_sdk_max: Option<&str>,
 ) -> Result<()> {
     // --- 1. Metadata completeness ---
     let mut missing: Vec<&str> = Vec::new();
@@ -2062,6 +2248,36 @@ pub fn validate_template_structure_with_constraints(
             if min_v > max_v {
                 anyhow::bail!(
                     "cli_version_min '{}' is greater than cli_version_max '{}'. \
+                     Fix the version bounds so that min <= max.",
+                    min,
+                    max
+                );
+            }
+        }
+    }
+
+    // --- 3.5. Soroban SDK version constraints format (if provided) ---
+    if let Some(min) = soroban_sdk_min {
+        if parse_semver(min).is_err() {
+            anyhow::bail!(
+                "soroban_sdk_min '{}' is not valid semver (expected major.minor.patch, e.g. \"22.0.0\").",
+                min
+            );
+        }
+    }
+    if let Some(max) = soroban_sdk_max {
+        if parse_semver(max).is_err() {
+            anyhow::bail!(
+                "soroban_sdk_max '{}' is not valid semver (expected major.minor.patch, e.g. \"23.0.0\").",
+                max
+            );
+        }
+    }
+    if let (Some(min), Some(max)) = (soroban_sdk_min, soroban_sdk_max) {
+        if let (Ok(min_v), Ok(max_v)) = (parse_semver(min), parse_semver(max)) {
+            if min_v > max_v {
+                anyhow::bail!(
+                    "soroban_sdk_min '{}' is greater than soroban_sdk_max '{}'. \
                      Fix the version bounds so that min <= max.",
                     min,
                     max
@@ -2170,6 +2386,10 @@ async fn install_from_git_url(
     // before anything is fetched or written.
     check_install_name(&name)?;
 
+    // A git URL carries no publisher record or bundle, so the signed-templates
+    // policy rejects it before anything is downloaded.
+    template_provenance::enforce_signed_policy(None, &name)?;
+
     let mut registry = load_registry().await?;
     if registry.templates.iter().any(|t| t.name == name) && !force {
         anyhow::bail!(
@@ -2218,6 +2438,7 @@ async fn install_from_git_url(
         documentation: None,
         categories: Vec::new(),
         featured: false,
+        provenance: None,
     };
 
     registry.templates.retain(|t| t.name != name);
@@ -2243,6 +2464,10 @@ async fn install_from_local_path(
             .to_string()
     });
     check_install_name(&name)?;
+
+    // A directory copied from disk has no publisher record, so the
+    // signed-templates policy rejects it when active.
+    template_provenance::enforce_signed_policy(None, &name)?;
 
     let mut registry = load_registry().await?;
     if registry.templates.iter().any(|t| t.name == name) && !force {
@@ -2291,6 +2516,7 @@ async fn install_from_local_path(
         documentation: None,
         categories: Vec::new(),
         featured: false,
+        provenance: None,
     };
 
     registry.templates.retain(|t| t.name != name);
@@ -2327,6 +2553,11 @@ async fn install_from_registry(
         }
         TemplateSource::Builtin { id } => fetch_builtin_template(id, &dest)?,
     }
+
+    // Verify the fetched bytes against the published provenance before the
+    // template is registered, so a tampered or unsigned package never reaches
+    // `starforge new`.
+    verify_entry_provenance(&entry, &dest)?;
 
     Ok(entry)
 }
@@ -2518,6 +2749,7 @@ mod tests {
             documentation: None,
             categories: Vec::new(),
             featured: false,
+            provenance: None,
         }
     }
 
@@ -2887,6 +3119,8 @@ mod tests {
             "1.0.0",
             Some("bad"),
             None,
+            None,
+            None,
         )
         .unwrap_err();
         assert!(
@@ -2907,6 +3141,8 @@ mod tests {
             "1.0.0",
             Some("2.0.0"),
             Some("1.0.0"),
+            None,
+            None,
         )
         .unwrap_err();
         assert!(
@@ -2943,6 +3179,8 @@ mod tests {
             "1.0.0".to_string(),
             Some("0.1.0".to_string()),
             Some("1.0.0".to_string()),
+            None,
+            None,
             Some("MIT".to_string()),
             Some("https://example.com".to_string()),
             Some("https://docs.example.com".to_string()),
@@ -2963,6 +3201,8 @@ mod tests {
             "1.1.0".to_string(),
             Some("0.1.0".to_string()),
             Some("1.0.0".to_string()),
+            None,
+            None,
             Some("MIT".to_string()),
             Some("https://example.com".to_string()),
             Some("https://docs.example.com".to_string()),
@@ -3011,6 +3251,7 @@ mod tests {
             documentation: None,
             categories: Vec::new(),
             featured: false,
+            provenance: None,
         });
 
         // Test name search
@@ -3065,6 +3306,7 @@ mod tests {
             documentation: None,
             categories: Vec::new(),
             featured: false,
+            provenance: None,
         };
 
         let dest = tmp.path().join(&entry.name);
@@ -3121,6 +3363,7 @@ mod tests {
             documentation: None,
             categories: Vec::new(),
             featured: false,
+            provenance: None,
         }
     }
 

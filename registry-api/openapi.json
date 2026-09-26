@@ -1,0 +1,994 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "StarForge Registry API",
+    "version": "1.0.0",
+    "license": { "name": "MIT", "url": "https://opensource.org/license/mit/" },
+    "description": "HTTP API for the StarForge template registry. Authenticated operations use a JWT access token in the Authorization header as `Bearer <token>`."
+  },
+  "servers": [
+    {
+      "url": "http://{host}:{port}",
+      "description": "Registry API server",
+      "variables": {
+        "host": { "default": "localhost" },
+        "port": { "default": "3000" }
+      }
+    }
+  ],
+  "tags": [
+    { "name": "Health", "description": "Service status." },
+    { "name": "Authentication", "description": "Account registration and JWT token operations." },
+    { "name": "Templates", "description": "Template search, discovery, publishing, and downloads." },
+    { "name": "Reviews", "description": "Template ratings and community reviews." }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Check API health",
+        "operationId": "getHealth",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Health" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/signup": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Create an account",
+        "operationId": "signUp",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SignupRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Account created and access token issued",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Log in",
+        "operationId": "login",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/LoginRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Access token issued",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/auth/verify": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Verify an access token",
+        "operationId": "verifyToken",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Token is valid",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TokenVerification" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/templates/search": {
+      "post": {
+        "tags": ["Templates"],
+        "summary": "Search templates",
+        "description": "Bearer authentication is optional. When a valid token is supplied, search results may be personalized.",
+        "operationId": "searchTemplates",
+        "security": [{ "bearerAuth": [] }, {}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/TemplateSearchRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Matching templates and pagination details",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TemplateSearchResponse" }
+              }
+            }
+          },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/templates/search/suggestions": {
+      "get": {
+        "tags": ["Templates"],
+        "summary": "Get search suggestions",
+        "operationId": "getSearchSuggestions",
+        "security": [{ "bearerAuth": [] }, {}],
+        "parameters": [
+          { "$ref": "#/components/parameters/QueryPrefix" },
+          { "$ref": "#/components/parameters/SuggestionLimit" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Autocomplete suggestions",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SuggestionsResponse" }
+              }
+            }
+          },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/templates/discover/trending": {
+      "get": {
+        "tags": ["Templates"],
+        "summary": "List trending templates",
+        "operationId": "getTrendingTemplates",
+        "security": [{ "bearerAuth": [] }, {}],
+        "parameters": [
+          { "$ref": "#/components/parameters/ResultLimit" },
+          {
+            "name": "window_days",
+            "in": "query",
+            "description": "Activity lookback window in days.",
+            "schema": { "type": "integer", "default": 7 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Trending templates",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TemplateListResponse" }
+              }
+            }
+          },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/templates/discover/recommended": {
+      "get": {
+        "tags": ["Templates"],
+        "summary": "Get recommended templates",
+        "description": "Bearer authentication is optional. Anonymous users receive popular templates; authenticated users may receive personalized recommendations.",
+        "operationId": "getRecommendedTemplates",
+        "security": [{ "bearerAuth": [] }, {}],
+        "parameters": [{ "$ref": "#/components/parameters/ResultLimit" }],
+        "responses": {
+          "200": {
+            "description": "Recommended templates",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RecommendationsResponse" }
+              }
+            }
+          },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/templates/analytics/summary": {
+      "get": {
+        "tags": ["Templates"],
+        "summary": "Get search analytics summary",
+        "operationId": "getAnalyticsSummary",
+        "security": [{ "bearerAuth": [] }, {}],
+        "parameters": [{ "$ref": "#/components/parameters/ResultLimit" }],
+        "responses": {
+          "200": {
+            "description": "Top queries, trending template ids, and event totals",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AnalyticsSummary" }
+              }
+            }
+          },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/templates/{id}/similar": {
+      "get": {
+        "tags": ["Templates"],
+        "summary": "Find similar templates",
+        "operationId": "getSimilarTemplates",
+        "security": [{ "bearerAuth": [] }, {}],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          { "$ref": "#/components/parameters/ResultLimit" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Similar templates with similarity scores",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SimilarTemplatesResponse" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/templates/{name}": {
+      "get": {
+        "tags": ["Templates"],
+        "summary": "Get template versions and metadata by name",
+        "operationId": "getTemplateByName",
+        "security": [{ "bearerAuth": [] }, {}],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Template versions and latest metadata",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TemplateVersionsResponse" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/templates/{name}/ownership-history": {
+      "get": {
+        "tags": ["Templates"],
+        "summary": "Get template ownership history",
+        "operationId": "getTemplateOwnershipHistory",
+        "security": [{ "bearerAuth": [] }, {}],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ownership history records",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/OwnershipHistoryResponse" }
+              }
+            }
+          },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/templates/publishers/{publisher}": {
+      "get": {
+        "tags": ["Templates"],
+        "summary": "Get publisher profile and their published templates",
+        "operationId": "getPublisherProfile",
+        "security": [{ "bearerAuth": [] }, {}],
+        "parameters": [
+          {
+            "name": "publisher",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Publisher profile and templates",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PublisherProfileResponse" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/templates/{name}/transfer-ownership": {
+      "post": {
+        "tags": ["Templates"],
+        "summary": "Transfer template ownership to another publisher",
+        "operationId": "transferTemplateOwnership",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/TransferOwnershipRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Ownership successfully transferred",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TransferOwnershipResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "429": { "$ref": "#/components/responses/TooManyRequests" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/templates/{name}/{version}": {
+      "get": {
+        "tags": ["Templates"],
+        "summary": "Get a template by name and version",
+        "description": "Use `latest` as the version to request the latest available template.",
+        "operationId": "getTemplate",
+        "security": [{ "bearerAuth": [] }, {}],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Template metadata",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Template" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/templates/publish": {
+      "post": {
+        "tags": ["Templates"],
+        "summary": "Publish a template",
+        "operationId": "publishTemplate",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PublishTemplateRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Template published",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PublishTemplateResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/templates/{name}/{version}/download": {
+      "get": {
+        "tags": ["Templates"],
+        "summary": "Download a template archive",
+        "operationId": "downloadTemplate",
+        "security": [{ "bearerAuth": [] }, {}],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ZIP archive",
+            "content": {
+              "application/zip": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/reviews/template/{templateId}": {
+      "get": {
+        "tags": ["Reviews"],
+        "summary": "List reviews for a template",
+        "operationId": "getTemplateReviews",
+        "security": [{ "bearerAuth": [] }, {}],
+        "parameters": [
+          {
+            "name": "templateId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reviews and total count",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ReviewsResponse" }
+              }
+            }
+          },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/reviews/template/{templateId}/reviews": {
+      "post": {
+        "tags": ["Reviews"],
+        "summary": "Create or update a template review",
+        "operationId": "upsertTemplateReview",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "templateId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ReviewRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Existing review updated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/MessageResponse" }
+              }
+            }
+          },
+          "201": {
+            "description": "Review created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/MessageResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "JWT issued by POST /api/auth/signup or POST /api/auth/login. Send as `Authorization: Bearer <token>`."
+      }
+    },
+    "parameters": {
+      "ResultLimit": {
+        "name": "limit",
+        "in": "query",
+        "description": "Maximum number of results.",
+        "schema": { "type": "integer", "default": 10 }
+      },
+      "SuggestionLimit": {
+        "name": "limit",
+        "in": "query",
+        "description": "Maximum number of suggestions.",
+        "schema": { "type": "integer", "default": 10 }
+      },
+      "QueryPrefix": {
+        "name": "q",
+        "in": "query",
+        "description": "Suggestion prefix.",
+        "schema": { "type": "string", "default": "" }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Invalid or incomplete request",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Missing, invalid, or expired Bearer token, or invalid credentials",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Requested template was not found",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "Account or template version conflicts with an existing record",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      },
+      "InternalError": {
+        "description": "The request could not be completed",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Insufficient permissions to perform this operation",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      },
+      "TooManyRequests": {
+        "description": "Rate limit exceeded",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": { "error": { "type": "string" } }
+      },
+      "Health": {
+        "type": "object",
+        "required": ["status", "timestamp"],
+        "properties": {
+          "status": { "type": "string", "enum": ["ok"] },
+          "timestamp": { "type": "string", "format": "date-time" }
+        }
+      },
+      "SignupRequest": {
+        "type": "object",
+        "required": ["email", "username", "password"],
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "username": { "type": "string" },
+          "password": { "type": "string", "minLength": 8, "format": "password" }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": ["email", "password"],
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "password": { "type": "string", "format": "password" }
+        }
+      },
+      "AuthResponse": {
+        "type": "object",
+        "required": ["success", "message", "token", "username"],
+        "properties": {
+          "success": { "type": "boolean", "enum": [true] },
+          "message": { "type": "string" },
+          "token": { "type": "string", "description": "JWT Bearer access token." },
+          "username": { "type": "string" }
+        }
+      },
+      "TokenVerification": {
+        "type": "object",
+        "required": ["success", "user"],
+        "properties": {
+          "success": { "type": "boolean", "enum": [true] },
+          "user": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "TemplateSearchRequest": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "default": "" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "verified": { "type": "boolean" },
+          "min_quality": { "type": "number", "minimum": 0, "maximum": 5 },
+          "min_downloads": { "type": "integer", "minimum": 0 },
+          "license": { "type": "string" },
+          "author": { "type": "string" },
+          "date_from": { "type": "string", "format": "date" },
+          "date_to": { "type": "string", "format": "date" },
+          "sort_by": {
+            "type": "string",
+            "enum": ["relevance", "downloads", "rating", "recent", "trending"],
+            "default": "relevance"
+          },
+          "limit": { "type": "integer", "default": 20 },
+          "offset": { "type": "integer", "default": 0 }
+        }
+      },
+      "Template": {
+        "type": "object",
+        "required": ["id", "name", "version", "description", "author", "tags", "functionality", "downloads", "verified", "created_at", "updated_at", "ratings", "download_url"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "version": { "type": "string" },
+          "description": { "type": "string" },
+          "author": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "functionality": { "type": "array", "items": { "type": "string" } },
+          "license": { "type": "string", "nullable": true },
+          "repository": { "type": "string", "nullable": true },
+          "homepage": { "type": "string", "nullable": true },
+          "documentation": { "type": "string", "nullable": true },
+          "downloads": { "type": "integer" },
+          "verified": { "type": "boolean" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" },
+          "ratings": { "$ref": "#/components/schemas/Ratings" },
+          "download_url": { "type": "string" }
+        }
+      },
+      "Ratings": {
+        "type": "object",
+        "required": ["average_rating", "review_count", "five_star", "four_star", "three_star", "two_star", "one_star"],
+        "properties": {
+          "average_rating": { "type": "number" },
+          "review_count": { "type": "integer" },
+          "five_star": { "type": "integer" },
+          "four_star": { "type": "integer" },
+          "three_star": { "type": "integer" },
+          "two_star": { "type": "integer" },
+          "one_star": { "type": "integer" }
+        }
+      },
+      "TemplateSearchResponse": {
+        "type": "object",
+        "required": ["success", "results", "total", "limit", "offset", "personalized"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "results": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                { "$ref": "#/components/schemas/Template" },
+                {
+                  "type": "object",
+                  "required": ["match_score", "matched_terms"],
+                  "properties": {
+                    "match_score": { "type": "number" },
+                    "matched_terms": { "type": "array", "items": { "type": "string" } }
+                  }
+                }
+              ]
+            }
+          },
+          "total": { "type": "integer" },
+          "limit": { "type": "integer" },
+          "offset": { "type": "integer" },
+          "personalized": { "type": "boolean" }
+        }
+      },
+      "TemplateListResponse": {
+        "type": "object",
+        "required": ["success", "results"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "results": { "type": "array", "items": { "$ref": "#/components/schemas/Template" } }
+        }
+      },
+      "RecommendationsResponse": {
+        "allOf": [
+          { "$ref": "#/components/schemas/TemplateListResponse" },
+          {
+            "type": "object",
+            "required": ["personalized"],
+            "properties": { "personalized": { "type": "boolean" } }
+          }
+        ]
+      },
+      "SimilarTemplatesResponse": {
+        "type": "object",
+        "required": ["success", "results"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "results": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                { "$ref": "#/components/schemas/Template" },
+                {
+                  "type": "object",
+                  "required": ["similarity_score"],
+                  "properties": { "similarity_score": { "type": "number" } }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "Suggestion": {
+        "type": "object",
+        "required": ["type", "value"],
+        "properties": {
+          "type": { "type": "string", "enum": ["query", "template", "tag"] },
+          "value": { "type": "string" }
+        }
+      },
+      "SuggestionsResponse": {
+        "type": "object",
+        "required": ["success", "suggestions"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "suggestions": { "type": "array", "items": { "$ref": "#/components/schemas/Suggestion" } }
+        }
+      },
+      "AnalyticsSummary": {
+        "type": "object",
+        "required": ["success", "top_queries", "trending_template_ids", "totals"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "top_queries": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "trending_template_ids": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+          "totals": { "type": "object", "additionalProperties": { "type": "integer" } }
+        }
+      },
+      "PublishTemplateRequest": {
+        "type": "object",
+        "required": ["name", "version", "description", "author", "content"],
+        "properties": {
+          "name": { "type": "string" },
+          "version": { "type": "string" },
+          "description": { "type": "string" },
+          "author": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "functionality": { "type": "array", "items": { "type": "string" } },
+          "license": { "type": "string" },
+          "repository": { "type": "string" },
+          "homepage": { "type": "string" },
+          "documentation": { "type": "string" },
+          "content": { "type": "string", "format": "byte", "description": "Base64-encoded ZIP archive." }
+        }
+      },
+      "PublishTemplateResponse": {
+        "type": "object",
+        "required": ["success", "message", "template_id", "url"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "message": { "type": "string" },
+          "template_id": { "type": "string" },
+          "url": { "type": "string" }
+        }
+      },
+      "ReviewRequest": {
+        "type": "object",
+        "required": ["rating"],
+        "properties": {
+          "rating": { "type": "integer", "minimum": 1, "maximum": 5 },
+          "comment": { "type": "string" }
+        }
+      },
+      "Review": {
+        "type": "object",
+        "required": ["id", "rating", "created_at"],
+        "properties": {
+          "id": { "type": "string" },
+          "rating": { "type": "integer" },
+          "comment": { "type": "string", "nullable": true },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ReviewsResponse": {
+        "type": "object",
+        "required": ["success", "reviews", "total"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "reviews": { "type": "array", "items": { "$ref": "#/components/schemas/Review" } },
+          "total": { "type": "integer" }
+        }
+      },
+      "MessageResponse": {
+        "type": "object",
+        "required": ["success", "message"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "message": { "type": "string" }
+        }
+      },
+      "TemplateVersionEntry": {
+        "type": "object",
+        "required": ["version", "created_at", "downloads", "download_url"],
+        "properties": {
+          "version": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "downloads": { "type": "integer" },
+          "download_url": { "type": "string" }
+        }
+      },
+      "TemplateVersionsResponse": {
+        "type": "object",
+        "required": ["success", "template", "versions"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "template": { "$ref": "#/components/schemas/Template" },
+          "versions": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/TemplateVersionEntry" }
+          }
+        }
+      },
+      "OwnershipRecord": {
+        "type": "object",
+        "required": ["id", "templateId", "templateName", "version", "publisherId", "action", "timestamp"],
+        "properties": {
+          "id": { "type": "string" },
+          "templateId": { "type": "string" },
+          "templateName": { "type": "string" },
+          "version": { "type": "string" },
+          "publisherId": { "type": "string" },
+          "publisherUsername": { "type": "string" },
+          "previousPublisherId": { "type": "string" },
+          "action": { "type": "string", "enum": ["PUBLISH", "TRANSFER_OWNERSHIP", "UPDATE", "UNPUBLISH"] },
+          "timestamp": { "type": "string", "format": "date-time" },
+          "ipAddress": { "type": "string" },
+          "metadata": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "OwnershipHistoryResponse": {
+        "type": "object",
+        "required": ["success", "template_name", "history"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "template_name": { "type": "string" },
+          "history": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/OwnershipRecord" }
+          }
+        }
+      },
+      "TransferOwnershipRequest": {
+        "type": "object",
+        "properties": {
+          "new_publisher_id": { "type": "string" },
+          "new_username": { "type": "string" }
+        }
+      },
+      "TransferOwnershipResponse": {
+        "type": "object",
+        "required": ["success", "message", "new_publisher_id"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "message": { "type": "string" },
+          "new_publisher_id": { "type": "string" }
+        }
+      },
+      "PublisherProfileResponse": {
+        "type": "object",
+        "required": ["success", "publisher", "template_count", "total_downloads", "templates"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "publisher": { "type": "string" },
+          "template_count": { "type": "integer" },
+          "total_downloads": { "type": "integer" },
+          "templates": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Template" }
+          }
+        }
+      }
+    }
+  }
+}

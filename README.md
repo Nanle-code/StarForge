@@ -12,24 +12,24 @@ templates, encrypted wallets and deployment safety checks for Stellar.**
 
 ## Overview
 
-**starforge** is a free, open-source command-line toolkit for developers building on the Stellar network. It brings together the most common Stellar and Soroban developer workflows â€” wallet management, project scaffolding, and contract deployment â€” into a single fast, ergonomic CLI.
+**starforge** is a free, open-source command-line toolkit for developers building on the Stellar network. It brings together the most common Stellar and Soroban developer workflows — wallet management, project scaffolding, and contract deployment — into a single fast, ergonomic CLI.
 
-Think of it as the "Hardhat or Foundry" experience for the Stellar ecosystem, built in Rust for speed and reliability.
+It provides a Hardhat/Foundry-like experience for the Stellar ecosystem while prioritizing reproducibility and security.
 
-This project is actively maintained and participates in the [Stellar Wave Program](https://www.drips.network/wave/stellar) on Drips â€” a monthly open-source contribution sprint where contributors earn rewards for merged pull requests.
+This project is actively maintained and participates in the [Stellar Wave Program](https://www.drips.network/wave/stellar) on Drips — a monthly open-source contribution sprint where contributors earn rewards for merged pull requests.
 
 Security architecture and trust-boundary assumptions are documented in the
-[StarForge threat model](./SECURITY_THREAT_MODEL.md). Report newly discovered
+[StarForge threat model](./docs/SECURITY_THREAT_MODEL.md). Report newly discovered
 security gaps as issues tagged `security` and include the affected boundary.
 
 ---
 
 ## Features
 
-### ?? Wallet Management
+### 🔐 Wallet Management
 Create and manage Stellar ed25519 keypairs locally. Generate cryptographically secure keys using proper Stellar strkey encoding (G... for public, S... for secret). Optionally encrypt keys at rest with AES-256-GCM. Fund testnet accounts via Friendbot, list all saved wallets, inspect live on-chain balances, and securely store keys in `~/.starforge/config.toml`.
 
-### ? Project Scaffolding
+### 🧩 Project Scaffolding
 Scaffold new Soroban smart contract projects from battle-tested templates with one command. Choose from: `hello-world`, `token`, `nft`, and `voting`. Use interactive mode (`--interactive`) to customize contract options like author, license, storage type, and test inclusion. Also scaffolds full Stellar dApp frontends (Vite + React).
 
 **NEW: Template Marketplace** - Discover and use community-contributed templates:
@@ -60,7 +60,7 @@ For contributors, the hash is intentionally defined as the SHA-256 digest of the
 You can install the latest release binary using the installation script:
 
 ```bash
-curl -sL https://raw.githubusercontent.com/Josetic224/StarForge/main/install.sh | bash
+curl -sL https://raw.githubusercontent.com/Nanle-code/StarForge/main/install.sh | bash
 ```
 
 The script automatically:
@@ -72,7 +72,7 @@ The script automatically:
 
 > **Security note**: Never pipe an untrusted script to `bash` without reviewing it first.
 > You can read [`install.sh`](./install.sh) before running it, or download the binary
-> directly from the [Releases page](https://github.com/Josetic224/StarForge/releases) and verify the checksum manually:
+> directly from the [Releases page](https://github.com/Nanle-code/StarForge/releases) and verify the checksum manually:
 >
 > ```bash
 > sha256sum -c SHA256SUMS.txt
@@ -86,7 +86,7 @@ The script automatically:
 | Linux | aarch64 | ✅ |
 | macOS | x86\_64 | ✅ |
 | macOS | aarch64 (Apple Silicon) | ✅ |
-| Windows | x86\_64 | ✅ (`.zip` from [Releases](https://github.com/Josetic224/StarForge/releases)) |
+| Windows | x86\_64 | ✅ (`.zip` from [Releases](https://github.com/Nanle-code/StarForge/releases)) |
 | FreeBSD / other | — | Not supported |
 
 Windows binaries are built and smoke-tested in CI on every push and pull
@@ -101,7 +101,7 @@ Override the default `/usr/local/bin` destination:
 
 ```bash
 INSTALL_DIR="$HOME/.local/bin" \
-  curl -sL https://raw.githubusercontent.com/Josetic224/StarForge/main/install.sh | bash
+  curl -sL https://raw.githubusercontent.com/Nanle-code/StarForge/main/install.sh | bash
 ```
 
 #### Uninstall
@@ -117,7 +117,7 @@ rm -f "$INSTALL_DIR/starforge"
 A draft Homebrew formula is available for testing:
 
 ```bash
-brew install Josetic224/starforge/starforge
+brew install Nanle-code/starforge/starforge
 ```
 
 ### Docker
@@ -172,7 +172,7 @@ every release) before installing, the same as for the tarball archives.
 - Rust >= 1.80 ([install via rustup](https://rustup.rs))
 
 ```bash
-git clone https://github.com/Josetic224/StarForge.git
+git clone https://github.com/Nanle-code/StarForge.git
 cd StarForge
 cargo build --release
 
@@ -373,11 +373,11 @@ cp ~/.starforge/config.backup.v0.<timestamp>.toml ~/.starforge/config.toml
 
 **Error types and what they mean:**
 
-| Error | Cause | Fix |
-|---|---|---|
-| `Config schema version 'X' is newer than this binary supports` | Config was written by a newer `starforge` | Upgrade `starforge` |
-| `Unrecognised config schema version 'X'` | Config version field was manually edited or corrupted | Restore from backup or delete `~/.starforge/config.toml` to reset |
-| `Failed to create backup of config vX before migration` | Backup write failed (disk full, permissions) | Free disk space or fix directory permissions |
+| Error                                                          | Cause                                                 | Fix                                                               |
+| -------------------------------------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------- |
+| `Config schema version 'X' is newer than this binary supports` | Config was written by a newer `starforge`             | Upgrade `starforge`                                               |
+| `Unrecognised config schema version 'X'`                       | Config version field was manually edited or corrupted | Restore from backup or delete `~/.starforge/config.toml` to reset |
+| `Failed to create backup of config vX before migration`        | Backup write failed (disk full, permissions)          | Free disk space or fix directory permissions                      |
 
 **For contributors — adding a new migration step:**
 
@@ -508,13 +508,13 @@ stellar contract invoke --id <CONTRACT_ID> --source deployer --network testnet -
 
 ## Highlights
 
-| | |
-|---|---|
-| **Scaffolding** | `hello-world`, `token`, `nft` and `voting` templates, a template marketplace, and Vite + React dApp frontends. See [Usage](docs/USAGE.md#scaffold-commands). |
-| **Wallets** | Keys encrypted at rest (Argon2id + AES-256-GCM), BIP39, backups and recovery shares, Ledger/Trezor, import from stellar-cli. See [Usage](docs/USAGE.md#wallet-commands) and [wallet import security](docs/WALLET_IMPORT_SECURITY.md). |
-| **Safe deploys** | WASM validation, balance and fee simulation, dry-run plans, deploy policies, checkpoints, history and rollback. See [Deploy policy](docs/DEPLOY_POLICY.md) and [checkpoints](docs/DEPLOYMENT_CHECKPOINTS.md). |
-| **Automation** | A stable `--json` envelope, YAML invocation scripts with assertions, and non-interactive mode for CI. See [JSON stability](docs/CLI_JSON_STABILITY.md) and [Usage](docs/USAGE.md#repeatable-invocation-scripts). |
-| **Local AI (optional)** | Audit, explain and test contracts with a local Ollama model. Nothing leaves your machine. See [Offline AI](docs/OFFLINE_AI.md). |
+|                         |                                                                                                                                                                                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Scaffolding**         | `hello-world`, `token`, `nft` and `voting` templates, a template marketplace, and Vite + React dApp frontends. See [Usage](docs/USAGE.md#scaffold-commands).                                                                          |
+| **Wallets**             | Keys encrypted at rest (Argon2id + AES-256-GCM), BIP39, backups and recovery shares, Ledger/Trezor, import from stellar-cli. See [Usage](docs/USAGE.md#wallet-commands) and [wallet import security](docs/WALLET_IMPORT_SECURITY.md). |
+| **Safe deploys**        | WASM validation, balance and fee simulation, dry-run plans, deploy policies, checkpoints, history and rollback. See [Deploy policy](docs/DEPLOY_POLICY.md) and [checkpoints](docs/DEPLOYMENT_CHECKPOINTS.md).                         |
+| **Automation**          | A stable `--json` envelope, YAML invocation scripts with assertions, and non-interactive mode for CI. See [JSON stability](docs/CLI_JSON_STABILITY.md) and [Usage](docs/USAGE.md#repeatable-invocation-scripts).                      |
+| **Local AI (optional)** | Audit, explain and test contracts with a local Ollama model. Nothing leaves your machine. See [Offline AI](docs/OFFLINE_AI.md).                                                                                                       |
 
 Coming from stellar-cli? Read
 **[Migrating from stellar-cli](docs/MIGRATING_FROM_STELLAR_CLI.md)** for a
@@ -538,14 +538,14 @@ release notes. The `--json` output envelope is versioned and stable
 
 ## Security
 
-- Report vulnerabilities privately: see [SECURITY.md](SECURITY.md).
-- Trust boundaries and assumptions: [threat model](SECURITY_THREAT_MODEL.md).
+- Report vulnerabilities privately: see [SECURITY.md](docs/SECURITY.md).
+- Trust boundaries and assumptions: [threat model](./docs/SECURITY_THREAT_MODEL.md).
 - Install only from this repository. Releases ship with `SHA256SUMS.txt`, and
   the installer verifies it.
 - Plaintext wallets are for testnet. Use `--encrypt` or a hardware wallet for
   real funds.
 - Telemetry is **off by default** and local-only until you opt in
-  ([details](TELEMETRY_PRIVACY.md)).
+  ([details](docs/TELEMETRY_PRIVACY.md)).
 
 ## Contributing
 
@@ -664,3 +664,7 @@ pub struct TransferEvent {
 ```
 
 See `examples/binding_generator_example.md` for complete examples.
+
+### Terminal UI
+The `starforge ui` command provides a live TUI (Terminal User Interface) overview of your project, showing balances, deployed contracts, TTLs, recent transactions, and a live event tail.
+![StarForge UI](https://raw.githubusercontent.com/Nanle-code/StarForge/main/docs/ui-screenshot.png)

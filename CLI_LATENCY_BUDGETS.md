@@ -106,6 +106,19 @@ directory.  It:
 5. Uploads the Criterion report as a build artefact
 6. Comments on the PR with a budget summary table
 
+### PR CI Optimization
+
+For pull requests, the workflow runs only **critical interactive hot paths** to keep CI fast:
+- `cli_cold_start_info` - Basic info command (500ms budget)
+- `cli_cold_start_help` - Help command (350ms budget)  
+- `cli_wallet_list` - Wallet listing (300ms budget)
+- `cli_config_show` - Config display (300ms budget)
+- `cli_info` - General info (300ms budget)
+
+These paths are marked as "critical hot paths" because they represent the most common interactive commands that users run frequently. Ensuring these remain fast provides the best user experience.
+
+For pushes to main/master, the full latency budget suite runs, including all benchmarks.
+
 ---
 
 ## Adding a new budget

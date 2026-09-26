@@ -1,352 +1,513 @@
 {
-  "version": "1",
-  "templates": [
-    {
-      "name": "uniswap-v2",
-      "version": "1.2.0",
-      "description": "Uniswap V2 style automated market maker (AMM) DEX implementation",
-      "author": "Stellar Community",
-      "tags": ["defi", "dex", "amm", "swap"],
-      "source": {
-        "type": "git",
-        "url": "https://github.com/stellar/soroban-examples",
-        "branch": "main"
-      },
-      "created_at": "2025-01-01T00:00:00Z",
-      "updated_at": "2025-06-01T00:00:00Z",
-      "downloads": 1240,
-      "verified": true,
-      "documented": true,
-      "maintenance": "active",
-      "license": "MIT",
-      "security_review": {
-        "status": "audited",
-        "audited_at": "2025-03-15T00:00:00Z",
-        "auditor": "StarForge Security Team",
-        "findings": null,
-        "score": 95
-      },
-      "changelog": [
-        { "version": "1.2.0", "date": "2025-06-01", "notes": "Add slippage guards and fee-on-transfer support" },
-        { "version": "1.1.0", "date": "2025-03-01", "notes": "Security audit fixes; tighten reserve overflow checks" },
-        { "version": "1.0.0", "date": "2025-01-01", "notes": "Initial release" }
-      ]
-    },
-    {
-      "name": "lending-pool",
-      "version": "1.1.0",
-      "description": "Decentralized lending and borrowing protocol with collateralization",
-      "author": "Stellar Community",
-      "tags": ["defi", "lending", "borrowing"],
-      "source": {
-        "type": "git",
-        "url": "https://github.com/stellar/soroban-examples",
-        "branch": "main"
-      },
-      "created_at": "2025-01-01T00:00:00Z",
-      "updated_at": "2025-05-01T00:00:00Z",
-      "downloads": 874,
-      "verified": true,
-      "documented": true,
-      "maintenance": "active",
-      "license": "MIT",
-      "security_review": {
-        "status": "audited",
-        "audited_at": "2025-04-01T00:00:00Z",
-        "auditor": "StarForge Security Team",
-        "findings": 1,
-        "score": 88
-      },
-      "changelog": [
-        { "version": "1.1.0", "date": "2025-05-01", "notes": "Fix liquidation health factor edge case" },
-        { "version": "1.0.0", "date": "2025-01-01", "notes": "Initial release" }
-      ]
-    },
-    {
-      "name": "governance",
-      "version": "1.0.0",
-      "description": "DAO governance contract with proposal creation and voting mechanisms",
-      "author": "Stellar Community",
-      "tags": ["dao", "governance", "voting"],
-      "source": {
-        "type": "git",
-        "url": "https://github.com/stellar/soroban-examples",
-        "branch": "main"
-      },
-      "created_at": "2025-01-01T00:00:00Z",
-      "updated_at": "2025-01-01T00:00:00Z",
-      "downloads": 512,
-      "verified": false,
-      "documented": true,
-      "maintenance": "maintained",
-      "license": "MIT",
-      "security_review": {
-        "status": "pending",
-        "audited_at": null,
-        "auditor": null,
-        "findings": null,
-        "score": null
-      },
-      "changelog": [
-        { "version": "1.0.0", "date": "2025-01-01", "notes": "Initial release" }
-      ]
-    },
-    {
-      "name": "multisig-wallet",
-      "version": "1.0.0",
-      "description": "Multi-signature wallet with threshold-based transaction approval",
-      "author": "Stellar Community",
-      "tags": ["wallet", "multisig", "security"],
-      "source": {
-        "type": "git",
-        "url": "https://github.com/stellar/soroban-examples",
-        "branch": "main"
-      },
-      "created_at": "2025-01-01T00:00:00Z",
-      "updated_at": "2025-01-01T00:00:00Z",
-      "downloads": 389,
-      "verified": false,
-      "documented": false,
-      "maintenance": "maintained",
-      "license": "MIT",
-      "security_review": {
-        "status": "pending",
-        "audited_at": null,
-        "auditor": null,
-        "findings": null,
-        "score": null
-      },
-      "changelog": [
-        { "version": "1.0.0", "date": "2025-01-01", "notes": "Initial release" }
-      ]
-    },
-    {
-      "name": "sep-41-token",
-      "version": "1.1.0",
-      "description": "A token contract strictly following the Stellar Asset Contract interface (SEP-41)",
-      "author": "Stellar Community",
-      "tags": ["token", "sep-41", "stellar-asset", "standard"],
-      "source": {
-        "type": "git",
-        "url": "https://github.com/stellar/rs-soroban-sdk",
-        "branch": "main"
-      },
-      "created_at": "2025-01-01T00:00:00Z",
-      "updated_at": "2025-05-15T00:00:00Z",
-      "downloads": 156,
-      "verified": true,
-      "documented": true,
-      "maintenance": "active",
-      "license": "Apache-2.0",
-      "security_review": {
-        "status": "audited",
-        "audited_at": "2025-05-01T00:00:00Z",
-        "auditor": "StarForge Security Team",
-        "findings": null,
-        "score": 98
-      },
-      "changelog": [
-        { "version": "1.1.0", "date": "2025-05-15", "notes": "Add burn and transfer_from; full SEP-41 compliance" },
-        { "version": "1.0.0", "date": "2025-01-01", "notes": "Initial release" }
-      ]
-    },
-    {
-      "name": "sep-10-auth",
-      "version": "1.0.0",
-      "description": "A basic implementation of on-chain authentication following SEP-10 standards",
-      "author": "Stellar Community",
-      "tags": ["auth", "sep-10", "authentication", "security"],
-      "source": {
-        "type": "git",
-        "url": "https://github.com/stellar/rs-soroban-sdk",
-        "branch": "main"
-      },
-      "created_at": "2025-01-01T00:00:00Z",
-      "updated_at": "2025-01-01T00:00:00Z",
-      "downloads": 98,
-      "verified": true,
-      "documented": false,
-      "maintenance": "maintained",
-      "license": "Apache-2.0",
-      "security_review": {
-        "status": "audited",
-        "audited_at": "2025-02-01T00:00:00Z",
-        "auditor": "StarForge Security Team",
-        "findings": null,
-        "score": 96
-      },
-      "changelog": [
-        { "version": "1.0.0", "date": "2025-01-01", "notes": "Initial release" }
-      ]
-    },
-    {
-      "name": "escrow",
-      "version": "1.1.0",
-      "description": "Token escrow with buyer, seller and arbiter for marketplaces and OTC trades",
-      "author": "StarForge",
-      "tags": ["defi", "escrow", "payments", "marketplace"],
-      "source": {
-        "type": "builtin",
-        "id": "escrow"
-      },
-      "created_at": "2025-01-01T00:00:00Z",
-      "updated_at": "2025-06-01T00:00:00Z",
-      "downloads": 0,
-      "verified": true,
-      "documented": true,
-      "maintenance": "active",
-      "license": "MIT",
-      "security_review": {
-        "status": "audited",
-        "audited_at": "2025-05-20T00:00:00Z",
-        "auditor": "StarForge Security Team",
-        "findings": null,
-        "score": 97
-      },
-      "changelog": [
-        { "version": "1.1.0", "date": "2025-06-01", "notes": "Add partial release support; improve re-entrancy guard" },
-        { "version": "1.0.0", "date": "2025-01-01", "notes": "Initial release" }
-      ]
-    },
-    {
-      "name": "dao-governance",
-      "version": "1.0.0",
-      "description": "Minimal DAO governance with member proposals and one-member-one-vote tallying",
-      "author": "StarForge",
-      "tags": ["dao", "governance", "voting"],
-      "source": {
-        "type": "builtin",
-        "id": "dao-governance"
-      },
-      "created_at": "2025-01-01T00:00:00Z",
-      "updated_at": "2025-01-01T00:00:00Z",
-      "downloads": 0,
-      "verified": true,
-      "documented": true,
-      "maintenance": "active",
-      "license": "MIT",
-      "security_review": {
-        "status": "audited",
-        "audited_at": "2025-04-10T00:00:00Z",
-        "auditor": "StarForge Security Team",
-        "findings": null,
-        "score": 95
-      },
-      "changelog": [
-        { "version": "1.0.0", "date": "2025-01-01", "notes": "Initial release" }
-      ]
-    },
-    {
-      "name": "multisig-vault",
-      "version": "1.0.0",
-      "description": "Threshold M-of-N multi-signature vault for shared-custody token transfers",
-      "author": "StarForge",
-      "tags": ["wallet", "multisig", "security", "treasury"],
-      "source": {
-        "type": "builtin",
-        "id": "multisig-vault"
-      },
-      "created_at": "2025-01-01T00:00:00Z",
-      "updated_at": "2025-01-01T00:00:00Z",
-      "downloads": 0,
-      "verified": true,
-      "documented": true,
-      "maintenance": "active",
-      "license": "MIT",
-      "security_review": {
-        "status": "audited",
-        "audited_at": "2025-04-10T00:00:00Z",
-        "auditor": "StarForge Security Team",
-        "findings": null,
-        "score": 96
-      },
-      "changelog": [
-        { "version": "1.0.0", "date": "2025-01-01", "notes": "Initial release" }
-      ]
-    },
-    {
-      "name": "sep41-token",
-      "version": "1.0.0",
-      "description": "Full SEP-41 fungible token with mint, transfer, burn, approve, and transfer_from",
-      "author": "StarForge",
-      "tags": ["token", "sep-41", "fungible", "standard"],
-      "source": {
-        "type": "builtin",
-        "id": "sep41-token"
-      },
-      "created_at": "2025-06-29T00:00:00Z",
-      "updated_at": "2025-06-29T00:00:00Z",
-      "downloads": 0,
-      "verified": true,
-      "documented": true,
-      "maintenance": "active",
-      "license": "MIT",
-      "security_review": {
-        "status": "audited",
-        "audited_at": "2025-06-29T00:00:00Z",
-        "auditor": "StarForge Security Team",
-        "findings": null,
-        "score": 98
-      },
-      "changelog": [
-        { "version": "1.0.0", "date": "2025-06-29", "notes": "Initial release — full SEP-41 compliant fungible token" }
-      ]
-    },
-    {
-      "name": "nft",
-      "version": "1.0.0",
-      "description": "Non-fungible token (NFT) contract with mint, transfer, approve, burn, and token URI",
-      "author": "StarForge",
-      "tags": ["nft", "token", "non-fungible", "collectible"],
-      "source": {
-        "type": "builtin",
-        "id": "nft"
-      },
-      "created_at": "2025-06-29T00:00:00Z",
-      "updated_at": "2025-06-29T00:00:00Z",
-      "downloads": 0,
-      "verified": true,
-      "documented": true,
-      "maintenance": "active",
-      "license": "MIT",
-      "security_review": {
-        "status": "audited",
-        "audited_at": "2025-06-29T00:00:00Z",
-        "auditor": "StarForge Security Team",
-        "findings": null,
-        "score": 97
-      },
-      "changelog": [
-        { "version": "1.0.0", "date": "2025-06-29", "notes": "Initial release — NFT with approve delegation and burn" }
-      ]
-    },
-    {
-      "name": "staking",
-      "version": "1.0.0",
-      "description": "DeFi staking/yield contract — stake tokens, earn rewards proportional to stake and duration",
-      "author": "StarForge",
-      "tags": ["defi", "staking", "yield", "rewards"],
-      "source": {
-        "type": "builtin",
-        "id": "staking"
-      },
-      "created_at": "2025-06-29T00:00:00Z",
-      "updated_at": "2025-06-29T00:00:00Z",
-      "downloads": 0,
-      "verified": true,
-      "documented": true,
-      "maintenance": "active",
-      "license": "MIT",
-      "security_review": {
-        "status": "audited",
-        "audited_at": "2025-06-29T00:00:00Z",
-        "auditor": "StarForge Security Team",
-        "findings": null,
-        "score": 94
-      },
-      "changelog": [
-        { "version": "1.0.0", "date": "2025-06-29", "notes": "Initial release — stake/unstake with configurable reward rate" }
-      ]
-    }
-  ]
+    "version":  "1",
+    "templates":  [
+                      {
+                          "name":  "uniswap-v2",
+                          "version":  "1.2.0",
+                          "description":  "Uniswap V2 style automated market maker (AMM) DEX implementation",
+                          "author":  "Stellar Community",
+                          "tags":  [
+                                       "defi",
+                                       "dex",
+                                       "amm",
+                                       "swap"
+                                   ],
+                          "source":  {
+                                         "type":  "git",
+                                         "url":  "https://github.com/stellar/soroban-examples",
+                                         "branch":  "main"
+                                     },
+                          "created_at":  "2025-01-01T00:00:00Z",
+                          "updated_at":  "2025-06-01T00:00:00Z",
+                          "downloads":  1240,
+                          "verified":  true,
+                          "documented":  true,
+                          "maintenance":  "active",
+                          "license":  "MIT",
+                          "security_review":  {
+                                                  "status":  "audited",
+                                                  "audited_at":  "2025-03-15T00:00:00Z",
+                                                  "auditor":  "StarForge Security Team",
+                                                  "findings":  null,
+                                                  "score":  95
+                                              },
+                          "changelog":  [
+                                            {
+                                                "version":  "1.2.0",
+                                                "date":  "2025-06-01",
+                                                "notes":  "Add slippage guards and fee-on-transfer support"
+                                            },
+                                            {
+                                                "version":  "1.1.0",
+                                                "date":  "2025-03-01",
+                                                "notes":  "Security audit fixes; tighten reserve overflow checks"
+                                            },
+                                            {
+                                                "version":  "1.0.0",
+                                                "date":  "2025-01-01",
+                                                "notes":  "Initial release"
+                                            }
+                                        ]
+                      },
+                      {
+                          "name":  "lending-pool",
+                          "version":  "1.1.0",
+                          "description":  "Decentralized lending and borrowing protocol with collateralization",
+                          "author":  "Stellar Community",
+                          "tags":  [
+                                       "defi",
+                                       "lending",
+                                       "borrowing"
+                                   ],
+                          "source":  {
+                                         "type":  "git",
+                                         "url":  "https://github.com/stellar/soroban-examples",
+                                         "branch":  "main"
+                                     },
+                          "created_at":  "2025-01-01T00:00:00Z",
+                          "updated_at":  "2025-05-01T00:00:00Z",
+                          "downloads":  874,
+                          "verified":  true,
+                          "documented":  true,
+                          "maintenance":  "active",
+                          "license":  "MIT",
+                          "security_review":  {
+                                                  "status":  "audited",
+                                                  "audited_at":  "2025-04-01T00:00:00Z",
+                                                  "auditor":  "StarForge Security Team",
+                                                  "findings":  1,
+                                                  "score":  88
+                                              },
+                          "changelog":  [
+                                            {
+                                                "version":  "1.1.0",
+                                                "date":  "2025-05-01",
+                                                "notes":  "Fix liquidation health factor edge case"
+                                            },
+                                            {
+                                                "version":  "1.0.0",
+                                                "date":  "2025-01-01",
+                                                "notes":  "Initial release"
+                                            }
+                                        ]
+                      },
+                      {
+                          "name":  "governance",
+                          "version":  "1.0.0",
+                          "description":  "DAO governance contract with proposal creation and voting mechanisms",
+                          "author":  "Stellar Community",
+                          "tags":  [
+                                       "dao",
+                                       "governance",
+                                       "voting"
+                                   ],
+                          "source":  {
+                                         "type":  "git",
+                                         "url":  "https://github.com/stellar/soroban-examples",
+                                         "branch":  "main"
+                                     },
+                          "created_at":  "2025-01-01T00:00:00Z",
+                          "updated_at":  "2025-01-01T00:00:00Z",
+                          "downloads":  512,
+                          "verified":  false,
+                          "documented":  true,
+                          "maintenance":  "maintained",
+                          "license":  "MIT",
+                          "security_review":  {
+                                                  "status":  "pending",
+                                                  "audited_at":  null,
+                                                  "auditor":  null,
+                                                  "findings":  null,
+                                                  "score":  null
+                                              },
+                          "changelog":  [
+                                            {
+                                                "version":  "1.0.0",
+                                                "date":  "2025-01-01",
+                                                "notes":  "Initial release"
+                                            }
+                                        ]
+                      },
+                      {
+                          "name":  "multisig-wallet",
+                          "version":  "1.0.0",
+                          "description":  "Multi-signature wallet with threshold-based transaction approval",
+                          "author":  "Stellar Community",
+                          "tags":  [
+                                       "wallet",
+                                       "multisig",
+                                       "security"
+                                   ],
+                          "source":  {
+                                         "type":  "git",
+                                         "url":  "https://github.com/stellar/soroban-examples",
+                                         "branch":  "main"
+                                     },
+                          "created_at":  "2025-01-01T00:00:00Z",
+                          "updated_at":  "2025-01-01T00:00:00Z",
+                          "downloads":  389,
+                          "verified":  false,
+                          "documented":  false,
+                          "maintenance":  "maintained",
+                          "license":  "MIT",
+                          "security_review":  {
+                                                  "status":  "pending",
+                                                  "audited_at":  null,
+                                                  "auditor":  null,
+                                                  "findings":  null,
+                                                  "score":  null
+                                              },
+                          "changelog":  [
+                                            {
+                                                "version":  "1.0.0",
+                                                "date":  "2025-01-01",
+                                                "notes":  "Initial release"
+                                            }
+                                        ]
+                      },
+                      {
+                          "name":  "sep-41-token",
+                          "version":  "1.1.0",
+                          "description":  "A token contract strictly following the Stellar Asset Contract interface (SEP-41)",
+                          "author":  "Stellar Community",
+                          "tags":  [
+                                       "token",
+                                       "sep-41",
+                                       "stellar-asset",
+                                       "standard"
+                                   ],
+                          "source":  {
+                                         "type":  "git",
+                                         "url":  "https://github.com/stellar/rs-soroban-sdk",
+                                         "branch":  "main"
+                                     },
+                          "created_at":  "2025-01-01T00:00:00Z",
+                          "updated_at":  "2025-05-15T00:00:00Z",
+                          "downloads":  156,
+                          "verified":  true,
+                          "documented":  true,
+                          "maintenance":  "active",
+                          "license":  "Apache-2.0",
+                          "security_review":  {
+                                                  "status":  "audited",
+                                                  "audited_at":  "2025-05-01T00:00:00Z",
+                                                  "auditor":  "StarForge Security Team",
+                                                  "findings":  null,
+                                                  "score":  98
+                                              },
+                          "changelog":  [
+                                            {
+                                                "version":  "1.1.0",
+                                                "date":  "2025-05-15",
+                                                "notes":  "Add burn and transfer_from; full SEP-41 compliance"
+                                            },
+                                            {
+                                                "version":  "1.0.0",
+                                                "date":  "2025-01-01",
+                                                "notes":  "Initial release"
+                                            }
+                                        ]
+                      },
+                      {
+                          "name":  "sep-10-auth",
+                          "version":  "1.0.0",
+                          "description":  "A basic implementation of on-chain authentication following SEP-10 standards",
+                          "author":  "Stellar Community",
+                          "tags":  [
+                                       "auth",
+                                       "sep-10",
+                                       "authentication",
+                                       "security"
+                                   ],
+                          "source":  {
+                                         "type":  "git",
+                                         "url":  "https://github.com/stellar/rs-soroban-sdk",
+                                         "branch":  "main"
+                                     },
+                          "created_at":  "2025-01-01T00:00:00Z",
+                          "updated_at":  "2025-01-01T00:00:00Z",
+                          "downloads":  98,
+                          "verified":  true,
+                          "documented":  false,
+                          "maintenance":  "maintained",
+                          "license":  "Apache-2.0",
+                          "security_review":  {
+                                                  "status":  "audited",
+                                                  "audited_at":  "2025-02-01T00:00:00Z",
+                                                  "auditor":  "StarForge Security Team",
+                                                  "findings":  null,
+                                                  "score":  96
+                                              },
+                          "changelog":  [
+                                            {
+                                                "version":  "1.0.0",
+                                                "date":  "2025-01-01",
+                                                "notes":  "Initial release"
+                                            }
+                                        ]
+                      },
+                      {
+                          "name":  "escrow",
+                          "version":  "1.1.0",
+                          "description":  "Token escrow with buyer, seller and arbiter for marketplaces and OTC trades",
+                          "author":  "StarForge",
+                          "tags":  [
+                                       "defi",
+                                       "escrow",
+                                       "payments",
+                                       "marketplace"
+                                   ],
+                          "source":  {
+                                         "type":  "builtin",
+                                         "id":  "escrow"
+                                     },
+                          "created_at":  "2025-01-01T00:00:00Z",
+                          "updated_at":  "2025-06-01T00:00:00Z",
+                          "downloads":  0,
+                          "verified":  true,
+                          "documented":  true,
+                          "maintenance":  "active",
+                          "license":  "MIT",
+                          "security_review":  {
+                                                  "status":  "audited",
+                                                  "audited_at":  "2025-05-20T00:00:00Z",
+                                                  "auditor":  "StarForge Security Team",
+                                                  "findings":  null,
+                                                  "score":  97
+                                              },
+                          "changelog":  [
+                                            {
+                                                "version":  "1.1.0",
+                                                "date":  "2025-06-01",
+                                                "notes":  "Add partial release support; improve re-entrancy guard"
+                                            },
+                                            {
+                                                "version":  "1.0.0",
+                                                "date":  "2025-01-01",
+                                                "notes":  "Initial release"
+                                            }
+                                        ]
+                      },
+                      {
+                          "name":  "dao-governance",
+                          "version":  "1.0.0",
+                          "description":  "Minimal DAO governance with member proposals and one-member-one-vote tallying",
+                          "author":  "StarForge",
+                          "tags":  [
+                                       "dao",
+                                       "governance",
+                                       "voting"
+                                   ],
+                          "source":  {
+                                         "type":  "builtin",
+                                         "id":  "dao-governance"
+                                     },
+                          "created_at":  "2025-01-01T00:00:00Z",
+                          "updated_at":  "2025-01-01T00:00:00Z",
+                          "downloads":  0,
+                          "verified":  true,
+                          "documented":  true,
+                          "maintenance":  "active",
+                          "license":  "MIT",
+                          "security_review":  {
+                                                  "status":  "audited",
+                                                  "audited_at":  "2025-04-10T00:00:00Z",
+                                                  "auditor":  "StarForge Security Team",
+                                                  "findings":  null,
+                                                  "score":  95
+                                              },
+                          "changelog":  [
+                                            {
+                                                "version":  "1.0.0",
+                                                "date":  "2025-01-01",
+                                                "notes":  "Initial release"
+                                            }
+                                        ]
+                      },
+                      {
+                          "name":  "multisig-vault",
+                          "version":  "1.0.0",
+                          "description":  "Threshold M-of-N multi-signature vault for shared-custody token transfers",
+                          "author":  "StarForge",
+                          "tags":  [
+                                       "wallet",
+                                       "multisig",
+                                       "security",
+                                       "treasury"
+                                   ],
+                          "source":  {
+                                         "type":  "builtin",
+                                         "id":  "multisig-vault"
+                                     },
+                          "created_at":  "2025-01-01T00:00:00Z",
+                          "updated_at":  "2025-01-01T00:00:00Z",
+                          "downloads":  0,
+                          "verified":  true,
+                          "documented":  true,
+                          "maintenance":  "active",
+                          "license":  "MIT",
+                          "security_review":  {
+                                                  "status":  "audited",
+                                                  "audited_at":  "2025-04-10T00:00:00Z",
+                                                  "auditor":  "StarForge Security Team",
+                                                  "findings":  null,
+                                                  "score":  96
+                                              },
+                          "changelog":  [
+                                            {
+                                                "version":  "1.0.0",
+                                                "date":  "2025-01-01",
+                                                "notes":  "Initial release"
+                                            }
+                                        ]
+                      },
+                      {
+                          "name":  "sep41-token",
+                          "version":  "1.0.0",
+                          "description":  "Full SEP-41 fungible token with mint, transfer, burn, approve, and transfer_from",
+                          "author":  "StarForge",
+                          "tags":  [
+                                       "token",
+                                       "sep-41",
+                                       "fungible",
+                                       "standard"
+                                   ],
+                          "source":  {
+                                         "type":  "builtin",
+                                         "id":  "sep41-token"
+                                     },
+                          "created_at":  "2025-06-29T00:00:00Z",
+                          "updated_at":  "2025-06-29T00:00:00Z",
+                          "downloads":  0,
+                          "verified":  true,
+                          "documented":  true,
+                          "maintenance":  "active",
+                          "license":  "MIT",
+                          "security_review":  {
+                                                  "status":  "audited",
+                                                  "audited_at":  "2025-06-29T00:00:00Z",
+                                                  "auditor":  "StarForge Security Team",
+                                                  "findings":  null,
+                                                  "score":  98
+                                              },
+                          "changelog":  [
+                                            {
+                                                "version":  "1.0.0",
+                                                "date":  "2025-06-29",
+                                                "notes":  "Initial release — full SEP-41 compliant fungible token"
+                                            }
+                                        ]
+                      },
+                      {
+                          "name":  "nft",
+                          "version":  "1.0.0",
+                          "description":  "Non-fungible token (NFT) contract with mint, transfer, approve, burn, and token URI",
+                          "author":  "StarForge",
+                          "tags":  [
+                                       "nft",
+                                       "token",
+                                       "non-fungible",
+                                       "collectible"
+                                   ],
+                          "source":  {
+                                         "type":  "builtin",
+                                         "id":  "nft"
+                                     },
+                          "created_at":  "2025-06-29T00:00:00Z",
+                          "updated_at":  "2025-06-29T00:00:00Z",
+                          "downloads":  0,
+                          "verified":  true,
+                          "documented":  true,
+                          "maintenance":  "active",
+                          "license":  "MIT",
+                          "security_review":  {
+                                                  "status":  "audited",
+                                                  "audited_at":  "2025-06-29T00:00:00Z",
+                                                  "auditor":  "StarForge Security Team",
+                                                  "findings":  null,
+                                                  "score":  97
+                                              },
+                          "changelog":  [
+                                            {
+                                                "version":  "1.0.0",
+                                                "date":  "2025-06-29",
+                                                "notes":  "Initial release — NFT with approve delegation and burn"
+                                            }
+                                        ]
+                      },
+                      {
+                          "name":  "staking",
+                          "version":  "1.0.0",
+                          "description":  "DeFi staking/yield contract — stake tokens, earn rewards proportional to stake and duration",
+                          "author":  "StarForge",
+                          "tags":  [
+                                       "defi",
+                                       "staking",
+                                       "yield",
+                                       "rewards"
+                                   ],
+                          "source":  {
+                                         "type":  "builtin",
+                                         "id":  "staking"
+                                     },
+                          "created_at":  "2025-06-29T00:00:00Z",
+                          "updated_at":  "2025-06-29T00:00:00Z",
+                          "downloads":  0,
+                          "verified":  true,
+                          "documented":  true,
+                          "maintenance":  "active",
+                          "license":  "MIT",
+                          "security_review":  {
+                                                  "status":  "audited",
+                                                  "audited_at":  "2025-06-29T00:00:00Z",
+                                                  "auditor":  "StarForge Security Team",
+                                                  "findings":  null,
+                                                  "score":  94
+                                              },
+                          "changelog":  [
+                                            {
+                                                "version":  "1.0.0",
+                                                "date":  "2025-06-29",
+                                                "notes":  "Initial release — stake/unstake with configurable reward rate"
+                                            }
+                                        ]
+                      },
+                      {
+                          "updated_at":  "2026-09-26T00:00:00Z",
+                          "version":  "1.0.0",
+                          "created_at":  "2026-09-26T00:00:00Z",
+                          "license":  "MIT",
+                          "downloads":  0,
+                          "security_review":  {
+                                                  "status":  "pending",
+                                                  "auditor":  null,
+                                                  "findings":  null,
+                                                  "audited_at":  null,
+                                                  "score":  null
+                                              },
+                          "tags":  [
+                                       "token",
+                                       "rwa",
+                                       "compliance",
+                                       "allowlist"
+                                   ],
+                          "name":  "rwa-token",
+                          "source":  {
+                                         "id":  "rwa-token",
+                                         "type":  "builtin"
+                                     },
+                          "description":  "Real-world-asset token with transfer restrictions, freezing, clawback, and a KYC allowlist",
+                          "author":  "StarForge",
+                          "documented":  true,
+                          "changelog":  [
+                                            {
+                                                "date":  "2026-09-26",
+                                                "version":  "1.0.0",
+                                                "notes":  "Initial release"
+                                            }
+                                        ],
+                          "verified":  true,
+                          "maintenance":  "active"
+                      }
+                  ]
 }

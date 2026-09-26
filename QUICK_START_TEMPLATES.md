@@ -101,11 +101,11 @@ starforge new contract test-project \
 
 ## Available Placeholders
 
-| Placeholder | Input: "my-project" | Output |
-|-------------|---------------------|--------|
-| `{{PROJECT_NAME}}` | my-project | my-project |
-| `{{PROJECT_NAME_SNAKE}}` | my-project | my_project |
-| `{{PROJECT_NAME_PASCAL}}` | my-project | MyProject |
+| Placeholder               | Input: "my-project" | Output     |
+| ------------------------- | ------------------- | ---------- |
+| `{{PROJECT_NAME}}`        | my-project          | my-project |
+| `{{PROJECT_NAME_SNAKE}}`  | my-project          | my_project |
+| `{{PROJECT_NAME_PASCAL}}` | my-project          | MyProject  |
 
 ## Common Commands
 
@@ -187,18 +187,18 @@ starforge template show <template-name>
 
 These templates are available without initializing the marketplace:
 
-| Template | Command | Description |
-|----------|---------|-------------|
-| `hello-world` | `starforge new contract my-contract` | Basic contract with optional storage |
-| `token` | `starforge new contract my-token --template token` | Fungible token with mint/burn/transfer |
-| `nft` | `starforge new contract my-nft --template nft` | Non-fungible token with URI metadata |
-| `voting` | `starforge new contract my-vote --template voting` | DAO proposal and voting contract |
-| `stablecoin` | `starforge new contract my-stable --template stablecoin` | Pegged stablecoin with mint/burn |
-| `escrow` | `starforge new contract my-escrow --template escrow` | Three-party escrow with arbiter release/refund |
+| Template      | Command                                                  | Description                                    |
+| ------------- | -------------------------------------------------------- | ---------------------------------------------- |
+| `hello-world` | `starforge new contract my-contract`                     | Basic contract with optional storage           |
+| `token`       | `starforge new contract my-token --template token`       | Fungible token with mint/burn/transfer         |
+| `nft`         | `starforge new contract my-nft --template nft`           | Non-fungible token with URI metadata           |
+| `voting`      | `starforge new contract my-vote --template voting`       | DAO proposal and voting contract               |
+| `stablecoin`  | `starforge new contract my-stable --template stablecoin` | Pegged stablecoin with mint/burn               |
+| `escrow`      | `starforge new contract my-escrow --template escrow`     | Three-party escrow with arbiter release/refund |
 
 ## Next Steps
 
-- Read the [full documentation](TEMPLATE_MARKETPLACE.md)
+- Read the [full documentation](docs/TEMPLATE_MARKETPLACE.md)
 - Check out [usage examples](examples/template_marketplace_usage.md)
 - Explore [example templates](templates/examples/)
 - Join the community and share your templates!

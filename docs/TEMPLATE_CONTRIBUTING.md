@@ -20,6 +20,20 @@ Before opening a pull request, confirm each item:
 - [ ] License is declared via the `license` field (MIT or Apache-2.0 preferred)
 - [ ] `TEMPLATE_CONTRIBUTING.md` checklist items have all been addressed
 
+## Template authoring kit
+
+Create a starter template with `starforge template new my-template --output ./templates/examples`. It generates `template.json`, `README.md`, `Cargo.toml`, `src/lib.rs`, and `tests/fixture.json`.
+
+Lint the template with `starforge template lint ./templates/examples/my-template`. This checks the registry schema, declared license, and security scanner.
+
+Test the template with `starforge template test my-template`. The command reads `tests/fixture.json`, renders the template using the sample inputs, and runs `cargo test` on the rendered project.
+
+The generated fixture uses `project_name`; template files can use `{{PROJECT_NAME}}`, `{{PROJECT_NAME_SNAKE}}`, and `{{PROJECT_NAME_PASCAL}}` for substitutions.
+
+Recommended workflow: `template new` → edit → `template lint` → `template test` → `template validate` → PR.
+
+---
+
 ---
 
 ## Template structure
@@ -28,7 +42,7 @@ Every template lives under `templates/examples/<template-name>/` and follows thi
 
 ```
 templates/examples/<template-name>/
-├── Cargo.toml          # crate manifest — uses {{project_name_snake}}
+├── Cargo.toml          # crate manifest — uses {{PROJECT_NAME}}
 ├── README.md           # user-facing documentation
 └── src/
     └── lib.rs          # contract source
@@ -38,7 +52,7 @@ templates/examples/<template-name>/
 
 ```toml
 [package]
-name = "{{project_name_snake}}"
+name = "{{PROJECT_NAME}}"
 version = "0.1.0"
 edition = "2021"
 
@@ -52,7 +66,7 @@ soroban-sdk = { version = "22.0.0", features = ["alloc"] }
 soroban-sdk = { version = "22.0.0", features = ["testutils"] }
 ```
 
-Use `{{project_name_snake}}` as the crate name — StarForge replaces this with the
+Use `{{PROJECT_NAME}}` as the crate name — StarForge replaces this with the
 user's project name when scaffolding.
 
 ### Contract source requirements

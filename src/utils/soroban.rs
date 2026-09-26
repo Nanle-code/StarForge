@@ -1,4 +1,5 @@
 use crate::utils::config::{self, WalletEntry};
+use crate::utils::rpc_budget::{RpcBudget, RpcBudgetManager};
 use crate::utils::simulation_resources::{
     self, ResourceFeePlan, SimulationResourceError, SimulationResources,
 };
@@ -8,6 +9,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use once_cell::sync::Lazy;
 use reqwest::Client;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use std::sync::Mutex;
 use std::time::Duration;
 use stellar_strkey::{ed25519, Contract};
 use stellar_xdr::curr::{
@@ -26,6 +28,10 @@ fn build_http_client(timeout: Duration) -> Result<Client> {
 static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
     build_http_client(Duration::from_secs(30)).expect("Failed to create shared Soroban HTTP client")
 });
+
+/// Global RPC budget manager (thread-safe for concurrent access).
+static RPC_BUDGET_MANAGER: Lazy<Mutex<RpcBudgetManager>> = 
+    Lazy::new(|| Mutex::new(RpcBudgetManager::new()));
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SimulationResult {
@@ -366,6 +372,16 @@ async fn rpc_request_with_url<T>(rpc_url: &str, request: SorobanRpcRequest) -> R
 where
     T: DeserializeOwned,
 {
+    // Acquire RPC budget permit before making the request
+    let budget = {
+        let mut manager = RPC_BUDGET_MANAGER.lock().unwrap();
+        manager.get_budget(rpc_url)
+    };
+    
+    let _permit = budget.acquire_permit().await.with_context(|| {
+        format!("RPC budget exhausted for {}. Wait or increase STARFORGE_RPC_MAX_QPS/STARFORGE_RPC_MAX_CONCURRENT.", rpc_url)
+    })?;
+
     let response: SorobanRpcResponse<T> = HTTP_CLIENT
         .post(rpc_url)
         .json(&request)

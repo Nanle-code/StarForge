@@ -305,6 +305,8 @@ pub fn evaluate(
     results.push(license_gate(&root, config)?);
     results.extend(custom_gate_results(&root, &source, &config.custom_gates));
 
+    let passed = results.iter().all(|r| r.passed);
+
     let mut report = QualityGateReport {
         passed,
         project: root,

@@ -484,7 +484,7 @@ Simulate high concurrency with templates, searches, and downloads
 
 ## References
 
-- [Quick Start](./registry-api/QUICK_START.md)
-- [API Documentation](./registry-api/README.md)
-- [Architecture](./ARCHITECTURE.md)
-- [Developer Guide](./DEVELOPER_GUIDE.md)
+- [Quick Start](../registry-api/QUICK_START.md)
+- [API Documentation](../registry-api/README.md)
+- [Architecture](../ARCHITECTURE.md)
+- [Developer Guide](../DEVELOPER_GUIDE.md)

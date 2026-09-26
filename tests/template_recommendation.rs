@@ -49,6 +49,7 @@ fn make_entry(name: &str, tags: &[&str], downloads: u32, verified: bool) -> Temp
         documentation: None,
         categories: vec![],
         featured: false,
+        provenance: None,
         security_review: None,
         changelog: None,
     }

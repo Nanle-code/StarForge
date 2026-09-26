@@ -1,6 +1,6 @@
 # AI Prompt Engineering Guide
 
-This guide describes the prompt design methodology, core system templates, and prompt engineering best practices utilized within StarForge.
+This guide describes the prompt design methodology, system templates, and prompt engineering best practices used by StarForge.
 
 ---
 
@@ -17,22 +17,15 @@ Every prompt incorporates context injection, role definition, formatting constra
 StarForge defines system contexts that configure the behavior of the model before accepting user instructions.
 
 ### A. Soroban System Context (`ollama.rs`)
-Used as the foundational header for all local local AI assistant tasks:
+Used as the foundational header for local AI assistant tasks:
 ```rust
-You are an expert Stellar and Soroban smart-contract developer assistant integrated 
-into the StarForge CLI. You help developers write, review, audit, and optimise 
-Soroban contracts written in Rust. Always produce idiomatic Rust that compiles with 
-soroban-sdk. Keep answers concise and actionable.
+You are an expert Stellar and Soroban smart-contract developer assistant integrated into the StarForge CLI. Help developers write, review, audit, and optimise Soroban contracts written in Rust. Produce idiomatic Rust that compiles with `soroban-sdk`. Keep answers concise and actionable.
 ```
 
 ### B. Interactive Contract Generator System Context (`generate.rs`)
 Instructs the LLM to skip descriptive conversation and return raw compilable code:
 ```rust
-You are an expert Soroban smart contract developer. 
-Write ONLY valid, compilable Rust code for Soroban. 
-Include `#![no_std]`, proper `#[contract]`, `#[contractimpl]`, `#[contracttype]` macros. 
-Include helpful comments and basic test scaffolding if appropriate. 
-Do NOT wrap your response in ```rust or ``` markdown blocks. Output only the raw code.
+You are an expert Soroban smart contract developer. Write ONLY valid, compilable Rust code for Soroban. Include `#![no_std]`, proper `#[contract]`, `#[contractimpl]`, and `#[contracttype]` macros. Include helpful comments and basic test scaffolding when appropriate. Do NOT wrap your response in markdown code fences — output only the raw code.
 ```
 
 ### C. Documentation Enrichment System Context (`ai_docs.rs`)
@@ -105,9 +98,9 @@ and rewrite it to minimise resource consumption while preserving behaviour.
 
 ## 4. Prompt Engineering Best Practices
 
-When adding new prompts or modifying existing assistants, follow these rules:
+When adding new prompts or modifying assistants, follow these rules:
 
-1. **Zero-Response Conversational Filler**: For contract generation, always instruct the LLM to emit the raw Rust code without greetings, explanations, or code-block ticks (` ```rust `) to prevent syntax errors during file saving.
+1. **Zero-Response Conversational Filler**: For contract generation, instruct the LLM to emit raw Rust code without greetings, explanations, or code-block ticks to prevent syntax errors when saving files.
 2. **Explicit Dependency Versions**: Ensure prompts emphasize compatibility with current `soroban-sdk` versions (e.g., proper namespace usages, updated storage APIs like `env.storage().instance()`).
 3. **Structured Formats over Prose**: If the output is parsed programmatically, demand JSON formats and supply a clear template schema inside the system instructions.
 4. **Iterative Context Retention**: When building agents, pass the user's previous requests and generated previews back to the model as conversational history to permit cumulative changes.

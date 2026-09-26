@@ -1,0 +1,197 @@
+name: StarForge
+description: >-
+  Install StarForge, optionally set up a wallet from a secret, and run build,
+  test, deploy or verify in one step.
+author: StarForge maintainers
+
+branding:
+  icon: box
+  color: purple
+
+inputs:
+  command:
+    description: >-
+      StarForge command (and flags) to run, for example
+      `test --wasm contract.wasm` or
+      `deploy --wasm contract.wasm --execute --yes`.
+      The network is NOT appended automatically; read the exported
+      `STARFORGE_NETWORK` variable when the command supports `--network`.
+    required: false
+    default: "--version"
+  network:
+    description: "Target network: local, testnet or mainnet."
+    required: false
+    default: testnet
+  wallet:
+    description: >-
+      Optional raw Stellar secret key ("S...") used to import a CI wallet.
+      Pass a repository secret, for example `${{ secrets.STARFORGE_WALLET }}`.
+      Never commit the value.
+    required: false
+  wallet-name:
+    description: "Name to store an imported wallet under."
+    required: false
+    default: ci-wallet
+  version:
+    description: >-
+      StarForge release to install when `install-mode: release`. Use a semver
+      tag such as `0.1.0`, or `latest`.
+    required: false
+    default: "0.1.0"
+  install-mode:
+    description: >-
+      `release` downloads the pinned release archive and verifies its SHA-256
+      checksum; `source` builds the checked-out repository (used by StarForge's
+      own CI, where no release artifact is required).
+    required: false
+    default: release
+  working-directory:
+    description: "Directory to run the StarForge command from."
+    required: false
+    default: "."
+  skip-confirmation:
+    description: >-
+      Set `true` to export `STARFORGE_UNSAFE_SKIP_CONFIRMATION=1`, bypassing
+      interactive confirmations in automation. Only use for disposable,
+      non-mainnet runs.
+    required: false
+    default: "false"
+
+outputs:
+  contract-id:
+    description: "Contract ID (C...) parsed from the command output, when present."
+    value: ${{ steps.run.outputs.contract-id }}
+  wasm-hash:
+    description: "64-character WASM hash parsed from the command output, when present."
+    value: ${{ steps.run.outputs.wasm-hash }}
+  exit-code:
+    description: "Exit code of the StarForge command."
+    value: ${{ steps.run.outputs.exit-code }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve platform and version
+      id: resolve
+      shell: bash
+      run: |
+        set -euo pipefail
+        os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+        case "$os" in
+          linux*)  os=linux ;;
+          darwin*) os=macos ;;
+          *) echo "::error::Unsupported operating system: $os"; exit 1 ;;
+        esac
+        arch="$(uname -m)"
+        case "$arch" in
+          x86_64|amd64)  arch=x86_64 ;;
+          arm64|aarch64) arch=aarch64 ;;
+          *) echo "::error::Unsupported architecture: $arch"; exit 1 ;;
+        esac
+        version="${{ inputs.version }}"
+        if [ "$version" = "latest" ]; then
+          version="$(curl -fsSL https://api.github.com/repos/Nanle-code/StarForge/releases/latest \
+            | grep -m1 '"tag_name"' \
+            | sed -E 's/.*"v?([^"]+)".*/\1/')"
+        fi
+        version="${version#v}"
+        {
+          echo "os=$os"
+          echo "arch=$arch"
+          echo "version=$version"
+        } >> "$GITHUB_OUTPUT"
+        echo "Resolved StarForge ${version} for ${os}-${arch}"
+
+    - name: Restore cached StarForge binary
+      if: inputs.install-mode == 'release'
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/starforge-bin
+        key: starforge-${{ steps.resolve.outputs.os }}-${{ steps.resolve.outputs.arch }}-${{ steps.resolve.outputs.version }}
+
+    - name: Install pinned release (checksum-verified)
+      if: inputs.install-mode == 'release' && steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        version='${{ steps.resolve.outputs.version }}'
+        os='${{ steps.resolve.outputs.os }}'
+        arch='${{ steps.resolve.outputs.arch }}'
+        base="https://github.com/Nanle-code/StarForge/releases/download/v${version}"
+        asset="starforge-${os}-${arch}.tar.gz"
+        dest="${{ runner.temp }}/starforge-bin"
+        mkdir -p "$dest"
+        tmp="$(mktemp -d)"
+        trap 'rm -rf "$tmp"' EXIT
+        curl -fsSL "$base/$asset" -o "$tmp/$asset"
+        curl -fsSL "$base/SHA256SUMS.txt" -o "$tmp/SHA256SUMS.txt"
+        if command -v sha256sum >/dev/null 2>&1; then
+          hash_cmd="sha256sum"
+        else
+          hash_cmd="shasum -a 256"
+        fi
+        ( cd "$tmp" && $hash_cmd -c SHA256SUMS.txt --ignore-missing )
+        tar -xzf "$tmp/$asset" -C "$dest"
+        echo "Installed StarForge ${version} (checksum verified)"
+
+    - name: Build from the current checkout
+      if: inputs.install-mode == 'source'
+      shell: bash
+      run: |
+        set -euo pipefail
+        dest="${{ runner.temp }}/starforge-bin"
+        mkdir -p "$dest"
+        cargo build --release --locked
+        cp target/release/starforge "$dest/starforge"
+        echo "Built StarForge from the current checkout"
+
+    - name: Add StarForge to PATH
+      shell: bash
+      run: |
+        set -euo pipefail
+        bin="${{ runner.temp }}/starforge-bin"
+        chmod +x "$bin/starforge" 2>/dev/null || true
+        echo "$bin" >> "$GITHUB_PATH"
+
+    - name: Configure network and wallet
+      shell: bash
+      env:
+        STARFORGE_WALLET_SECRET: ${{ inputs.wallet }}
+        STARFORGE_NETWORK: ${{ inputs.network }}
+      run: |
+        set -euo pipefail
+        echo "::add-mask::${STARFORGE_WALLET_SECRET:-}"
+        export PATH="${{ runner.temp }}/starforge-bin:$PATH"
+        starforge network switch "${{ inputs.network }}" >/dev/null 2>&1 || true
+        if [ -n "${STARFORGE_WALLET_SECRET:-}" ]; then
+          starforge wallet import "${{ inputs.wallet-name }}" \
+            --key "$STARFORGE_WALLET_SECRET" \
+            --network "${{ inputs.network }}"
+          echo "Imported wallet '${{ inputs.wallet-name }}' for ${{ inputs.network }}"
+        else
+          echo "No wallet secret supplied; skipping wallet import."
+        fi
+
+    - name: Run StarForge
+      id: run
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        STARFORGE_NETWORK: ${{ inputs.network }}
+        STARFORGE_UNSAFE_SKIP_CONFIRMATION: ${{ inputs.skip-confirmation == 'true' && '1' || '' }}
+      run: |
+        set -uo pipefail
+        out="$(mktemp)"
+        set +e
+        starforge ${{ inputs.command }} 2>&1 | tee "$out"
+        code=${PIPESTATUS[0]}
+        set -e
+        contract_id="$(grep -oE 'C[A-Z2-7]{55}' "$out" | head -1 || true)"
+        wasm_hash="$(grep -oE '[0-9a-f]{64}' "$out" | head -1 || true)"
+        {
+          echo "contract-id=$contract_id"
+          echo "wasm-hash=$wasm_hash"
+          echo "exit-code=$code"
+        } >> "$GITHUB_OUTPUT"
+        exit "$code"

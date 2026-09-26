@@ -722,7 +722,7 @@ fn update(name: Option<String>, yes: bool) -> Result<()> {
                     if modified > installed_epoch {
                         // Library on disk is newer — refresh the registry entry.
                         let (cmds, description) = discover_plugin_metadata(&pl.path)
-                            .unwrap_or_else(|_| (pl.commands.clone(), String::new()));
+                            .unwrap_or_else(|_| (pl.commands.clone(), pl.description.clone()));
                         registry::install_plugin(
                             &pl.name,
                             std::path::Path::new(&pl.path),

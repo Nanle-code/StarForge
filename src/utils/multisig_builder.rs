@@ -4,8 +4,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-
 /// Time-lock policy settings for delayed multisig execution (#768).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TimelockPolicy {
@@ -39,6 +37,7 @@ pub enum TimelockExecutionStatus {
     Expired { expired_at: String },
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Proposal {
     pub id: String,
     pub threshold: u32,
@@ -56,14 +55,14 @@ pub struct Proposal {
     pub events: Vec<ProposalEvent>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Signature {
     pub signer: String,
     pub signature: String,
     pub signed_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProposalMetadata {
     pub title: Option<String>,
     pub description: Option<String>,
@@ -74,7 +73,7 @@ pub struct ProposalMetadata {
     pub template: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProposalEvent {
     pub event_type: String,
     pub message: String,

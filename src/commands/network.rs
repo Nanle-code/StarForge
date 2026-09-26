@@ -24,13 +24,13 @@ pub enum NetworkCommands {
         #[arg(long)]
         horizon_url: String,
         /// Optional Soroban RPC URL
-        #[arg(long)]
+        #[arg(long, hide = true)]
         soroban_rpc_url: Option<String>,
         /// Optional network faucet / Friendbot URL
-        #[arg(long)]
+        #[arg(long, hide = true)]
         friendbot_url: Option<String>,
         /// Optional network passphrase for transaction signing (defaults to testnet passphrase)
-        #[arg(long)]
+        #[arg(long, hide = true)]
         passphrase: Option<String>,
     },
     /// Test connectivity to a network

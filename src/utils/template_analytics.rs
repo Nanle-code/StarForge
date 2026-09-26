@@ -926,6 +926,7 @@ mod tests {
             documentation: None,
             categories: vec![],
             featured: false,
+            provenance: None,
             security_review: None,
             changelog: None,
         }

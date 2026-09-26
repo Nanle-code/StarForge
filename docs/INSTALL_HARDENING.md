@@ -19,8 +19,8 @@ the script, before trusting it to run at all.
 TAG="v1.4.0"
 OS="darwin"        # or "linux"
 ARCH="aarch64"      # or "x86_64"
-curl -sLO "https://github.com/Josetic224/StarForge/releases/download/$TAG/starforge-$OS-$ARCH.tar.gz"
-curl -sLO "https://github.com/Josetic224/StarForge/releases/download/$TAG/SHA256SUMS.txt"
+curl -sLO "https://github.com/Nanle-code/StarForge/releases/download/$TAG/starforge-$OS-$ARCH.tar.gz"
+curl -sLO "https://github.com/Nanle-code/StarForge/releases/download/$TAG/SHA256SUMS.txt"
 
 # 2. Verify the archive's checksum matches the published one.
 grep "starforge-$OS-$ARCH.tar.gz" SHA256SUMS.txt | shasum -a 256 -c -

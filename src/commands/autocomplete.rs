@@ -229,10 +229,13 @@ impl AutocompleteEngine {
                 vec!["--horizon-url", "--soroban-rpc-url", "--network-passphrase"]
             }
             "contract" => {
-                vec!["inspect", "invoke", "list"]
+                vec!["build", "inspect", "invoke", "list"]
             }
             "contract inspect" => {
-                vec!["--network"]
+                vec!["--network", "--wasm", "--json"]
+            }
+            "contract build" => {
+                vec!["--manifest-path", "--no-provenance"]
             }
             "contract invoke" => {
                 vec!["--network", "--wallet", "--function", "--args"]

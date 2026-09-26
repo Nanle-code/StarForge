@@ -21,12 +21,14 @@ set -euo pipefail
 
 INPUT_FILE=""
 REPORT_PATH=""
+PR_MODE=""
 
 # ---- Argument parsing -------------------------------------------------------
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --input) INPUT_FILE="$2"; shift 2 ;;
         --report-path) REPORT_PATH="$2"; shift 2 ;;
+        --pr-mode) PR_MODE="1"; shift ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
@@ -46,6 +48,14 @@ BUDGETS[cli_template_list]=350
 BUDGETS[cli_template_search]=400
 BUDGETS[cli_deploy_help]=350
 BUDGETS[cli_benchmark_wasm]=500
+
+# ---- Critical interactive hot paths for PR CI -------------------------------
+declare -A CRITICAL_HOT_PATHS
+CRITICAL_HOT_PATHS[cli_cold_start_info]=1
+CRITICAL_HOT_PATHS[cli_cold_start_help]=1
+CRITICAL_HOT_PATHS[cli_wallet_list]=1
+CRITICAL_HOT_PATHS[cli_config_show]=1
+CRITICAL_HOT_PATHS[cli_info]=1
 
 # ---- Override budgets from environment variables ---------------------------
 for label in "${!BUDGETS[@]}"; do
@@ -166,6 +176,10 @@ EOF
 }
 
 for label in "${!BUDGETS[@]}"; do
+    # In PR mode, only check critical hot paths
+    if [[ -n "$PR_MODE" && -z "${CRITICAL_HOT_PATHS[$label]}" ]]; then
+        continue
+    fi
     check_label "$label" "${BUDGETS[$label]}"
 done
 

@@ -1,12 +1,8 @@
 import request from "supertest";
 import app from "../index";
-import { UserStore } from "../models/User";
-import { TemplateStore } from "../models/Template";
-import jwt from "jsonwebtoken";
 
 describe("Registry API", () => {
   let token: string;
-  let userId: string;
 
   describe("Authentication", () => {
     it("should signup a new user", async () => {
@@ -22,8 +18,6 @@ describe("Registry API", () => {
       expect(response.body.username).toBe("testuser");
 
       token = response.body.token;
-      const decoded = jwt.decode(token) as any;
-      userId = decoded.id;
     });
 
     it("should reject duplicate email", async () => {
@@ -76,8 +70,6 @@ describe("Registry API", () => {
   });
 
   describe("Templates", () => {
-    let templateId: string;
-
     it("should search templates", async () => {
       const response = await request(app).post("/api/templates/search").send({
         query: "counter",
@@ -107,7 +99,6 @@ describe("Registry API", () => {
       expect(response.body.success).toBe(true);
       expect(response.body.template_id).toBeDefined();
 
-      templateId = response.body.template_id;
     });
 
     it("should reject publish without authentication", async () => {

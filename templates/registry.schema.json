@@ -132,7 +132,8 @@
           "type": ["array", "null"],
           "description": "Release history, newest first.",
           "items": { "$ref": "#/$defs/changelogEntry" }
-        }
+        },
+        "provenance": { "$ref": "#/$defs/provenance" }
       }
     },
     "source": {
@@ -245,6 +246,46 @@
         "notes": {
           "type": "string",
           "description": "What changed in this release."
+        }
+      }
+    },
+    "provenance": {
+      "type": ["object", "null"],
+      "description": "Keyless Sigstore signature and build provenance for a published package. Records who published it and binds the published bytes to that identity; `starforge template install` verifies the fetched package against it. Null (or absent) for a template that was published unsigned.",
+      "required": ["digest", "signer", "signed_at"],
+      "x-unknown-properties": "warn",
+      "properties": {
+        "digest": {
+          "type": "string",
+          "minLength": 1,
+          "description": "SHA-256 (hex) of the canonical package payload that was signed."
+        },
+        "bundle": {
+          "type": ["string", "null"],
+          "description": "Base64-encoded Sigstore bundle produced by cosign."
+        },
+        "identity": {
+          "type": ["string", "null"],
+          "description": "OIDC subject bound into the signing certificate."
+        },
+        "issuer": {
+          "type": ["string", "null"],
+          "description": "OIDC issuer that vouched for `identity`."
+        },
+        "signer": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Tool that produced the signature, e.g. \"cosign\"."
+        },
+        "rekor_log_index": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Rekor transparency-log index recorded for the signature."
+        },
+        "signed_at": {
+          "type": "string",
+          "x-format": "rfc3339",
+          "description": "RFC 3339 timestamp of signing."
         }
       }
     }

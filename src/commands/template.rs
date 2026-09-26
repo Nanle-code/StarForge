@@ -1,5 +1,6 @@
 use crate::utils::template_integration;
 use crate::utils::template_performance;
+use crate::utils::template_provenance;
 use crate::utils::{output, print as p, template_customization_ai, templates};
 use anyhow::{Context, Result};
 use clap::Subcommand;
@@ -74,6 +75,10 @@ pub enum TemplateCommands {
         /// Maximum StarForge CLI version supported
         #[arg(long)]
         cli_version_max: Option<String>,
+        /// Sign the imported package with Sigstore keyless signing. Fails when no
+        /// keyless signing environment is available.
+        #[arg(long)]
+        sign: bool,
     },
     /// Publish a template to the local marketplace
     Publish {
@@ -100,6 +105,12 @@ pub enum TemplateCommands {
         /// Maximum StarForge CLI version supported (semver, e.g. "1.99.99")
         #[arg(long)]
         cli_version_max: Option<String>,
+        /// Minimum Soroban SDK version required (semver, e.g. "22.0.0")
+        #[arg(long)]
+        soroban_sdk_min: Option<String>,
+        /// Maximum Soroban SDK version supported (semver, e.g. "23.0.0")
+        #[arg(long)]
+        soroban_sdk_max: Option<String>,
         /// SPDX license identifier (e.g. "MIT", "Apache-2.0")
         #[arg(long)]
         license: Option<String>,
@@ -112,6 +123,19 @@ pub enum TemplateCommands {
         /// Extended documentation URL
         #[arg(long)]
         documentation: Option<String>,
+        /// Sign the package with Sigstore keyless signing and record the bundle
+        /// alongside the registry entry. Fails when no keyless signing environment
+        /// (cosign plus an OIDC identity) is available. Without this flag a
+        /// signature is still added whenever one can be produced.
+        #[arg(long)]
+        sign: bool,
+        /// OIDC identity (subject) to bind into the signing certificate, overriding
+        /// the ambient identity.
+        #[arg(long)]
+        identity: Option<String>,
+        /// OIDC issuer matching `--identity`.
+        #[arg(long)]
+        oidc_issuer: Option<String>,
     },
     /// Remove a template from the local marketplace
     Remove {
@@ -122,8 +146,19 @@ pub enum TemplateCommands {
         #[arg(long)]
         purge: bool,
     },
-    /// Initialize the template registry with example templates
-    Init,
+    /// Scaffold a new template authoring kit
+    New {
+        /// Template name
+        name: String,
+        /// Directory where the template will be created
+        #[arg(long, default_value = ".")]
+        output: PathBuf,
+    },
+    /// Run schema, license, and security checks on a template
+    Lint {
+        /// Path to the template directory
+        path: PathBuf,
+    },
     /// Show full metadata for a template: author, version, license, repository, trust badges
     Info {
         /// Template name
@@ -142,6 +177,10 @@ pub enum TemplateCommands {
         /// Overwrite the template if it is already installed
         #[arg(long, default_value = "false")]
         force: bool,
+        /// Require the template to carry a verifiable Sigstore signature and
+        /// refuse the install when it does not.
+        #[arg(long)]
+        require_signed: bool,
     },
     /// Update installed templates to their latest versions
     Update {
@@ -219,6 +258,7 @@ pub async fn handle(cmd: TemplateCommands) -> Result<()> {
             version,
             cli_version_min,
             cli_version_max,
+            sign,
         } => {
             import(
                 path,
@@ -229,6 +269,7 @@ pub async fn handle(cmd: TemplateCommands) -> Result<()> {
                 version,
                 cli_version_min,
                 cli_version_max,
+                sign,
             )
             .await
         }
@@ -241,10 +282,15 @@ pub async fn handle(cmd: TemplateCommands) -> Result<()> {
             version,
             cli_version_min,
             cli_version_max,
+            soroban_sdk_min,
+            soroban_sdk_max,
             license,
             repository,
             homepage,
             documentation,
+            sign,
+            identity,
+            oidc_issuer,
         } => {
             publish(
                 path,
@@ -255,10 +301,15 @@ pub async fn handle(cmd: TemplateCommands) -> Result<()> {
                 version,
                 cli_version_min,
                 cli_version_max,
+                soroban_sdk_min,
+                soroban_sdk_max,
                 license,
                 repository,
                 homepage,
                 documentation,
+                sign,
+                identity,
+                oidc_issuer,
             )
             .await
         }
@@ -278,14 +329,28 @@ pub async fn handle(cmd: TemplateCommands) -> Result<()> {
         } => search(query, tags, verified, min_quality, refresh, limit, cursor).await,
         TemplateCommands::Show { name } => show(name).await,
         TemplateCommands::Remove { name, purge } => remove(name, purge).await,
-        TemplateCommands::Init => init(),
+        TemplateCommands::New { name, output } => template_new(name, output),
+        TemplateCommands::Lint { path } => template_lint(path),
         TemplateCommands::Info { name } => info(name).await,
         TemplateCommands::Fetch {
             source,
             name,
             version,
             force,
-        } => crate::utils::template::install(source, name, version, force).await,
+            require_signed,
+        } => {
+            // The policy is read deep inside the installer, so expose the flag
+            // as the environment variable it consults for the duration of the
+            // install and restore it afterwards.
+            if require_signed {
+                std::env::set_var(template_provenance::REQUIRE_SIGNED_ENV, "1");
+            }
+            let result = crate::utils::template::install(source, name, version, force).await;
+            if require_signed {
+                std::env::remove_var(template_provenance::REQUIRE_SIGNED_ENV);
+            }
+            result
+        }
         TemplateCommands::Update { name, all } => update(name, all).await,
         TemplateCommands::Rollback { name } => rollback(name).await,
         TemplateCommands::Test { name, verbose } => template_test(name, verbose).await,
@@ -366,6 +431,7 @@ async fn import(
     version: String,
     cli_version_min: Option<String>,
     cli_version_max: Option<String>,
+    sign: bool,
 ) -> Result<()> {
     publish(
         path,
@@ -378,6 +444,9 @@ async fn import(
         cli_version_max,
         None,
         None,
+        None,
+        None,
+        sign,
         None,
         None,
     )
@@ -400,10 +469,15 @@ async fn publish(
     version: String,
     cli_version_min: Option<String>,
     cli_version_max: Option<String>,
+    soroban_sdk_min: Option<String>,
+    soroban_sdk_max: Option<String>,
     license: Option<String>,
     repository: Option<String>,
     homepage: Option<String>,
     documentation: Option<String>,
+    sign: bool,
+    identity: Option<String>,
+    oidc_issuer: Option<String>,
 ) -> Result<()> {
     use dialoguer::{theme::ColorfulTheme, Input};
     let name = match name {
@@ -437,16 +511,41 @@ async fn publish(
         description,
         author,
         tag_list,
-        version,
+        version.clone(),
         cli_version_min,
         cli_version_max,
+        soroban_sdk_min,
+        soroban_sdk_max,
         license,
         repository,
         homepage,
         documentation,
     )
     .await?;
-    let template = templates::get_template(&name).await?;
+
+    // Sign the package that was just written into the template store. The
+    // bundle is attached to the registry entry so `template install` can check
+    // both who published it and that the bytes did not change.
+    let published =
+        templates::get_template_by_name_and_version(&name, Some(version.as_str())).await?;
+    let signing = template_provenance::SigningConfig {
+        cosign_bin: None,
+        identity,
+        issuer: oidc_issuer,
+    };
+
+    if sign || template_provenance::keyless_signing_available(&signing) {
+        let package_path = published
+            .path
+            .as_deref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| path.clone());
+        let provenance = template_provenance::sign_package(&package_path, &signing)?;
+        templates::set_template_provenance(&name, &version, provenance).await?;
+    }
+
+    let template =
+        templates::get_template_by_name_and_version(&name, Some(version.as_str())).await?;
 
     p::header("Template Publish");
     p::success("Template registered successfully");
@@ -464,6 +563,15 @@ async fn publish(
     }
     if let Some(path) = template.path.as_ref() {
         p::kv("Path", path);
+    }
+    match template.provenance.as_ref() {
+        Some(provenance) => {
+            p::kv("Signed by", &provenance.summary());
+            p::kv("Signed digest", &provenance.digest);
+        }
+        None => p::info(
+            "No keyless signing environment detected — the package was published without a Sigstore signature.",
+        ),
     }
 
     Ok(())
@@ -815,6 +923,9 @@ fn print_quality_signals(template: &templates::TemplateEntry) {
         },
     );
     p::kv("Downloads", &template.downloads.to_string());
+    if let Some(provenance) = template.provenance.as_ref() {
+        p::kv("Signed by", &provenance.summary());
+    }
     let badges = template.trust_indicators();
     if !badges.is_empty() {
         p::kv("Trust signals", &badges.join("  "));
@@ -835,8 +946,191 @@ async fn remove(name: String, purge: bool) -> Result<()> {
     Ok(())
 }
 
-fn init() -> Result<()> {
-    p::info("Template registry is ready. Use `starforge template list` to view templates.");
+
+fn template_lint(path: PathBuf) -> Result<()> {
+    if !path.is_dir() {
+        anyhow::bail!("Template directory does not exist: {}", path.display());
+    }
+
+    p::header(&format!("Template Lint: {}", path.display()));
+
+    let metadata_path = path.join("template.json");
+    if !metadata_path.exists() {
+        anyhow::bail!("Missing template.json");
+    }
+
+    let metadata = std::fs::read_to_string(&metadata_path)?;
+    let value = crate::utils::template_schema::parse_json(&metadata)
+        .map_err(|e| anyhow::anyhow!("Invalid template.json: {}", e))?;
+    crate::utils::template_schema::validate_template_entry(&value, &metadata_path.display().to_string())
+        .map_err(|e| anyhow::anyhow!("Schema validation failed: {}", e))?;
+
+    p::success("Schema checks passed");
+
+    let license = value
+        .get("license")
+        .and_then(|v| v.as_str())
+        .filter(|v| !v.trim().is_empty());
+    if license.is_none() {
+        anyhow::bail!("License check failed: template.json must contain a non-empty license");
+    }
+    p::success(&format!("License check passed ({})", license.unwrap()));
+
+    let security_path = {
+        let src = path.join("src");
+        if src.is_dir() { src } else { path.clone() }
+    };
+
+    let config = TemplateSecurityScannerConfig {
+        template_path: security_path.display().to_string(),
+        scan_level: ScanLevel::Standard,
+        enable_ai_analysis: false,
+        include_malicious_detection: true,
+        enable_continuous_monitoring: false,
+    };
+    let scan = scan_template_security(&config)?;
+
+    if !scan.vulnerabilities.is_empty()
+        || !scan.malicious_code_indicators.is_empty()
+        || !scan.anti_patterns.is_empty()
+    {
+        anyhow::bail!(
+            "Security check failed: {} vulnerabilities, {} malicious indicators, {} anti-patterns",
+            scan.vulnerabilities.len(),
+            scan.malicious_code_indicators.len(),
+            scan.anti_patterns.len()
+        );
+    }
+
+    p::success(&format!(
+        "Security check passed (score {:.0}/100)",
+        scan.security_score
+    ));
+    p::success("Template lint passed");
+    Ok(())
+}
+
+fn template_new(name: String, output: PathBuf) -> Result<()> {
+    crate::utils::template_schema::check_template_name(&name)
+        .map_err(|e| anyhow::anyhow!("Invalid template name: {}", e.message))?;
+
+    let template_dir = output.join(&name);
+    if template_dir.exists() {
+        anyhow::bail!("Template directory already exists: {}", template_dir.display());
+    }
+
+    std::fs::create_dir_all(template_dir.join("src"))?;
+    std::fs::create_dir_all(template_dir.join("tests"))?;
+
+    std::fs::write(
+        template_dir.join("template.json"),
+        format!(
+            r#"{{
+  "name": "{}",
+  "version": "1.0.0",
+  "description": "One-line description of what the contract does",
+  "author": "Your Name",
+  "tags": ["standard"],
+  "source": {{ "type": "builtin", "id": "{}" }},
+  "verified": false,
+  "documented": true,
+  "maintenance": "active",
+  "license": "MIT",
+  "security_review": {{
+    "status": "pending",
+    "audited_at": null,
+    "auditor": null,
+    "findings": null,
+    "score": null
+  }},
+  "changelog": [
+    {{
+      "version": "1.0.0",
+      "date": "2025-01-01",
+      "notes": "Initial release"
+    }}
+  ]
+}}
+"#,
+            name, name
+        ),
+    )?;
+
+    std::fs::write(
+        template_dir.join("README.md"),
+        format!(
+            "# {}\n\nDescribe your template and its public functions here.\n",
+            name
+        ),
+    )?;
+
+    std::fs::write(
+        template_dir.join("Cargo.toml"),
+        r#"[package]
+name = "{{PROJECT_NAME}}"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+soroban-sdk = "22.0.0"
+
+[dev-dependencies]
+soroban-sdk = { version = "22.0.0", features = ["testutils"] }
+"#,
+    )?;
+
+    std::fs::write(
+        template_dir.join("src").join("lib.rs"),
+        r#"#![no_std]
+//! Brief description of the contract.
+
+use soroban_sdk::{contract, contractimpl, Env};
+
+#[contract]
+pub struct {{PROJECT_NAME_PASCAL}};
+
+#[contractimpl]
+impl {{PROJECT_NAME_PASCAL}} {
+    pub fn hello(_env: Env) {
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_happy_path() {
+        let env = Env::default();
+        let _ = env;
+    }
+
+    #[test]
+    fn test_second_case() {
+        let env = Env::default();
+        let _ = env;
+    }
+}
+"#,
+    )?;
+
+    std::fs::write(
+        template_dir.join("tests").join("fixture.json"),
+        r#"{
+  "project_name": "example-project"
+}
+"#,
+    )?;
+
+    p::success(&format!(
+        "Created template '{}' at {}",
+        name,
+        template_dir.display()
+    ));
+
     Ok(())
 }
 
@@ -1116,7 +1410,6 @@ async fn template_test(name: String, verbose: bool) -> Result<()> {
 
     p::header(&format!("Template Test: {}", name));
 
-    // Locate the template source directory — prefer builtin examples.
     let builtin = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("templates")
         .join("examples")
@@ -1125,18 +1418,101 @@ async fn template_test(name: String, verbose: bool) -> Result<()> {
     let template_dir = if builtin.exists() {
         builtin
     } else {
-        // Fall back to path stored in the registry.
         let entry = templates::get_template(&name).await?;
         match entry.path {
             Some(ref p) => std::path::PathBuf::from(p),
             None => anyhow::bail!(
-                "Template '{}' has no local path. Install it first with: starforge template install {}",
+                "Template {} has no local path. Install it first with: starforge template install {}",
                 name, name
             ),
         }
     };
 
+    let fixture_path = template_dir.join("tests").join("fixture.json");
+    if !fixture_path.exists() {
+        anyhow::bail!("Missing test fixture: {}", fixture_path.display());
+    }
+
+    let fixture = std::fs::read_to_string(&fixture_path)?;
+    let fixture: serde_json::Value = serde_json::from_str(&fixture)
+        .map_err(|e| anyhow::anyhow!("Invalid test fixture: {}", e))?;
+
+    let project_name = fixture
+        .get("project_name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Test fixture must contain a string project_name"))?;
+
+    let project_name_snake = project_name.replace("-", "_");
+    let project_name_pascal = project_name
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect::<String>();
+
+    let temp_dir = std::env::temp_dir().join(format!(
+        "starforge-template-test-{}-{}",
+        name,
+        std::process::id()
+    ));
+    if temp_dir.exists() {
+        std::fs::remove_dir_all(&temp_dir)?;
+    }
+    std::fs::create_dir_all(&temp_dir)?;
+
+    fn render_dir(
+        src: &std::path::Path,
+        dst: &std::path::Path,
+        project_name: &str,
+        project_name_snake: &str,
+        project_name_pascal: &str,
+    ) -> Result<()> {
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            let path = entry.path();
+            let file_name = entry.file_name();
+
+            if file_name == "target" || file_name == ".git" {
+                continue;
+            }
+
+            let dest = dst.join(&file_name);
+            if path.is_dir() {
+                std::fs::create_dir_all(&dest)?;
+                render_dir(
+                    &path,
+                    &dest,
+                    project_name,
+                    project_name_snake,
+                    project_name_pascal,
+                )?;
+            } else {
+                let mut content = std::fs::read_to_string(&path)?;
+                content = content.replace("{{PROJECT_NAME}}", project_name);
+                content = content.replace("{{PROJECT_NAME_SNAKE}}", project_name_snake);
+                content = content.replace("{{PROJECT_NAME_PASCAL}}", project_name_pascal);
+                std::fs::write(&dest, content)?;
+            }
+        }
+        Ok(())
+    }
+
+    render_dir(
+        &template_dir,
+        &temp_dir,
+        project_name,
+        &project_name_snake,
+        &project_name_pascal,
+    )?;
+
     p::kv("Template directory", &template_dir.display().to_string());
+    p::kv("Sample project", project_name);
+    p::info("Rendered template with sample inputs");
     p::info("Running: cargo test");
 
     let mut cmd = Command::new("cargo");
@@ -1144,17 +1520,22 @@ async fn template_test(name: String, verbose: bool) -> Result<()> {
     if verbose {
         cmd.arg("--verbose");
     }
-    cmd.current_dir(&template_dir);
+    cmd.current_dir(&temp_dir);
 
-    let status = cmd.status()?;
+    let status = cmd.status();
+    let cleanup = std::fs::remove_dir_all(&temp_dir);
 
+    cleanup?;
+
+    let status = status?;
     if status.success() {
         p::success("All tests passed");
+        Ok(())
     } else {
-        anyhow::bail!("Tests failed for template '{}'", name);
+        anyhow::bail!("Tests failed for template {}", name);
     }
-    Ok(())
 }
+
 
 // ─── template docs ────────────────────────────────────────────────────────────
 
@@ -1463,4 +1844,48 @@ async fn template_customize_rollback(path: PathBuf, index: Option<usize>) -> Res
     template_customization_ai::rollback_customization(&path, index).await?;
     p::success("Rollback successful!");
     Ok(())
+}
+
+#[cfg(test)]
+mod template_authoring_tests {
+    use super::*;
+
+    #[test]
+    fn template_new_creates_authoring_kit() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        template_new("test-template".to_string(), temp.path().to_path_buf())?;
+
+        let dir = temp.path().join("test-template");
+        assert!(dir.join("template.json").exists());
+        assert!(dir.join("README.md").exists());
+        assert!(dir.join("Cargo.toml").exists());
+        assert!(dir.join("src/lib.rs").exists());
+        assert!(dir.join("tests/fixture.json").exists());
+
+        Ok(())
+    }
+
+    #[test]
+    fn template_lint_rejects_missing_metadata() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let result = template_lint(temp.path().to_path_buf());
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn template_test_rejects_missing_fixture() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(temp.path().join("src")).expect("create src");
+
+        let result = template_test(
+            temp.path().to_string_lossy().to_string(),
+            false,
+        )
+        .await;
+
+        assert!(result.is_err());
+        let error = result.expect_err("missing fixture should fail");
+        assert!(error.to_string().contains("Missing test fixture"));
+    }
 }

@@ -10,6 +10,8 @@ A centralized remote template registry API that allows global template sharing, 
 - ✓ Publisher authentication and strict template name ownership enforcement
 - ✓ Rate-limited publish and mutation operations
 - ✓ Auditable template ownership history log and ownership transfer capabilities
+- ✓ Organization namespaces (`@org/template`) with owner, admin, and maintainer roles
+- ✓ Two-party ownership transfers requiring confirmation by the receiving party
 - ✓ Template rating and review system
 - ✓ Web interface for template browsing
 - ✓ RESTful API for CLI integration
@@ -54,6 +56,10 @@ All template mutation operations (`POST /api/templates/publish`, `POST /api/temp
 
 ## API Endpoints
 
+The complete OpenAPI 3.0 contract is available in [`openapi.json`](./openapi.json)
+and as an asset on each GitHub release at
+[releases/latest/download/openapi.json](https://github.com/Nanle-code/StarForge/releases/latest/download/openapi.json).
+
 ### Authentication
 
 - `POST /api/auth/signup` - Create account
@@ -65,9 +71,20 @@ All template mutation operations (`POST /api/templates/publish`, `POST /api/temp
 - `POST /api/templates/search` - Search registry
 - `GET /api/templates/:name/ownership-history` - Query template ownership audit history
 - `POST /api/templates/:name/transfer-ownership` - Transfer template ownership (auth required, rate-limited)
+- `POST /api/templates/:name/transfer-ownership/confirm` - Confirm a pending ownership transfer
 - `GET /api/templates/:name/:version` - Get template details
 - `POST /api/templates/publish` - Publish template (publisher auth required, rate-limited)
 - `GET /api/templates/:name/:version/download` - Download template
+
+### Organizations
+
+- `POST /api/orgs` - Create an organization; the creator becomes its owner
+- `GET /api/orgs` - List organizations
+- `POST /api/orgs/:slug/members` - Add or update a member role (`owner`, `admin`, or `maintainer`)
+
+Publish with an `org` field to create the canonical `@org/template` name. The
+organization member roles are owner/admin/maintainer: maintainers can publish,
+while owners and admins manage membership and confirm organization transfers.
 
 ### Reviews
 
@@ -122,6 +139,18 @@ curl -X POST http://localhost:3000/api/templates/publish \
     "content": "<base64-encoded-zip>"
   }'
 ```
+
+### Organization Publish and Transfer Confirmation
+
+```bash
+starforge registry org create stellar-tools --name "Stellar Tools"
+starforge registry org add-member stellar-tools teammate --role maintainer
+starforge registry publish ./my-template --org stellar-tools
+```
+
+Ownership transfer requests return HTTP `202` and a `transfer_id`. The
+receiving user or organization admin confirms that ID with the confirmation
+endpoint; the event is added to ownership history only after confirmation.
 
 ## CLI Integration
 

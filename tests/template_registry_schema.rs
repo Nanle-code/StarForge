@@ -79,6 +79,7 @@ fn schema_definitions_all_resolve() {
         "source",
         "securityReview",
         "changelogEntry",
+        "provenance",
     ] {
         assert!(
             schema.pointer(&format!("/$defs/{}", name)).is_some(),
@@ -86,6 +87,88 @@ fn schema_definitions_all_resolve() {
             name
         );
     }
+}
+
+#[test]
+fn a_signed_entry_round_trips_through_the_checked_loader() {
+    // A published template carries the Sigstore record next to its metadata, so
+    // the entry the CLI writes must survive validation and deserialization.
+    let raw = json!({
+        "templates": [{
+            "name": "escrow",
+            "version": "1.0.0",
+            "description": "Token escrow",
+            "author": "StarForge",
+            "tags": ["defi"],
+            "source": { "type": "builtin", "id": "escrow" },
+            "provenance": {
+                "digest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                "bundle": "ZGVhZGJlZWY=",
+                "identity": "publisher@example.com",
+                "issuer": "https://token.actions.githubusercontent.com",
+                "signer": "cosign",
+                "rekor_log_index": 42,
+                "signed_at": "2026-01-01T00:00:00Z"
+            }
+        }]
+    })
+    .to_string();
+
+    let registry = parse_registry_checked(&raw, "test").expect("signed registry loads");
+    let provenance = registry.templates[0]
+        .provenance
+        .as_ref()
+        .expect("provenance survives the round trip");
+    assert_eq!(provenance.signer, "cosign");
+    assert_eq!(provenance.rekor_log_index, Some(42));
+    assert!(provenance.is_verifiable());
+}
+
+#[test]
+fn an_unsigned_entry_may_record_a_null_provenance() {
+    let raw = json!({
+        "templates": [{
+            "name": "escrow",
+            "version": "1.0.0",
+            "description": "Token escrow",
+            "author": "StarForge",
+            "tags": ["defi"],
+            "source": { "type": "builtin", "id": "escrow" },
+            "provenance": null
+        }]
+    })
+    .to_string();
+
+    let registry = parse_registry_checked(&raw, "test").expect("an explicit null is allowed");
+    assert!(registry.templates[0].provenance.is_none());
+}
+
+#[test]
+fn a_provenance_record_without_a_digest_is_rejected() {
+    let raw = json!({
+        "templates": [{
+            "name": "escrow",
+            "version": "1.0.0",
+            "description": "Token escrow",
+            "author": "StarForge",
+            "tags": ["defi"],
+            "source": { "type": "builtin", "id": "escrow" },
+            "provenance": { "digest": "", "signer": "cosign", "signed_at": "2026-01-01T00:00:00Z" }
+        }]
+    })
+    .to_string();
+
+    let value: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let report = validate_registry(&value, "test");
+    assert!(!report.is_valid(), "an empty digest must be reported");
+    assert!(
+        report
+            .errors
+            .iter()
+            .any(|issue| issue.field == "templates[0].provenance.digest"),
+        "expected the digest field to be named, got {:?}",
+        report.errors
+    );
 }
 
 // ── loader: primary flow ─────────────────────────────────────────────────────

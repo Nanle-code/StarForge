@@ -4,7 +4,8 @@ use crate::utils::{bindings, call_graph, config, print as p, soroban, wallet_sig
 use anyhow::Result;
 use clap::{Args, Subcommand, ValueEnum};
 use colored::*;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 #[derive(Subcommand)]
 pub enum ContractCommands {
@@ -12,8 +13,10 @@ pub enum ContractCommands {
     Invoke(InvokeArgs),
     /// Run an ordered YAML or JSON invocation script
     InvokeScript(invoke_script::InvokeScriptArgs),
-    /// Inspect a deployed Soroban contract instance
+    /// Inspect a deployed Soroban contract instance or local WASM metadata
     Inspect(InspectArgs),
+    /// Build a Soroban contract with StarForge build provenance metadata
+    Build(BuildArgs),
     /// Upload a WASM binary to the Stellar network (upload-only step)
     ///
     /// See: https://developers.stellar.org/docs/build/smart-contracts/getting-started/deploy-increment-contract
@@ -223,9 +226,25 @@ pub struct InvokeArgs {
 }
 
 #[derive(Args)]
+pub struct BuildArgs {
+    /// Path to Cargo.toml
+    #[arg(long)]
+    pub manifest_path: Option<String>,
+
+    /// Do not embed StarForge/source provenance metadata
+    #[arg(long)]
+    pub no_provenance: bool,
+}
+
+#[derive(Args)]
 pub struct InspectArgs {
-    /// Contract ID to inspect
-    pub contract_id: String,
+    /// Contract ID to inspect; omit when using --wasm
+    #[arg(required_unless_present = "wasm")]
+    pub contract_id: Option<String>,
+
+    /// Local WASM file to inspect
+    #[arg(long, conflicts_with = "contract_id")]
+    pub wasm: Option<PathBuf>,
     /// Network to use; defaults to the global config network
     #[arg(long, value_parser = ["testnet", "mainnet"])]
     pub network: Option<String>,
@@ -296,6 +315,7 @@ pub async fn handle(cmd: ContractCommands) -> Result<()> {
         ContractCommands::Invoke(args) => handle_invoke(args).await,
         ContractCommands::InvokeScript(args) => invoke_script::handle(args).await,
         ContractCommands::Inspect(args) => handle_inspect(args).await,
+        ContractCommands::Build(args) => handle_build(args),
         ContractCommands::Upload(args) => handle_upload(args),
         ContractCommands::GenerateBindings(args) => handle_generate_bindings(&args),
         ContractCommands::CallGraph(args) => handle_call_graph(args),
@@ -384,24 +404,50 @@ pub fn handle_generate_bindings(args: &GenerateBindingsArgs) -> Result<()> {
 }
 
 async fn handle_inspect(args: InspectArgs) -> Result<()> {
-    config::validate_contract_id(&args.contract_id)?;
+    if let Some(wasm) = args.wasm {
+        return handle_inspect_wasm(&wasm, args.json);
+    }
+
+    let contract_id = args
+        .contract_id
+        .ok_or_else(|| anyhow::anyhow!("A contract ID is required unless --wasm is supplied"))?;
+
+    config::validate_contract_id(&contract_id)?;
+
     if let Some(ref net) = args.network {
         config::validate_network(net)?;
     }
+
     let network = resolve_network(args.network)?;
 
     p::header("Inspect Soroban Contract");
     p::separator();
-    p::kv("Contract ID", &args.contract_id);
+    p::kv("Contract ID", &contract_id);
     p::kv("Network", &network);
     p::separator();
 
     println!();
-    p::step(1, 1, "Querying contract instance from Soroban RPC…");
-    let inspect = soroban::inspect_contract(&args.contract_id, &network).await?;
+    p::step(1, 2, "Querying contract instance from Soroban RPC…");
+    let inspect = soroban::inspect_contract(&contract_id, &network).await?;
+
+    let metadata = get_contract_metadata(None, Some(&contract_id), Some(&network));
 
     if args.json {
-        println!("{}", serde_json::to_string_pretty(&inspect)?);
+        let mut output = serde_json::to_value(&inspect)?;
+
+        if let Some(obj) = output.as_object_mut() {
+            if let Some(metadata) = metadata {
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&metadata) {
+                    obj.insert("metadata".to_string(), value);
+                } else {
+                    obj.insert("metadata".to_string(), serde_json::Value::String(metadata));
+                }
+            } else {
+                obj.insert("metadata".to_string(), serde_json::Value::Null);
+            }
+        }
+
+        println!("{}", serde_json::to_string_pretty(&output)?);
         return Ok(());
     }
 
@@ -451,6 +497,204 @@ async fn handle_inspect(args: InspectArgs) -> Result<()> {
     }
 
     p::separator();
+    p::step(2, 2, "Reading contract build metadata…");
+
+    if let Some(metadata) = metadata {
+        p::header("Build Provenance");
+        println!("{}", metadata);
+    } else {
+        p::info("No contract build metadata found.");
+    }
+
+    p::separator();
+    Ok(())
+}
+
+fn handle_inspect_wasm(wasm: &Path, json: bool) -> Result<()> {
+    if !wasm.exists() {
+        anyhow::bail!("WASM file does not exist: {}", wasm.display());
+    }
+
+    if !wasm.is_file() {
+        anyhow::bail!("WASM path is not a file: {}", wasm.display());
+    }
+
+    let metadata = get_contract_metadata(Some(wasm), None, None).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Could not read contract metadata from WASM: {}",
+            wasm.display()
+        )
+    })?;
+
+    if json {
+        let metadata_value = serde_json::from_str::<serde_json::Value>(&metadata)
+            .unwrap_or_else(|_| serde_json::Value::String(metadata.clone()));
+
+        let output = serde_json::json!({
+            "wasm": wasm.display().to_string(),
+            "metadata": metadata_value
+        });
+
+        println!("{}", serde_json::to_string_pretty(&output)?);
+        return Ok(());
+    }
+
+    p::header("Inspect Contract WASM");
+    p::separator();
+    p::kv("WASM", &wasm.display().to_string());
+    p::separator();
+
+    p::header("Build Provenance");
+    println!("{}", metadata);
+
+    p::separator();
+    Ok(())
+}
+
+fn get_contract_metadata(
+    wasm: Option<&Path>,
+    contract_id: Option<&str>,
+    network: Option<&str>,
+) -> Option<String> {
+    let mut command = Command::new("stellar");
+    command.args(["contract", "info", "meta"]);
+
+    if let Some(wasm) = wasm {
+        command.arg("--wasm").arg(wasm);
+    } else if let Some(contract_id) = contract_id {
+        command.arg("--contract-id").arg(contract_id);
+
+        if let Some(network) = network {
+            command.arg("--network").arg(network);
+        }
+    } else {
+        return None;
+    }
+
+    command.arg("--output").arg("json-formatted");
+
+    let output = command.output().ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let metadata = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    if metadata.is_empty() {
+        None
+    } else {
+        Some(metadata)
+    }
+}
+
+fn git_output(args: &[&str], directory: &Path) -> Option<String> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(directory)
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+fn normalize_repository_url(repository: &str) -> String {
+    if let Some(path) = repository.strip_prefix("git@github.com:") {
+        return format!("https://github.com/{}", path.trim_end_matches(".git"));
+    }
+
+    repository.trim_end_matches(".git").to_string()
+}
+
+fn handle_build(args: BuildArgs) -> Result<()> {
+    let current_dir = std::env::current_dir()?;
+
+    let project_dir = args
+        .manifest_path
+        .as_ref()
+        .and_then(|manifest| Path::new(manifest).parent())
+        .filter(|path| !path.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| current_dir.clone());
+
+    let mut command = Command::new("stellar");
+    command.args(["contract", "build"]);
+
+    if let Some(manifest_path) = &args.manifest_path {
+        command.args(["--manifest-path", manifest_path]);
+    }
+
+    if !args.no_provenance {
+        if let Some(repository) =
+            git_output(&["config", "--get", "remote.origin.url"], &project_dir)
+        {
+            command.arg("--meta").arg(format!(
+                "source_repo={}",
+                normalize_repository_url(&repository)
+            ));
+        } else {
+            p::warn(
+                "Could not determine the Git repository URL. \
+                 Build will continue without source_repo metadata.",
+            );
+        }
+
+        if let Some(commit) = git_output(&["rev-parse", "HEAD"], &project_dir) {
+            command.arg("--meta").arg(format!("commit_sha={commit}"));
+        } else {
+            p::warn(
+                "Could not determine the Git commit SHA. \
+                 Build will continue without commit_sha metadata.",
+            );
+        }
+
+        command
+            .arg("--meta")
+            .arg(format!("starforge_version={}", env!("CARGO_PKG_VERSION")));
+    }
+
+    p::header("Build Soroban Contract");
+    p::separator();
+
+    if args.no_provenance {
+        p::info("StarForge provenance metadata disabled.");
+    } else {
+        p::info("Embedding StarForge build provenance metadata.");
+    }
+
+    p::separator();
+
+    let status = command.status().map_err(|error| {
+        anyhow::anyhow!(
+            "Failed to execute `stellar contract build`: {error}. \
+                 Make sure the Stellar CLI is installed and available on PATH."
+        )
+    })?;
+
+    if !status.success() {
+        anyhow::bail!("`stellar contract build` failed with status {status}");
+    }
+
+    p::separator();
+    p::success("Contract build completed successfully.");
+
+    if !args.no_provenance {
+        p::info(
+            "Provenance includes the repository, commit SHA, and StarForge version \
+             when Git information is available.",
+        );
+    }
+
     Ok(())
 }
 

@@ -27,7 +27,7 @@ Welcome to StarForge! This guide will help you get started contributing to the p
 4. **Run tests**: `cargo test`
 5. **Create a branch**: `git checkout -b feat/your-feature-name`
 6. **Make changes** and commit with clear messages
-7. **Push and open a Pull Request** against `master`
+7. **Push and open a Pull Request** against the `main` branch
 
 ---
 

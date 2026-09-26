@@ -21,7 +21,12 @@ mod symbol {
 /// `plain` is threaded in explicitly (`success`/etc. pass
 /// `is_plain_mode_enabled()`) rather than read again in here, so a test can
 /// exercise both branches without mutating global env state.
-fn format_line(plain: bool, plain_symbol: &str, colored_symbol: colored::ColoredString, msg: &str) -> String {
+fn format_line(
+    plain: bool,
+    plain_symbol: &str,
+    colored_symbol: colored::ColoredString,
+    msg: &str,
+) -> String {
     if plain {
         format!("{plain_symbol} {msg}")
     } else {
@@ -59,7 +64,12 @@ pub fn info(msg: &str) {
     let redacted = redact_secrets(msg);
     println!(
         "{}",
-        format_line(is_plain_mode_enabled(), symbol::INFO_PLAIN, "→".cyan(), &redacted)
+        format_line(
+            is_plain_mode_enabled(),
+            symbol::INFO_PLAIN,
+            "→".cyan(),
+            &redacted
+        )
     );
 }
 
@@ -131,7 +141,10 @@ pub fn cli_error(err: &anyhow::Error, hints: &[&str]) {
     }
     if hints.is_empty() {
         if plain {
-            eprintln!("   {} Run the command again with --verbose for more detail", hint_marker);
+            eprintln!(
+                "   {} Run the command again with --verbose for more detail",
+                hint_marker
+            );
             eprintln!(
                 "   {} Check https://github.com/Nanle-code/StarForge/issues for known issues",
                 hint_marker
@@ -304,8 +317,14 @@ mod tests {
     fn plain_line_uses_the_ascii_label_and_no_ansi_escapes() {
         let line = format_line(true, symbol::SUCCESS_PLAIN, "✓".green().bold(), "done");
         assert_eq!(line, "[OK] done");
-        assert!(!line.contains('\u{1b}'), "plain output must carry no ANSI escapes: {line:?}");
-        assert!(!line.contains('✓'), "plain output must not carry the decorative symbol: {line:?}");
+        assert!(
+            !line.contains('\u{1b}'),
+            "plain output must carry no ANSI escapes: {line:?}"
+        );
+        assert!(
+            !line.contains('✓'),
+            "plain output must not carry the decorative symbol: {line:?}"
+        );
     }
 
     #[test]
@@ -316,7 +335,10 @@ mod tests {
         // guarantee actually depends on; deterministic evidence of no
         // color-alone reliance, not proof that ANSI codes were emitted.
         let line = format_line(false, symbol::SUCCESS_PLAIN, "✓".green().bold(), "done");
-        assert!(line.contains('✓'), "non-plain output must carry the symbol: {line:?}");
+        assert!(
+            line.contains('✓'),
+            "non-plain output must carry the symbol: {line:?}"
+        );
         assert!(line.contains("done"));
         assert!(!line.contains(symbol::SUCCESS_PLAIN));
     }

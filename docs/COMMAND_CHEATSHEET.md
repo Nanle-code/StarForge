@@ -83,7 +83,7 @@ Global options: `--json`, `--quiet`/`-q`, `--log-format`, `--log-dir`, `--correl
 | `registry` | Interact with the remote template registry |
 | `schedule` | Schedule deployments for future execution with approval workflows |
 | `security` | Security hardening, validation, and monitoring |
-| `sep10` | SEP-10 web authentication (anchor auth testing) |
+| `sep10` | SEP-10 web authentication for Stellar anchors |
 | `shell` | Interactive REPL for local Soroban contract testing |
 | `simulate` | Local network simulation and testing environment |
 | `telemetry` | Manage telemetry settings directly |
@@ -298,4 +298,10 @@ Global options: `--json`, `--quiet`/`-q`, `--log-format`, `--log-dir`, `--correl
 | `extract <PATH>` | Extract rustdoc comments |
 | `show / list / search` | Browse the local docs store |
 | `html / api-ref / publish` | HTML site and publishing helpers |
+
+## `sep10` subcommands
+
+| Subcommand | Description |
+|---|---|
+| `auth --domain <DOMAIN> --wallet <NAME>` | Authenticate against a SEP-10 server and print the JWT (--verbose, --toml-url) |
 

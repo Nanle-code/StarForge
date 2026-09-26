@@ -57,16 +57,16 @@ pub struct DeployArgs {
     #[arg(long, default_value = "false")]
     pub dry_run: bool,
     /// Sign deployment with a hardware wallet (Ledger/Trezor)
-    #[arg(long, value_enum)]
+    #[arg(long, value_enum, hide = true)]
     pub hardware: Option<HardwareWalletKind>,
     /// HD derivation path for hardware wallet signing
-    #[arg(long, default_value = crate::utils::hardware_wallet::STELLAR_HD_PATH)]
+    #[arg(long, default_value = crate::utils::hardware_wallet::STELLAR_HD_PATH, hide = true)]
     pub hd_path: String,
     /// Disable automatic rollback after a failed executed deploy
-    #[arg(long, default_value = "false")]
+    #[arg(long, default_value = "false", hide = true)]
     pub no_auto_rollback: bool,
     /// Run AI-driven compliance checks before deployment (regulatory, security, best practices)
-    #[arg(long, default_value = "false")]
+    #[arg(long, default_value = "false", hide = true)]
     pub compliance: bool,
     /// Emit a machine-readable JSON object instead of the human-readable deployment report
     #[arg(long)]
@@ -656,9 +656,11 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
 
     // ── WASM pre-flight policy check (always runs, blocks on violations) ───
     {
-        let policy = wasm_preflight::WasmPolicy::default();
-        let report =
-            wasm_preflight::validate_wasm_bytes(&wasm_bytes, &wasm_path.to_string_lossy(), &policy);
+        let report = wasm_preflight::validate_wasm_bytes(
+            &wasm_bytes,
+            &wasm_path.to_string_lossy(),
+            &wasm_policy,
+        );
         if !report.is_ok() {
             for v in &report.violations {
                 p::warn(&format!("[{}] {}", v.code, v.message));
@@ -671,6 +673,14 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
         }
         for w in &report.warnings {
             p::warn(w);
+        }
+
+        for f in &report.findings {
+            p::warn(&format!("[Finding - {} Risk] {}", f.risk, f.message));
+        }
+
+        if report.findings.is_empty() {
+            completed_checklist.push("wasm_clean_analysis".to_string());
         }
     }
 
@@ -712,11 +722,12 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
     }
 
     // Enforce organization deploy policy when configured
-    let policy_path = args.policy.clone().or_else(|| {
-        deploy_policy::discover_policy_file(std::env::current_dir().unwrap_or_default().as_path())
-    });
-    if let Some(path) = &policy_path {
-        let policy = deploy_policy::load_policy(path)?;
+    if let (Some(path), Some(policy)) = (&policy_path, &org_deploy_policy) {
+        let checklist_override = if completed_checklist.is_empty() {
+            None
+        } else {
+            Some(completed_checklist.clone())
+        };
         let context = deploy_policy::DeployContext::from_env(&args.network, args.execute)
             .with_overrides(None, args.checklist.clone());
         deploy_policy::enforce(path, &policy, &context)?;
@@ -1006,6 +1017,13 @@ fn handle_failed_deploy_rollback(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stellar_deploy_signs_with_identity_name() {
+        let args = build_stellar_deploy_args(std::path::Path::new("c.wasm"), "deployer", "testnet");
+        let source = args.iter().position(|a| a == "--source").unwrap();
+        assert_eq!(args[source + 1], "deployer");
+    }
 
     #[test]
     fn parses_contract_id_from_cli_output() {
