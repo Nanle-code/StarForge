@@ -399,6 +399,10 @@ enum Commands {
     #[command(subcommand)]
     ContractMonitor(commands::contract_monitor::ContractMonitorCommands),
 
+    /// Manage per-network contract and account aliases
+    #[command(subcommand)]
+    Alias(commands::alias::AliasCommands),
+
     /// Terminal User Interface for wallets, contracts, and transactions
     #[cfg(feature = "ui")]
     Ui(commands::ui::UiArgs),
@@ -586,6 +590,7 @@ async fn run() {
         Commands::Optimize(_) => "optimize",
         Commands::AiSecurityTraining(_) => "ai-security-training",
         Commands::ContractMonitor(_) => "contract-monitor",
+        Commands::Alias(_) => "alias",
         #[cfg(feature = "ui")]
         Commands::Ui(_) => "ui",
     }
@@ -704,6 +709,7 @@ async fn run() {
         Commands::Optimize(cmd) => commands::optimize::handle(cmd).await,
         Commands::AiSecurityTraining(cmd) => commands::ai_security_training::handle(cmd).await,
         Commands::ContractMonitor(cmd) => commands::contract_monitor::handle(cmd).await,
+        Commands::Alias(cmd) => commands::alias::handle(cmd).await,
         #[cfg(feature = "ui")]
         Commands::Ui(args) => commands::ui::handle(args).await,
     };

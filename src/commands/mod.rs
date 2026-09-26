@@ -26,6 +26,7 @@ pub mod ai_test_analytics_cmd;
 pub mod ai_test_gen;
 pub mod ai_test_maintain;
 pub mod ai_tutorial_cmd;
+pub mod alias;
 pub mod analytics;
 pub mod approval;
 pub mod audit;

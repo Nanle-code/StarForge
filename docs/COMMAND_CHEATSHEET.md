@@ -40,6 +40,7 @@ Global options: `--json`, `--quiet`/`-q`, `--log-format`, `--log-dir`, `--correl
 | `ai-telemetry` | AI usage telemetry and analytics: calls, tokens, latency, cost, opt-out |
 | `ai-test` | AI-driven testing assistance (generate, optimize, analyze, maintain tests) |
 | `ai-test-maintain` | AI-driven test maintenance commands |
+| `alias` | Manage per-network contract and account aliases |
 | `analytics` | Contract deployment analytics, dashboards, and reporting |
 | `approval` | Approval workflow for contract deployments (multi-level approvals, audit, compliance) |
 | `audit` | Run a comprehensive security audit on a Soroban contract |

@@ -41,6 +41,7 @@ pub mod ai_test_generator;
 pub mod ai_test_maintenance;
 pub mod ai_tutorial;
 pub mod ai_validation;
+pub mod aliases;
 pub mod approval_engine;
 pub mod audit;
 pub mod audit_bundle;
