@@ -38,6 +38,8 @@ pub enum DestructiveAction {
     AccountMerge,
     MainnetTransaction,
     ContractInvoke,
+    TrustlineModification,
+    Payment,
 }
 
 impl DestructiveAction {
@@ -48,6 +50,8 @@ impl DestructiveAction {
             DestructiveAction::AccountMerge => "merge-account",
             DestructiveAction::MainnetTransaction => "send-mainnet",
             DestructiveAction::ContractInvoke => "invoke-mainnet",
+            DestructiveAction::TrustlineModification => "trust-mainnet",
+            DestructiveAction::Payment => "pay-mainnet",
         }
     }
 
@@ -58,6 +62,8 @@ impl DestructiveAction {
             DestructiveAction::AccountMerge => "account_merge",
             DestructiveAction::MainnetTransaction => "mainnet_transaction",
             DestructiveAction::ContractInvoke => "contract_invoke",
+            DestructiveAction::TrustlineModification => "trustline_modification",
+            DestructiveAction::Payment => "payment",
         }
     }
 }

@@ -328,12 +328,10 @@ const MAJOR_SUBCOMMANDS: &[(&str, &[(&str, &str)])] = &[
     ),
     (
         "sep10",
-        &[
-            (
-                "auth <--domain <HOME_DOMAIN>> <--wallet <NAME>>",
-                "Validate, sign, and exchange a SEP-10 challenge for a session JWT",
-            ),
-        ],
+        &[(
+            "auth <--domain <HOME_DOMAIN>> <--wallet <NAME>>",
+            "Validate, sign, and exchange a SEP-10 challenge for a session JWT",
+        )],
     ),
     (
         "config",
@@ -583,10 +581,7 @@ const SUBCOMMAND_INFO: &[(&str, &str)] = &[
     ),
     ("telemetry", "Manage telemetry settings directly"),
     ("tx", "Fetch transaction for the account"),
-    (
-        "sep10",
-        "SEP-10 web authentication (anchor auth testing)",
-    ),
+    ("sep10", "SEP-10 web authentication (anchor auth testing)"),
     (
         "network",
         "View or switch the active network (testnet/mainnet)",

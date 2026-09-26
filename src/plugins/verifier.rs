@@ -2,6 +2,7 @@ use crate::plugins::manifest::PluginManifest;
 use crate::utils::config::Config;
 use anyhow::Result;
 use ed25519_dalek::{Verifier, VerifyingKey};
+use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -302,7 +303,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn create_test_keypair() -> (SigningKey, VerifyingKey, String, String) {
-        let mut rng = rand::thread_rng();
+        let mut rng = OsRng;
         let signing_key = SigningKey::generate(&mut rng);
         let verifying_key = signing_key.verifying_key();
         let pk_bytes = verifying_key.to_bytes();

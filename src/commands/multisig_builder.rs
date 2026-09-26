@@ -144,7 +144,13 @@ pub async fn handle(cmd: MultisigCommands) -> Result<()> {
             network,
             timelock_delay,
             execution_window,
-        } => create_proposal(threshold, &signers, &network, timelock_delay, execution_window),
+        } => create_proposal(
+            threshold,
+            &signers,
+            &network,
+            timelock_delay,
+            execution_window,
+        ),
         MultisigCommands::AddSigner { proposal, signer } => add_signer(&proposal, &signer),
         MultisigCommands::Sign { proposal, signer } => sign_proposal(&proposal, &signer),
         MultisigCommands::View { proposal } => view_proposal(&proposal),
@@ -427,10 +433,19 @@ fn print_proposal_summary(proposal: &multisig::Proposal) {
                 multisig::TimelockExecutionStatus::CollectingSignatures { signed, required } => {
                     format!("Collecting signatures ({}/{})", signed, required)
                 }
-                multisig::TimelockExecutionStatus::Locked { unlock_at, remaining_seconds } => {
-                    format!("LOCKED (unlocks at {}, {}s remaining)", unlock_at, remaining_seconds)
+                multisig::TimelockExecutionStatus::Locked {
+                    unlock_at,
+                    remaining_seconds,
+                } => {
+                    format!(
+                        "LOCKED (unlocks at {}, {}s remaining)",
+                        unlock_at, remaining_seconds
+                    )
                 }
-                multisig::TimelockExecutionStatus::ReadyToExecute { expires_at, remaining_window_seconds } => {
+                multisig::TimelockExecutionStatus::ReadyToExecute {
+                    expires_at,
+                    remaining_window_seconds,
+                } => {
                     if let Some(rem) = remaining_window_seconds {
                         format!("READY TO EXECUTE (window expires in {}s)", rem)
                     } else {

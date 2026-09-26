@@ -236,8 +236,7 @@ fn serve(stream: TcpStream, context: &AnchorContext) -> std::io::Result<()> {
                 TESTNET_PASSPHRASE,
             )
             .unwrap_or(false);
-            let signatures =
-                starforge::sep::sep10::signature_count(&submitted).unwrap_or_default();
+            let signatures = starforge::sep::sep10::signature_count(&submitted).unwrap_or_default();
 
             if !signed_by_client || signatures != 2 {
                 return write_response(

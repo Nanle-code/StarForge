@@ -722,7 +722,7 @@ fn create_zip_archive(source: &std::path::Path, dest: &std::path::Path) -> Resul
 
     let file = std::fs::File::create(dest)?;
     let mut zip = ZipWriter::new(file);
-    let options = zip::write::FileOptions::default();
+    let options = zip::write::SimpleFileOptions::default();
 
     let mut entries = Vec::new();
     collect_files(source, &mut entries, &mut vec![".git", ".DS_Store"])?;

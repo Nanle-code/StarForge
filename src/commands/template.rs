@@ -1,6 +1,9 @@
 use crate::utils::template_integration;
 use crate::utils::template_performance;
 use crate::utils::template_provenance;
+use crate::utils::template_security_scanner::{
+    scan_template_security, ScanLevel, TemplateSecurityScannerConfig,
+};
 use crate::utils::{output, print as p, template_customization_ai, templates};
 use anyhow::{Context, Result};
 use clap::Subcommand;
@@ -442,13 +445,15 @@ async fn import(
         version,
         cli_version_min,
         cli_version_max,
-        None,
-        None,
-        None,
-        None,
+        None, // soroban_sdk_min
+        None, // soroban_sdk_max
+        None, // license
+        None, // repository
+        None, // homepage
+        None, // documentation
         sign,
-        None,
-        None,
+        None, // identity
+        None, // oidc_issuer
     )
     .await?;
     p::header("Template Import");
@@ -679,9 +684,9 @@ async fn list(json: bool, limit: Option<usize>, cursor: Option<String>) -> Resul
     for (i, template) in shown.iter().enumerate() {
         let compat_badge = match check_template_compatibility(template) {
             CompatibilityStatus::Compatible => "[COMPATIBLE]",
-            CompatibilityStatus::TooOld { .. } | CompatibilityStatus::TooNew { .. } => {
-                "[INCOMPATIBLE]"
-            }
+            CompatibilityStatus::TooOld { .. }
+            | CompatibilityStatus::TooNew { .. }
+            | CompatibilityStatus::SorobanSdkIncompatible { .. } => "[INCOMPATIBLE]",
             CompatibilityStatus::MalformedMetadata { .. } => "[BAD-META]",
         };
         let mut badges = template.trust_indicators();
@@ -804,9 +809,9 @@ async fn search(
         let template = &result.entry;
         let compat_badge = match check_template_compatibility(template) {
             CompatibilityStatus::Compatible => "[COMPATIBLE]",
-            CompatibilityStatus::TooOld { .. } | CompatibilityStatus::TooNew { .. } => {
-                "[INCOMPATIBLE]"
-            }
+            CompatibilityStatus::TooOld { .. }
+            | CompatibilityStatus::TooNew { .. }
+            | CompatibilityStatus::SorobanSdkIncompatible { .. } => "[INCOMPATIBLE]",
             CompatibilityStatus::MalformedMetadata { .. } => "[BAD-META]",
         };
         let mut badges = template.trust_indicators();
@@ -901,6 +906,22 @@ async fn show(name: String) -> Result<()> {
         CompatibilityStatus::MalformedMetadata { reason } => {
             p::warn(&format!("Malformed version metadata: {}", reason));
         }
+        CompatibilityStatus::SorobanSdkIncompatible {
+            sdk_min,
+            sdk_max,
+            found_version,
+        } => {
+            let constraint = match (sdk_min, sdk_max) {
+                (Some(min), Some(max)) => format!("between {} and {}", min, max),
+                (Some(min), None) => format!(">= {}", min),
+                (None, Some(max)) => format!("<= {}", max),
+                (None, None) => "unknown constraint".to_string(),
+            };
+            p::warn(&format!(
+                "Soroban SDK incompatible: requires {} (found {})",
+                constraint, found_version
+            ));
+        }
     }
     print_quality_signals(&template);
     Ok(())
@@ -946,7 +967,6 @@ async fn remove(name: String, purge: bool) -> Result<()> {
     Ok(())
 }
 
-
 fn template_lint(path: PathBuf) -> Result<()> {
     if !path.is_dir() {
         anyhow::bail!("Template directory does not exist: {}", path.display());
@@ -960,10 +980,16 @@ fn template_lint(path: PathBuf) -> Result<()> {
     }
 
     let metadata = std::fs::read_to_string(&metadata_path)?;
-    let value = crate::utils::template_schema::parse_json(&metadata)
-        .map_err(|e| anyhow::anyhow!("Invalid template.json: {}", e))?;
-    crate::utils::template_schema::validate_template_entry(&value, &metadata_path.display().to_string())
-        .map_err(|e| anyhow::anyhow!("Schema validation failed: {}", e))?;
+    let value =
+        crate::utils::template_schema::parse_json(&metadata, &metadata_path.display().to_string())
+            .map_err(|e| anyhow::anyhow!("Invalid template.json: {}", e))?;
+    let report = crate::utils::template_schema::validate_template_entry(
+        &value,
+        &metadata_path.display().to_string(),
+    );
+    if !report.is_valid() {
+        anyhow::bail!("Schema validation failed:\n{}", report);
+    }
 
     p::success("Schema checks passed");
 
@@ -978,7 +1004,11 @@ fn template_lint(path: PathBuf) -> Result<()> {
 
     let security_path = {
         let src = path.join("src");
-        if src.is_dir() { src } else { path.clone() }
+        if src.is_dir() {
+            src
+        } else {
+            path.clone()
+        }
     };
 
     let config = TemplateSecurityScannerConfig {
@@ -1016,7 +1046,10 @@ fn template_new(name: String, output: PathBuf) -> Result<()> {
 
     let template_dir = output.join(&name);
     if template_dir.exists() {
-        anyhow::bail!("Template directory already exists: {}", template_dir.display());
+        anyhow::bail!(
+            "Template directory already exists: {}",
+            template_dir.display()
+        );
     }
 
     std::fs::create_dir_all(template_dir.join("src"))?;
@@ -1265,6 +1298,22 @@ async fn info(name: String) -> Result<()> {
         )),
         CompatibilityStatus::MalformedMetadata { reason } => {
             p::warn(&format!("Malformed version metadata: {}", reason))
+        }
+        CompatibilityStatus::SorobanSdkIncompatible {
+            sdk_min,
+            sdk_max,
+            found_version,
+        } => {
+            let constraint = match (sdk_min, sdk_max) {
+                (Some(min), Some(max)) => format!("between {} and {}", min, max),
+                (Some(min), None) => format!(">= {}", min),
+                (None, Some(max)) => format!("<= {}", max),
+                (None, None) => "unknown constraint".to_string(),
+            };
+            p::warn(&format!(
+                "Soroban SDK incompatible: requires {} (found {})",
+                constraint, found_version
+            ))
         }
     }
 
@@ -1535,7 +1584,6 @@ async fn template_test(name: String, verbose: bool) -> Result<()> {
         anyhow::bail!("Tests failed for template {}", name);
     }
 }
-
 
 // ─── template docs ────────────────────────────────────────────────────────────
 
@@ -1878,11 +1926,7 @@ mod template_authoring_tests {
         let temp = tempfile::tempdir().expect("tempdir");
         std::fs::create_dir_all(temp.path().join("src")).expect("create src");
 
-        let result = template_test(
-            temp.path().to_string_lossy().to_string(),
-            false,
-        )
-        .await;
+        let result = template_test(temp.path().to_string_lossy().to_string(), false).await;
 
         assert!(result.is_err());
         let error = result.expect_err("missing fixture should fail");

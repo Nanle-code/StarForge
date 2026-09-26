@@ -532,6 +532,37 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
 
     let wasm_hash = compute_local_wasm_hash(&wasm_bytes);
 
+    // Initialize WASM validation policy (default policy enforces Soroban limits)
+    let wasm_policy = wasm_preflight::WasmPolicy::default();
+
+    // Track completed checklist items for deploy policy validation
+    let mut completed_checklist: Vec<String> = args.checklist.clone().unwrap_or_default();
+
+    // Load organization deploy policy if specified or auto-discover in current directory
+    let (policy_path, org_deploy_policy) = if let Some(ref path) = args.policy {
+        match deploy_policy::load_policy(path) {
+            Ok(policy) => (Some(path.clone()), Some(policy)),
+            Err(e) => {
+                p::warn(&format!(
+                    "Failed to load deploy policy from {:?}: {}",
+                    path, e
+                ));
+                (None, None)
+            }
+        }
+    } else {
+        // Auto-discover starforge-deploy-policy.toml in current directory
+        let auto_path = PathBuf::from("starforge-deploy-policy.toml");
+        if auto_path.exists() {
+            match deploy_policy::load_policy(&auto_path) {
+                Ok(policy) => (Some(auto_path), Some(policy)),
+                Err(_) => (None, None),
+            }
+        } else {
+            (None, None)
+        }
+    };
+
     // ── AI-driven compliance checks (regulatory, security, best practices) ─
     if args.compliance {
         p::header("AI Deployment Compliance Checks");

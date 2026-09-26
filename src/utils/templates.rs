@@ -346,11 +346,11 @@ pub fn check_template_compatibility(entry: &TemplateEntry) -> CompatibilityStatu
         entry.cli_version_min.as_deref(),
         entry.cli_version_max.as_deref(),
     );
-    
+
     if !matches!(cli_status, CompatibilityStatus::Compatible) {
         return cli_status;
     }
-    
+
     // Then check Soroban SDK version compatibility if constraints are present
     if entry.soroban_sdk_min.is_some() || entry.soroban_sdk_max.is_some() {
         let detected_sdk = detect_soroban_sdk_version(entry);
@@ -360,7 +360,7 @@ pub fn check_template_compatibility(entry: &TemplateEntry) -> CompatibilityStatu
                 entry.soroban_sdk_min.as_deref(),
                 entry.soroban_sdk_max.as_deref(),
             );
-            
+
             if !matches!(sdk_status, CompatibilityStatus::Compatible) {
                 return CompatibilityStatus::SorobanSdkIncompatible {
                     sdk_min: entry.soroban_sdk_min.clone(),
@@ -370,7 +370,7 @@ pub fn check_template_compatibility(entry: &TemplateEntry) -> CompatibilityStatu
             }
         }
     }
-    
+
     CompatibilityStatus::Compatible
 }
 
@@ -386,7 +386,7 @@ fn detect_soroban_sdk_version(entry: &TemplateEntry) -> Option<String> {
             }
         }
     }
-    
+
     // For remote templates, we can't detect the version without downloading
     // Return None to skip SDK compatibility checks
     None
@@ -412,7 +412,7 @@ fn extract_soroban_sdk_version_from_cargo_toml(content: &str) -> Option<String> 
                         .trim_start_matches('<')
                         .trim_start_matches('=')
                         .trim();
-                    
+
                     if !version.is_empty() {
                         return Some(version.to_string());
                     }
@@ -458,6 +458,25 @@ pub fn assert_template_compatible(entry: &TemplateEntry) -> Result<()> {
                  Contact the template author to fix the cli_version_min / cli_version_max fields.",
                 entry.name,
                 reason,
+            )
+        }
+        CompatibilityStatus::SorobanSdkIncompatible {
+            sdk_min,
+            sdk_max,
+            found_version,
+        } => {
+            let constraint = match (sdk_min, sdk_max) {
+                (Some(min), Some(max)) => format!("between {} and {}", min, max),
+                (Some(min), None) => format!(">= {}", min),
+                (None, Some(max)) => format!("<= {}", max),
+                (None, None) => "unknown constraint".to_string(),
+            };
+            anyhow::bail!(
+                "Template '{}' requires Soroban SDK {} but found {}.\n\
+                 Update your Soroban SDK dependency or choose a compatible template.",
+                entry.name,
+                constraint,
+                found_version,
             )
         }
     }
@@ -526,6 +545,22 @@ fn build_update_report(
         }
         CompatibilityStatus::MalformedMetadata { reason } => {
             format!("Version metadata is malformed: {}", reason)
+        }
+        CompatibilityStatus::SorobanSdkIncompatible {
+            sdk_min,
+            sdk_max,
+            found_version,
+        } => {
+            let constraint = match (sdk_min, sdk_max) {
+                (Some(min), Some(max)) => format!("between {} and {}", min, max),
+                (Some(min), None) => format!(">= {}", min),
+                (None, Some(max)) => format!("<= {}", max),
+                (None, None) => "unknown constraint".to_string(),
+            };
+            format!(
+                "Requires Soroban SDK {} but found {}",
+                constraint, found_version
+            )
         }
     };
 
@@ -2011,6 +2046,8 @@ pub async fn publish_template(
         None,
         None,
         None,
+        None,
+        None,
     )
     .await
 }
@@ -2040,10 +2077,12 @@ pub async fn install_template_package(
         version,
         cli_version_min,
         cli_version_max,
-        None,
-        None,
-        None,
-        None,
+        None, // soroban_sdk_min
+        None, // soroban_sdk_max
+        None, // license
+        None, // repository
+        None, // homepage
+        None, // documentation
     )
     .await
 }
@@ -2075,10 +2114,10 @@ pub async fn publish_template_versioned(
     let (source_root, _temp_guard) = resolve_template_source(template_path)?;
 
     validate_template_structure_with_constraints(
-        &source_root, 
-        &name, 
-        &description, 
-        &author, 
+        &source_root,
+        &name,
+        &description,
+        &author,
         &version,
         cli_version_min.as_deref(),
         cli_version_max.as_deref(),
@@ -2430,6 +2469,8 @@ async fn install_from_git_url(
         updated_at: String::new(),
         cli_version_min: None,
         cli_version_max: None,
+        soroban_sdk_min: None,
+        soroban_sdk_max: None,
         documented: dest.join("README.md").exists(),
         maintenance: MaintenanceStatus::Unknown,
         license: None,
@@ -2508,6 +2549,8 @@ async fn install_from_local_path(
         updated_at: String::new(),
         cli_version_min: None,
         cli_version_max: None,
+        soroban_sdk_min: None,
+        soroban_sdk_max: None,
         documented: dest.join("README.md").exists(),
         maintenance: MaintenanceStatus::Unknown,
         license: None,
@@ -2741,6 +2784,8 @@ mod tests {
             updated_at: String::new(),
             cli_version_min: None,
             cli_version_max: None,
+            soroban_sdk_min: None,
+            soroban_sdk_max: None,
             documented: false,
             maintenance: MaintenanceStatus::Unknown,
             license: None,
@@ -3298,6 +3343,8 @@ mod tests {
             updated_at: String::new(),
             cli_version_min: None,
             cli_version_max: None,
+            soroban_sdk_min: None,
+            soroban_sdk_max: None,
             documented: false,
             maintenance: MaintenanceStatus::Unknown,
             license: None,
@@ -3355,6 +3402,8 @@ mod tests {
             verified: false,
             cli_version_min: None,
             cli_version_max: None,
+            soroban_sdk_min: None,
+            soroban_sdk_max: None,
             documented: false,
             maintenance: MaintenanceStatus::Unknown,
             license: None,

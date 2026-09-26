@@ -27,7 +27,10 @@ pub enum TimelockExecutionStatus {
     /// Proposal is still collecting signatures
     CollectingSignatures { signed: u32, required: u32 },
     /// Required signatures collected, but locked under mandatory delay
-    Locked { unlock_at: String, remaining_seconds: i64 },
+    Locked {
+        unlock_at: String,
+        remaining_seconds: i64,
+    },
     /// Timelock delay has elapsed; proposal is currently executable
     ReadyToExecute {
         expires_at: Option<String>,
@@ -201,10 +204,15 @@ impl Proposal {
     }
 
     /// Attach or configure a timelock policy on this proposal.
-    pub fn with_timelock(mut self, min_delay_seconds: u64, execution_window_seconds: Option<u64>) -> Self {
+    pub fn with_timelock(
+        mut self,
+        min_delay_seconds: u64,
+        execution_window_seconds: Option<u64>,
+    ) -> Self {
         let now = Utc::now();
         let unlock_at = now + chrono::Duration::seconds(min_delay_seconds as i64);
-        let expires_at = execution_window_seconds.map(|w| unlock_at + chrono::Duration::seconds(w as i64));
+        let expires_at =
+            execution_window_seconds.map(|w| unlock_at + chrono::Duration::seconds(w as i64));
         self.timelock = Some(TimelockPolicy {
             min_delay_seconds,
             execution_window_seconds,
@@ -286,7 +294,10 @@ impl Proposal {
         }
         if let Some(status) = self.timelock_status() {
             match status {
-                TimelockExecutionStatus::Locked { unlock_at, remaining_seconds } => {
+                TimelockExecutionStatus::Locked {
+                    unlock_at,
+                    remaining_seconds,
+                } => {
                     anyhow::bail!(
                         "Proposal is timelocked until {}. Remaining delay: {}s",
                         unlock_at,
@@ -294,7 +305,10 @@ impl Proposal {
                     );
                 }
                 TimelockExecutionStatus::Expired { expired_at } => {
-                    anyhow::bail!("Proposal timelock execution window expired at {}", expired_at);
+                    anyhow::bail!(
+                        "Proposal timelock execution window expired at {}",
+                        expired_at
+                    );
                 }
                 TimelockExecutionStatus::CollectingSignatures { .. } => {
                     anyhow::bail!("Proposal signatures incomplete");
@@ -305,7 +319,6 @@ impl Proposal {
             Ok(())
         }
     }
-
 }
 
 // ── Proposal validation (#691) ────────────────────────────────────────────────

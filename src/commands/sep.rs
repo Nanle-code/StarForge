@@ -54,8 +54,8 @@ pub struct Sep10AuthArgs {
     pub output: Option<PathBuf>,
 }
 
-pub async fn handle(args: Sep10Args) -> Result<()> {
-    match args.command {
+pub async fn handle(cmd: Sep10Commands) -> Result<()> {
+    match cmd {
         Sep10Commands::Auth(args) => handle_auth(args).await,
     }
 }

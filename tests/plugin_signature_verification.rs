@@ -1,4 +1,5 @@
 use ed25519_dalek::{Signer, SigningKey};
+use rand_core::OsRng;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -148,7 +149,7 @@ fn create_signed_plugin_fixture(
     let lib = compile_dummy_plugin_library(dir, name);
     let lib_bytes = fs::read(&lib).expect("read compiled plugin library");
 
-    let mut rng = rand::thread_rng();
+    let mut rng = OsRng;
     let signing_key = SigningKey::generate(&mut rng);
     let verifying_key = signing_key.verifying_key();
     let pk_bytes = verifying_key.to_bytes();
@@ -406,7 +407,7 @@ fn test_failure_untrusted_publisher_key_rejected_when_list_configured() {
         create_signed_plugin_fixture(&fixture_dir, "untrusted_pub", env!("CARGO_PKG_VERSION"));
 
     // Generate a DIFFERENT valid Stellar publisher key
-    let other_sk = SigningKey::generate(&mut rand::thread_rng());
+    let other_sk = SigningKey::generate(&mut OsRng);
     let other_g_addr =
         stellar_strkey::ed25519::PublicKey(other_sk.verifying_key().to_bytes()).to_string();
 

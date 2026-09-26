@@ -411,6 +411,7 @@ async fn list() -> Result<()> {
             CompatibilityStatus::TooOld { .. } | CompatibilityStatus::TooNew { .. } => {
                 "[INCOMPATIBLE]"
             }
+            CompatibilityStatus::SorobanSdkIncompatible { .. } => "[SDK-INCOMPAT]",
             CompatibilityStatus::MalformedMetadata { .. } => "[BAD-META]",
         };
         let mut badges = template.trust_indicators();
@@ -510,6 +511,7 @@ async fn search(
             CompatibilityStatus::TooOld { .. } | CompatibilityStatus::TooNew { .. } => {
                 "[INCOMPATIBLE]"
             }
+            CompatibilityStatus::SorobanSdkIncompatible { .. } => "[SDK-INCOMPAT]",
             CompatibilityStatus::MalformedMetadata { .. } => "[BAD-META]",
         };
         let mut badges = template.trust_indicators();
@@ -597,6 +599,22 @@ async fn show(name: String) -> Result<()> {
             p::warn(&format!(
                 "Incompatible: requires <= {} (running {})",
                 required_max, running
+            ));
+        }
+        CompatibilityStatus::SorobanSdkIncompatible {
+            sdk_min,
+            sdk_max,
+            found_version,
+        } => {
+            let constraint = match (sdk_min, sdk_max) {
+                (Some(min), Some(max)) => format!(">= {} and <= {}", min, max),
+                (Some(min), None) => format!(">= {}", min),
+                (None, Some(max)) => format!("<= {}", max),
+                (None, None) => "any".to_string(),
+            };
+            p::warn(&format!(
+                "Soroban SDK incompatible: requires {}, found {}",
+                constraint, found_version
             ));
         }
         CompatibilityStatus::MalformedMetadata { reason } => {
@@ -709,6 +727,22 @@ async fn info(name: String) -> Result<()> {
             "Incompatible: requires <= {} (running {})",
             required_max, running
         )),
+        CompatibilityStatus::SorobanSdkIncompatible {
+            sdk_min,
+            sdk_max,
+            found_version,
+        } => {
+            let constraint = match (sdk_min, sdk_max) {
+                (Some(min), Some(max)) => format!(">= {} and <= {}", min, max),
+                (Some(min), None) => format!(">= {}", min),
+                (None, Some(max)) => format!("<= {}", max),
+                (None, None) => "any".to_string(),
+            };
+            p::warn(&format!(
+                "Soroban SDK incompatible: requires {}, found {}",
+                constraint, found_version
+            ))
+        }
         CompatibilityStatus::MalformedMetadata { reason } => {
             p::warn(&format!("Malformed version metadata: {}", reason))
         }

@@ -40,6 +40,8 @@ fn make_entry(name: &str, tags: &[&str], downloads: u32, verified: bool) -> Temp
         updated_at: "2025-01-01T00:00:00Z".to_string(),
         cli_version_min: None,
         cli_version_max: None,
+        soroban_sdk_min: None,
+        soroban_sdk_max: None,
         documented: verified,
         maintenance: MaintenanceStatus::Active,
         license: Some("MIT".to_string()),

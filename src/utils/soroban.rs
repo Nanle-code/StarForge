@@ -30,7 +30,7 @@ static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
 });
 
 /// Global RPC budget manager (thread-safe for concurrent access).
-static RPC_BUDGET_MANAGER: Lazy<Mutex<RpcBudgetManager>> = 
+static RPC_BUDGET_MANAGER: Lazy<Mutex<RpcBudgetManager>> =
     Lazy::new(|| Mutex::new(RpcBudgetManager::new()));
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -377,7 +377,7 @@ where
         let mut manager = RPC_BUDGET_MANAGER.lock().unwrap();
         manager.get_budget(rpc_url)
     };
-    
+
     let _permit = budget.acquire_permit().await.with_context(|| {
         format!("RPC budget exhausted for {}. Wait or increase STARFORGE_RPC_MAX_QPS/STARFORGE_RPC_MAX_CONCURRENT.", rpc_url)
     })?;

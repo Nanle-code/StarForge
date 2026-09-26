@@ -22,11 +22,19 @@ impl WordCount {
             Self::Words24 => 24,
         }
     }
+
+    /// Convert to bip39::WordCount for use with the bip39 crate.
+    fn to_bip39_word_count(self) -> bip39::WordCount {
+        match self {
+            Self::Words12 => bip39::WordCount::Words12,
+            Self::Words24 => bip39::WordCount::Words24,
+        }
+    }
 }
 
 /// Generate a new BIP39 mnemonic phrase in English.
 pub fn generate_phrase(count: WordCount) -> Result<String> {
-    let mnemonic = Mnemonic::generate_in(Language::English, count.as_usize())
+    let mnemonic = Mnemonic::generate_in(Language::English, count.to_bip39_word_count())
         .map_err(|e| anyhow!("Failed to generate mnemonic: {}", e))?;
     Ok(mnemonic.to_string())
 }

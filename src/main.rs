@@ -159,7 +159,7 @@ enum Commands {
     /// Runs the SEP-10 challenge/response handshake with a local wallet and
     /// prints the JWT the anchor issues. See `docs/SEP10_AUTH.md`.
     #[command(subcommand)]
-    Sep10(commands::sep::Sep10Args),
+    Sep10(commands::sep::Sep10Commands),
 
     /// View or switch the active network (testnet/mainnet)
     #[command(subcommand)]
@@ -439,7 +439,7 @@ fn main() {
 #[tokio::main]
 async fn run() {
     let cli = Cli::parse();
-    
+
     // Handle --help-all: show information about progressive disclosure
     if cli.help_all {
         eprintln!("StarForge Progressive Disclosure");
@@ -460,7 +460,7 @@ async fn run() {
         eprintln!("");
         std::process::exit(0);
     }
-    
+
     OUTPUT_MODE_INIT.call_once(|| {});
     utils::output::set_json_mode(cli.json);
     utils::output::set_plain_mode(cli.plain);
@@ -628,7 +628,7 @@ async fn run() {
         Commands::Config(cmd) => commands::config::handle(cmd).await,
         Commands::Telemetry(cmd) => commands::telemetry::handle(cmd).await,
         Commands::Tx(args) => commands::tx::handle(args).await,
-        Commands::Sep10(args) => commands::sep::handle(args).await,
+        Commands::Sep10(cmd) => commands::sep::handle(cmd).await,
         Commands::Network(cmd) => commands::network::handle(cmd).await,
         Commands::Node(cmd) => commands::node::handle(cmd).await,
         Commands::Completions(shell) => commands::completions::handle(shell).await,
