@@ -263,6 +263,13 @@ async fn scaffold_contract(
                 ));
                 return Ok(());
             }
+            templates::CompatibilityStatus::SorobanSdkIncompatible { .. } => {
+                p::error(&format!(
+                    "Template '{}' has incompatible Soroban SDK version requirements.\nPlease check the template's soroban_sdk_min / soroban_sdk_max fields.",
+                    entry.name
+                ));
+                return Ok(());
+            }
         }
     }
 

@@ -67,6 +67,7 @@ pub mod contract_test_framework;
 pub mod contract_test_runner;
 pub mod contract_testing;
 pub mod contract_versioning;
+pub mod contract_id;
 pub mod correlation;
 pub mod cost_estimation;
 pub mod cost_management;
