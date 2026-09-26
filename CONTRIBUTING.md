@@ -15,6 +15,7 @@ Welcome to StarForge! This guide will help you get started contributing to the p
 - [Submitting a Pull Request](#submitting-a-pull-request)
 - [Contributing to AI Features](#contributing-to-ai-features)
 - [Common Issues & Troubleshooting](#common-issues--troubleshooting)
+- [Flaky Tests & Quarantine](#flaky-tests--quarantine)
 - [Questions & Support](#questions--support)
 
 ---
@@ -747,6 +748,71 @@ This document confirms:
 - ✅ Zero unresolved imports across 74 source files
 - ✅ All test files are ready to execute
 - ✅ The baseline is clean and ready for development
+
+---
+
+## Flaky Tests & Quarantine
+
+A **flaky test** is one that fails and then passes when it is retried. Flakes
+waste reviewer time and train people to ignore red CI, so StarForge runs the
+test suite through [`cargo nextest`](https://nexte.st) with retries enabled
+(see [`.config/nextest.toml`](.config/nextest.toml)) and reports every test that
+passed only on a retry.
+
+### Detecting flakes
+
+The [Flaky Test Detection workflow](.github/workflows/flaky-tests.yml) runs
+nightly and on pull requests that touch the test suite. It publishes two
+artifacts:
+
+| Artifact | Contents |
+|---|---|
+| `flaky-test-report-nextest` | `flaky-report.md` and `flaky-report.json` — the tests that passed only on a retry |
+| `nextest-junit-report` | The raw nextest JUnit XML (`target/nextest/ci/junit.xml`) |
+
+Run the same detection locally:
+
+```bash
+cargo install cargo-nextest --locked          # once
+cargo nextest run --profile ci                # retries failures, writes JUnit XML
+python3 scripts/flaky-report.py               # writes flaky-report.md + flaky-report.json
+```
+
+### Quarantine process
+
+When a flake cannot be fixed in the same pull request, quarantine it by adding
+one entry to [`.github/flaky-quarantine.json`](.github/flaky-quarantine.json):
+
+```json
+{
+  "test": "starforge::utils::wallet::creates_wallet_from_seed",
+  "owner": "@your-github-handle",
+  "issue": 924,
+  "quarantinedOn": "2026-09-26",
+  "deadline": "2026-10-26",
+  "reason": "Intermittent filesystem timing on the CI runner."
+}
+```
+
+The rules are intentionally strict so quarantines do not become permanent:
+
+1. **Every entry names one owner and one deadline.** `test` is the full nextest
+   id from `flaky-report.md`; `owner` is a GitHub handle (`@name`); `deadline`
+   is an ISO date (`YYYY-MM-DD`).
+2. **The deadline is at most 30 days out.** Longer-lived flakes should be fixed,
+   not hidden.
+3. **Quarantined tests still run.** Quarantine marks the flake as known and
+   assigns accountability; it does not delete or skip coverage. The report
+   lists each flake next to its owner and deadline.
+4. **Expired entries are escalated.** Once the deadline passes, the flaky
+   report marks the entry `expired` and the owner must fix the test,
+   re-quarantine it with a new deadline and a tracking issue, or remove it with
+   a justification in the pull request.
+5. **Fixes beat quarantines.** When you fix a flake, add deterministic coverage
+   for the failure mode and delete its entry in the same pull request.
+
+Reviewers should reject a quarantine entry that is missing an owner, a deadline,
+or a linked tracking issue.
 
 ---
 
