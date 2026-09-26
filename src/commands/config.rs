@@ -1,5 +1,10 @@
 use crate::utils::database;
-use crate::utils::{config, print as p};
+use crate::utils::{
+    config,
+    dry_run::{self, DryRunPlan, PlannedOperation},
+    output,
+    print as p,
+};
 use anyhow::Result;
 use clap::Subcommand;
 
@@ -88,6 +93,11 @@ pub enum PluginTrustCommands {
 }
 
 pub async fn handle(cmd: ConfigCommands) -> Result<()> {
+    if dry_run::is_enabled() {
+        if let Some(plan) = dry_run_plan(&cmd) {
+            return plan.emit(output::is_json_mode_enabled());
+        }
+    }
     match cmd {
         ConfigCommands::Show => show(),
         ConfigCommands::Set { key, value } => set(&key, &value),
@@ -100,6 +110,134 @@ pub async fn handle(cmd: ConfigCommands) -> Result<()> {
         ConfigCommands::Doctor => crate::commands::doctor::run().await,
         ConfigCommands::Db(cmd) => handle_db(cmd),
     }
+}
+
+/// Build the plan shown by `--dry-run` for a mutating `config` subcommand.
+///
+/// Read-only subcommands (`show`, `doctor`, `db query/status/check`) return
+/// `None` and run normally — a dry run of a read-only command is a no-op.
+fn dry_run_plan(cmd: &ConfigCommands) -> Option<DryRunPlan> {
+    let db_path = database::db_path();
+    let config_file = config::config_path();
+    let store_details = |operation: PlannedOperation| {
+        operation
+            .detail("Config file", config_file.display().to_string())
+            .detail("Database", db_path.display().to_string())
+    };
+
+    match cmd {
+        ConfigCommands::Set { key, value } => Some(
+            DryRunPlan::new(
+                "config set",
+                format!("Set configuration key '{key}' to '{value}'"),
+            )
+            .operation(store_details(PlannedOperation::new(
+                "config.write",
+                "configuration store",
+                format!("would persist '{key}' = '{value}'"),
+            )))
+            .writes_filesystem(),
+        ),
+        ConfigCommands::SetEncryption {
+            mem,
+            iterations,
+            parallelism,
+            reset,
+        } => {
+            let description = if *reset {
+                "would reset wallet encryption (Argon2id) parameters to defaults".to_string()
+            } else {
+                format!(
+                    "would update wallet encryption (Argon2id) parameters: mem={}, iterations={}, parallelism={}",
+                    option_label(*mem),
+                    option_label(*iterations),
+                    option_label(*parallelism),
+                )
+            };
+            Some(
+                DryRunPlan::new("config set-encryption", description.clone())
+                    .operation(store_details(PlannedOperation::new(
+                        "config.write",
+                        "wallet encryption parameters",
+                        description,
+                    )))
+                    .writes_filesystem(),
+            )
+        }
+        ConfigCommands::Db(DbCommands::Init) => Some(
+            DryRunPlan::new(
+                "config db init",
+                "Initialize the SQLite configuration database schema",
+            )
+            .operation(PlannedOperation::new(
+                "database.create",
+                db_path.display().to_string(),
+                "would create the SQLite schema (wallets, networks, config_kv, plugins, templates, meta)",
+            ))
+            .writes_filesystem(),
+        ),
+        ConfigCommands::Db(DbCommands::Migrate) => Some(
+            DryRunPlan::new(
+                "config db migrate",
+                "Migrate TOML configuration into the SQLite database",
+            )
+            .operation(
+                PlannedOperation::new(
+                    "database.write",
+                    db_path.display().to_string(),
+                    "would import wallets, networks, and config keys from TOML",
+                )
+                .detail("Source", config_file.display().to_string()),
+            )
+            .writes_filesystem(),
+        ),
+        ConfigCommands::Db(DbCommands::Backup { dest }) => Some(
+            DryRunPlan::new("config db backup", format!("Back up the database to {dest}"))
+                .operation(PlannedOperation::new(
+                    "file.write",
+                    dest.clone(),
+                    "would write a database backup file",
+                ))
+                .writes_filesystem(),
+        ),
+        ConfigCommands::Db(DbCommands::Restore { src }) => Some(
+            DryRunPlan::new(
+                "config db restore",
+                format!("Restore the database from {src}"),
+            )
+            .operation(PlannedOperation::new(
+                "database.write",
+                db_path.display().to_string(),
+                format!("would replace the database with the backup at {src}"),
+            ))
+            .writes_filesystem()
+            .warn("Restoring replaces the current database contents"),
+        ),
+        ConfigCommands::Db(DbCommands::Export { out: Some(out) }) => Some(
+            DryRunPlan::new(
+                "config db export",
+                format!("Export database contents to TOML at {out}"),
+            )
+            .operation(PlannedOperation::new(
+                "file.write",
+                out.clone(),
+                "would write the exported TOML file",
+            ))
+            .writes_filesystem(),
+        ),
+        ConfigCommands::Db(DbCommands::Export { out: None })
+        | ConfigCommands::Db(
+            DbCommands::Query { .. } | DbCommands::Status | DbCommands::Check,
+        )
+        | ConfigCommands::Show
+        | ConfigCommands::Doctor => None,
+    }
+}
+
+fn option_label<T: std::fmt::Display>(value: Option<T>) -> String {
+    value
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "unchanged".to_string())
 }
 
 fn handle_db(cmd: DbCommands) -> Result<()> {
