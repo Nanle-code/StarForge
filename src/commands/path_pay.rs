@@ -107,6 +107,12 @@ pub async fn handle(args: PathPayArgs) -> Result<()> {
             p::step(1, 3, "Finding best payment path...");
         }
         
+        // SAFETY: CodeQL flags this as "cleartext transmission of sensitive information"
+        // because wallet struct contains secret_key (validated via validate_secret_key).
+        // However, only wallet.public_key (a public Stellar address, G...) is transmitted
+        // to Horizon here, never the secret key. The taint tracking is not field-sensitive.
+        // Horizon URL is validated to use HTTPS for all built-in networks (testnet, mainnet)
+        // in config::get_network_config(). See issue #934 security review.
         let paths = horizon::find_payment_paths(
             &wallet.public_key,
             &args.destination,

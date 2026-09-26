@@ -953,6 +953,17 @@ struct PathsEmbedded {
 }
 
 /// Find payment paths using Horizon's /paths/strict-receive endpoint
+///
+/// # Security Note
+///
+/// This function transmits only public Stellar account addresses (source_account,
+/// destination_account) to Horizon, never secret keys. All built-in networks
+/// (testnet, mainnet) are enforced to use HTTPS in `config::get_network_config()`.
+/// Custom networks using non-HTTPS URLs generate a warning to the user.
+///
+/// CodeQL may flag this as "cleartext transmission of sensitive information" due to
+/// taint tracking from `validate_secret_key()` on the Wallet struct, but the secret_key
+/// field is never accessed or transmitted by this function.
 pub async fn find_payment_paths(
     source_account: &str,
     destination_account: &str,
