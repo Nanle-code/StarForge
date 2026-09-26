@@ -340,6 +340,8 @@ mod tests {
             previous_id: None,
             approved_by: None,
             verification_passed: false,
+            note: None,
+            changelog: None,
         }
     }
 
