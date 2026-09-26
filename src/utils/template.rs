@@ -412,6 +412,7 @@ async fn list() -> Result<()> {
                 "[INCOMPATIBLE]"
             }
             CompatibilityStatus::MalformedMetadata { .. } => "[BAD-META]",
+            CompatibilityStatus::SorobanSdkIncompatible { .. } => "[SDK-INCOMPAT]",
         };
         let mut badges = template.trust_indicators();
         badges.push(compat_badge.to_string());
@@ -511,6 +512,7 @@ async fn search(
                 "[INCOMPATIBLE]"
             }
             CompatibilityStatus::MalformedMetadata { .. } => "[BAD-META]",
+            CompatibilityStatus::SorobanSdkIncompatible { .. } => "[SDK-INCOMPAT]",
         };
         let mut badges = template.trust_indicators();
         badges.push(compat_badge.to_string());
@@ -601,6 +603,9 @@ async fn show(name: String) -> Result<()> {
         }
         CompatibilityStatus::MalformedMetadata { reason } => {
             p::warn(&format!("Malformed version metadata: {}", reason));
+        }
+        CompatibilityStatus::SorobanSdkIncompatible { .. } => {
+            p::warn("Incompatible: Soroban SDK version requirements not met");
         }
     }
     print_quality_signals(&template);
@@ -711,6 +716,9 @@ async fn info(name: String) -> Result<()> {
         )),
         CompatibilityStatus::MalformedMetadata { reason } => {
             p::warn(&format!("Malformed version metadata: {}", reason))
+        }
+        CompatibilityStatus::SorobanSdkIncompatible { .. } => {
+            p::warn("Incompatible: Soroban SDK version requirements not met")
         }
     }
 

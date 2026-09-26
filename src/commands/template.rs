@@ -1,6 +1,7 @@
 use crate::utils::template_integration;
 use crate::utils::template_performance;
 use crate::utils::template_provenance;
+use crate::utils::template_security_scanner::{scan_template_security, ScanLevel, TemplateSecurityScannerConfig};
 use crate::utils::{output, print as p, template_customization_ai, templates};
 use anyhow::{Context, Result};
 use clap::Subcommand;
@@ -449,6 +450,8 @@ async fn import(
         sign,
         None,
         None,
+        None,
+        None,
     )
     .await?;
     p::header("Template Import");
@@ -683,6 +686,7 @@ async fn list(json: bool, limit: Option<usize>, cursor: Option<String>) -> Resul
                 "[INCOMPATIBLE]"
             }
             CompatibilityStatus::MalformedMetadata { .. } => "[BAD-META]",
+            CompatibilityStatus::SorobanSdkIncompatible { .. } => "[SDK-INCOMPAT]",
         };
         let mut badges = template.trust_indicators();
         badges.push(compat_badge.to_string());
@@ -808,6 +812,7 @@ async fn search(
                 "[INCOMPATIBLE]"
             }
             CompatibilityStatus::MalformedMetadata { .. } => "[BAD-META]",
+            CompatibilityStatus::SorobanSdkIncompatible { .. } => "[SDK-INCOMPAT]",
         };
         let mut badges = template.trust_indicators();
         badges.push(compat_badge.to_string());
@@ -900,6 +905,9 @@ async fn show(name: String) -> Result<()> {
         }
         CompatibilityStatus::MalformedMetadata { reason } => {
             p::warn(&format!("Malformed version metadata: {}", reason));
+        }
+        CompatibilityStatus::SorobanSdkIncompatible { .. } => {
+            p::warn("Incompatible: Soroban SDK version requirements not met");
         }
     }
     print_quality_signals(&template);
@@ -1265,6 +1273,9 @@ async fn info(name: String) -> Result<()> {
         )),
         CompatibilityStatus::MalformedMetadata { reason } => {
             p::warn(&format!("Malformed version metadata: {}", reason))
+        }
+        CompatibilityStatus::SorobanSdkIncompatible { .. } => {
+            p::warn("Incompatible: Soroban SDK version requirements not met")
         }
     }
 

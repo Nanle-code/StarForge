@@ -38,6 +38,10 @@ pub struct DeployArgs {
     /// Wallet name to use for deployment
     #[arg(long)]
     pub wallet: Option<String>,
+    /// Custom 32-byte salt for deterministic contract ID (hex encoded, 64 chars)
+    /// When provided, the predicted contract ID from `starforge contract id` will match the deployed ID
+    #[arg(long)]
+    pub salt: Option<String>,
     /// Optimize the WASM before deployment using the built-in optimizer
     #[arg(long, default_value = "false")]
     pub optimize: bool,
@@ -164,17 +168,21 @@ fn compute_local_wasm_hash(wasm_bytes: &[u8]) -> String {
         .unwrap_or_else(|e| panic!("failed to compute WASM hash: {e}"))
 }
 
-fn build_stellar_deploy_command(wasm: &std::path::Path, source: &str, network: &str) -> String {
-    format!(
+fn build_stellar_deploy_command(wasm: &std::path::Path, source: &str, network: &str, salt: Option<&str>) -> String {
+    let mut cmd = format!(
         "stellar contract deploy \\\n  --wasm {} \\\n  --source {} \\\n  --network {}",
         wasm.display(),
         source,
         network
-    )
+    );
+    if let Some(salt) = salt {
+        cmd.push_str(&format!(" \\\n  --salt {}", salt));
+    }
+    cmd
 }
 
-fn build_stellar_deploy_args(wasm: &std::path::Path, source: &str, network: &str) -> Vec<String> {
-    vec![
+fn build_stellar_deploy_args(wasm: &std::path::Path, source: &str, network: &str, salt: Option<&str>) -> Vec<String> {
+    let mut args = vec![
         "contract".to_string(),
         "deploy".to_string(),
         "--wasm".to_string(),
@@ -183,7 +191,12 @@ fn build_stellar_deploy_args(wasm: &std::path::Path, source: &str, network: &str
         source.to_string(),
         "--network".to_string(),
         network.to_string(),
-    ]
+    ];
+    if let Some(salt) = salt {
+        args.push("--salt".to_string());
+        args.push(salt.to_string());
+    }
+    args
 }
 
 /// Validate and summarise a deployment plan without submitting any transaction.
@@ -199,6 +212,7 @@ async fn run_dry_run(
     wasm_size_kb: f64,
     wallet: &crate::utils::config::WalletEntry,
     network: &str,
+    salt: Option<&str>,
 ) -> Result<()> {
     p::header("Deployment Dry-Run Plan");
 
@@ -380,7 +394,7 @@ async fn run_dry_run(
     p::kv("Planned operations", "2 (upload WASM + create instance)");
 
     println!();
-    let deploy_cmd = build_stellar_deploy_command(wasm_path, &wallet.public_key, network);
+    let deploy_cmd = build_stellar_deploy_command(wasm_path, &wallet.public_key, network, salt);
     println!("  Stellar CLI command to deploy:");
     for line in deploy_cmd.lines() {
         println!("    {}", line.cyan());
@@ -654,6 +668,10 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
         }
     }
 
+    // Track completed checklist items for deploy policy enforcement
+    let mut completed_checklist: Vec<String> = Vec::new();
+    let wasm_policy = wasm_preflight::WasmPolicy::default();
+
     // ── WASM pre-flight policy check (always runs, blocks on violations) ───
     {
         let report = wasm_preflight::validate_wasm_bytes(
@@ -693,6 +711,7 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
             wasm_size_kb,
             wallet,
             &args.network,
+            args.salt.as_deref(),
         )
         .await;
     }
@@ -720,6 +739,14 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
         }
         p::separator();
     }
+
+    // Load organization deploy policy if configured
+    let policy_path = args.policy.clone();
+    let org_deploy_policy = if let Some(ref path) = policy_path {
+        Some(deploy_policy::load_policy(path)?)
+    } else {
+        None
+    };
 
     // Enforce organization deploy policy when configured
     if let (Some(path), Some(policy)) = (&policy_path, &org_deploy_policy) {
@@ -843,7 +870,7 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
         "Ready! Run this to complete the deployment:".bright_white()
     );
     println!();
-    let deploy_cmd = build_stellar_deploy_command(&wasm_path, &wallet.public_key, &args.network);
+    let deploy_cmd = build_stellar_deploy_command(&wasm_path, &wallet.public_key, &args.network, args.salt.as_deref());
     for line in deploy_cmd.lines() {
         println!("  {}", line.cyan());
     }
@@ -864,7 +891,7 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
         );
         let record_id = record_deployment(record)?;
 
-        let deploy_args = build_stellar_deploy_args(&wasm_path, &wallet.public_key, &args.network);
+        let deploy_args = build_stellar_deploy_args(&wasm_path, &wallet.public_key, &args.network, args.salt.as_deref());
         let started_at = Instant::now();
         let output = Command::new("stellar")
             .args(&deploy_args)
@@ -1020,9 +1047,18 @@ mod tests {
 
     #[test]
     fn stellar_deploy_signs_with_identity_name() {
-        let args = build_stellar_deploy_args(std::path::Path::new("c.wasm"), "deployer", "testnet");
+        let args = build_stellar_deploy_args(std::path::Path::new("c.wasm"), "deployer", "testnet", None);
         let source = args.iter().position(|a| a == "--source").unwrap();
         assert_eq!(args[source + 1], "deployer");
+    }
+
+    #[test]
+    fn stellar_deploy_includes_salt_when_provided() {
+        let args = build_stellar_deploy_args(std::path::Path::new("c.wasm"), "deployer", "testnet", Some("0000000000000000000000000000000000000000000000000000000000000000"));
+        let source = args.iter().position(|a| a == "--source").unwrap();
+        assert_eq!(args[source + 1], "deployer");
+        let salt_pos = args.iter().position(|a| a == "--salt").unwrap();
+        assert_eq!(args[salt_pos + 1], "0000000000000000000000000000000000000000000000000000000000000000");
     }
 
     #[test]

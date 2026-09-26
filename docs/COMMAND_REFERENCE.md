@@ -98,10 +98,11 @@ starforge multisig notify proposal.json --message "Please sign the treasury paym
 | `contract build` | Build a Soroban contract with build provenance metadata |
 | `contract inspect` | Inspect deployed contract or local WASM metadata |
 | `contract generate-bindings <WASM_FILE>` | Generate Rust or TypeScript wrappers (`--lang rust\|ts`) |
+| `contract id` | Predict contract ID from deployer, salt, and WASM hash |
 | `inspect storage` | Deep storage inspection |
 | `deploy --wasm <FILE>` | Prepare Soroban deployment |
 
-**`deploy` flags:** `--network`, `--wallet`, `--optimize`, `--simulate`, `--yes`, `--execute`, `--policy`, `--checklist`
+**`deploy` flags:** `--network`, `--wallet`, `--optimize`, `--simulate`, `--yes`, `--execute`, `--policy`, `--checklist`, `--salt`
 
 Deploy policy files (`starforge-deploy-policy.toml`) gate allowed networks,
 required reviewers, and checklist items. Validate in CI with
@@ -115,6 +116,10 @@ See [CONFIRMATION_UX.md](CONFIRMATION_UX.md).
 footprint alongside the minimum resource fee and a recommended fee that
 includes a safety margin. See [SIMULATION_RESOURCES.md](SIMULATION_RESOURCES.md).
 
+The `--salt` flag enables deterministic contract IDs. Use `starforge contract id`
+to predict the contract address before deployment. The predicted ID will match
+the deployed ID exactly when the same salt is used.
+
 ```bash norun
 starforge deploy --wasm target/wasm32v1-none/release/token.wasm \
   --wallet deployer --network testnet --simulate
@@ -122,6 +127,12 @@ starforge deploy --wasm target/wasm32v1-none/release/token.wasm \
 starforge deploy --wasm ./token.wasm --optimize --yes --execute
 
 starforge contract generate-bindings ./token.wasm --lang rust
+
+# Predict contract ID before deployment
+starforge contract id --deployer GDKW... --salt 0000000000000000000000000000000000000000000000000000000000000000 --wasm-hash 1234... --network testnet
+
+# Deploy with the same salt to get the predicted contract ID
+starforge deploy --wasm ./token.wasm --wallet deployer --network testnet --salt 0000000000000000000000000000000000000000000000000000000000000000 --execute
 ```
 
 ## `deploy-policy`

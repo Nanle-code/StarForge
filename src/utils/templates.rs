@@ -460,6 +460,13 @@ pub fn assert_template_compatible(entry: &TemplateEntry) -> Result<()> {
                 reason,
             )
         }
+        CompatibilityStatus::SorobanSdkIncompatible { .. } => {
+            anyhow::bail!(
+                "Template '{}' has incompatible Soroban SDK version requirements.\n\
+                 Please update the template's soroban_sdk_min / soroban_sdk_max fields.",
+                entry.name,
+            )
+        }
     }
 }
 
@@ -526,6 +533,9 @@ fn build_update_report(
         }
         CompatibilityStatus::MalformedMetadata { reason } => {
             format!("Version metadata is malformed: {}", reason)
+        }
+        CompatibilityStatus::SorobanSdkIncompatible { .. } => {
+            "Template has incompatible Soroban SDK version requirements".to_string()
         }
     };
 
@@ -2011,6 +2021,8 @@ pub async fn publish_template(
         None,
         None,
         None,
+        None,
+        None,
     )
     .await
 }
@@ -2040,6 +2052,8 @@ pub async fn install_template_package(
         version,
         cli_version_min,
         cli_version_max,
+        None,
+        None,
         None,
         None,
         None,
@@ -2430,6 +2444,8 @@ async fn install_from_git_url(
         updated_at: String::new(),
         cli_version_min: None,
         cli_version_max: None,
+        soroban_sdk_min: None,
+        soroban_sdk_max: None,
         documented: dest.join("README.md").exists(),
         maintenance: MaintenanceStatus::Unknown,
         license: None,
@@ -2508,6 +2524,8 @@ async fn install_from_local_path(
         updated_at: String::new(),
         cli_version_min: None,
         cli_version_max: None,
+        soroban_sdk_min: None,
+        soroban_sdk_max: None,
         documented: dest.join("README.md").exists(),
         maintenance: MaintenanceStatus::Unknown,
         license: None,
@@ -2741,6 +2759,8 @@ mod tests {
             updated_at: String::new(),
             cli_version_min: None,
             cli_version_max: None,
+            soroban_sdk_min: None,
+            soroban_sdk_max: None,
             documented: false,
             maintenance: MaintenanceStatus::Unknown,
             license: None,
@@ -3183,8 +3203,8 @@ mod tests {
             None,
             Some("MIT".to_string()),
             Some("https://example.com".to_string()),
-            Some("https://docs.example.com".to_string()),
             Some("https://homepage.example.com".to_string()),
+            Some("https://docs.example.com".to_string()),
         )
         .await
         .unwrap();
@@ -3205,8 +3225,8 @@ mod tests {
             None,
             Some("MIT".to_string()),
             Some("https://example.com".to_string()),
-            Some("https://docs.example.com".to_string()),
             Some("https://homepage.example.com".to_string()),
+            Some("https://docs.example.com".to_string()),
         )
         .await
         .unwrap();
@@ -3243,6 +3263,8 @@ mod tests {
             verified: true,
             cli_version_min: None,
             cli_version_max: None,
+            soroban_sdk_min: None,
+            soroban_sdk_max: None,
             documented: true,
             maintenance: MaintenanceStatus::Active,
             license: None,
@@ -3355,6 +3377,8 @@ mod tests {
             verified: false,
             cli_version_min: None,
             cli_version_max: None,
+            soroban_sdk_min: None,
+            soroban_sdk_max: None,
             documented: false,
             maintenance: MaintenanceStatus::Unknown,
             license: None,
