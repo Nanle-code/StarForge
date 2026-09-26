@@ -9,6 +9,9 @@ asset and boundary below in their design or pull request.
 
 - Wallet secret keys, encrypted key material, recovery shares, and signing
   requests.
+- OS keychain entries (macOS Keychain, Windows Credential Manager, Linux
+  Secret Service) and the `keychain:<key>` references in the configuration
+  that point at them.
 - Contract WASM, deployment parameters, transaction payloads, and RPC results.
 - Plugin binaries, manifests, requested capabilities, and marketplace
   metadata.
@@ -29,6 +32,7 @@ accidentally approve unsafe commands or disclose secrets through prompts.
 | Boundary | Main risk | Existing controls | Remaining gap |
 | --- | --- | --- | --- |
 | Wallet files → signer | Key theft or misuse | Encrypted-at-rest options, validation, explicit wallet selection | OS account compromise remains outside the CLI’s control |
+| Wallet secret → OS keychain backend | Secret exposure during migration or key loss | Feature-gated OS backend, `keychain:` references in config, idempotent migration, 0600 file fallback | The OS store must be present and unlocked; live-keychain paths are not exercised in CI |
 | CLI → Stellar/Horizon/Soroban RPC | Forged results or endpoint substitution | Configured network endpoints, simulation and deployment validation | TLS/DNS trust and endpoint availability must be monitored |
 | Marketplace → local template | Supply-chain code execution | Source trust classification, checksum verification when supplied, staged installation | Registries should require signed metadata and mandatory digests |
 | Plugin binary → CLI process | Arbitrary code and capability abuse | Manifest/version checks and trust levels | Plugins are native code and are not a sandbox |
@@ -46,6 +50,10 @@ accidentally approve unsafe commands or disclose secrets through prompts.
    message; do not silently reinterpret them.
 5. Report a trust decision and the source URL for every external plugin or
    template before it is loaded or copied into a project.
+6. Wallet secrets migrated to an OS keychain must be replaced in the
+   configuration by a `keychain:<key>` reference only; the plaintext must never
+   be logged, echoed, or left behind, and the file fallback used on hosts
+   without a keychain must remain permission-restricted.
 
 ## Review cadence and gap tracking
 

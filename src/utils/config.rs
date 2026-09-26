@@ -102,6 +102,13 @@ pub fn validate_network(network: &str) -> Result<()> {
 
 /// Validates a Stellar secret key or encrypted bundle.
 pub fn validate_secret_key(secret: &str) -> Result<()> {
+    // A `keychain:<key>` value is a reference to an OS-keychain entry created
+    // by `starforge wallet migrate --to keychain`, not the secret itself.
+    // Accept it here so a migrated configuration still validates.
+    if crate::utils::keychain::is_secret_reference(secret) {
+        return Ok(());
+    }
+
     if secret.contains(':') {
         let parts: Vec<&str> = secret.split(':').collect();
 

@@ -140,6 +140,10 @@ crossterm = { version = "0.27", optional = true }
 
 [features]
 ai = []
+# OS-native secret storage (macOS Keychain, Windows Credential Manager, Linux
+# Secret Service). Dependency-free: the backend shells out to the platform
+# tool, so enabling it does not change `Cargo.lock`.
+keychain = []
 hardware-wallet = ["dep:hidapi", "dep:trezor-client"]
 unsafe-native-plugins = []
 memory-profiling = []
