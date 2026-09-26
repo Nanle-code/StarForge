@@ -527,6 +527,14 @@ still does better.
 - [Configuration](docs/CONFIGURATION.md) · [Architecture](ARCHITECTURE.md) · [All documentation](docs/README.md)
 - Docs site: <https://nanle-code.github.io/StarForge/> (built from [`docs/`](docs/))
 
+### Nightly end-to-end suite
+
+A scheduled workflow exercises the real Stellar **testnet** every night:
+ephemeral wallet → Friendbot funding → scaffold/build/deploy/invoke/upgrade/verify
+for each built-in template, with failures opening or updating a single tracking
+issue. See [docs/NIGHTLY_E2E.md](docs/NIGHTLY_E2E.md) for how to run the suite
+locally and how to change the cron schedule.
+
 ## Status and stability
 
 StarForge is **beta** (`0.x`). The core wallet, scaffold and deploy workflows
