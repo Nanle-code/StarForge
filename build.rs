@@ -50,6 +50,8 @@ enum Commands {
     AiDeploymentTest,
     #[command(about = "Manage test wallets (create, list, fund, show, remove)")]
     Wallet,
+    #[command(about = "On-chain account lifecycle with sponsored reserves (CAP-33)")]
+    Account,
     #[command(about = "Natural language command interface")]
     Nl,
     #[command(about = "Generate Soroban project boilerplate")]
@@ -256,6 +258,19 @@ const INTERNAL_COMMANDS: &[&str] = &["external", "autocomplete", "man", "feature
 /// command, so a rename/removal fails the build instead of silently drifting.
 const MAJOR_SUBCOMMANDS: &[(&str, &[(&str, &str)])] = &[
     (
+        "account",
+        &[
+            (
+                "create --sponsor <WALLET> --to <G...>",
+                "Create an account with sponsored reserves (CAP-33, --fee-payer, --yes)",
+            ),
+            (
+                "end-sponsorship --wallet <WALLET>",
+                "Release a sponsor's reserve (--fee-payer, --yes)",
+            ),
+        ],
+    ),
+    (
         "wallet",
         &[
             (
@@ -328,12 +343,10 @@ const MAJOR_SUBCOMMANDS: &[(&str, &[(&str, &str)])] = &[
     ),
     (
         "sep10",
-        &[
-            (
-                "auth <--domain <HOME_DOMAIN>> <--wallet <NAME>>",
-                "Validate, sign, and exchange a SEP-10 challenge for a session JWT",
-            ),
-        ],
+        &[(
+            "auth <--domain <HOME_DOMAIN>> <--wallet <NAME>>",
+            "Validate, sign, and exchange a SEP-10 challenge for a session JWT",
+        )],
     ),
     (
         "config",
@@ -583,10 +596,7 @@ const SUBCOMMAND_INFO: &[(&str, &str)] = &[
     ),
     ("telemetry", "Manage telemetry settings directly"),
     ("tx", "Fetch transaction for the account"),
-    (
-        "sep10",
-        "SEP-10 web authentication (anchor auth testing)",
-    ),
+    ("sep10", "SEP-10 web authentication (anchor auth testing)"),
     (
         "network",
         "View or switch the active network (testnet/mainnet)",

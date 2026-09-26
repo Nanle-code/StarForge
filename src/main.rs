@@ -103,6 +103,9 @@ enum Commands {
     /// Manage test wallets (create, list, fund, show, remove)
     #[command(subcommand)]
     Wallet(commands::wallet::WalletCommands),
+    /// On-chain account lifecycle with sponsored reserves (CAP-33)
+    #[command(subcommand)]
+    Account(commands::account::AccountCommands),
     /// Natural language command interface
     Nl(commands::nl::NlArgs),
 
@@ -612,6 +615,7 @@ async fn run() {
         Commands::AiTestMaintain(cmd) => commands::ai_test_maintain::handle(cmd).await,
         Commands::AiDeploymentTest(cmd) => commands::ai_deployment_test::handle(cmd).await,
         Commands::Wallet(cmd) => commands::wallet::handle(cmd).await,
+        Commands::Account(cmd) => commands::account::handle(cmd).await,
         Commands::Nl(args) => commands::nl::handle(args).await,
         Commands::New(cmd) => commands::new::handle(cmd).await,
         Commands::Generate(cmd) => commands::generate::handle(&cmd).await,

@@ -41,6 +41,7 @@ pub mod complete;
 pub mod completions;
 pub mod compliance;
 pub mod config;
+pub mod account;
 pub mod contract;
 pub mod contract_monitor;
 pub mod cost;

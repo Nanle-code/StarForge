@@ -3,9 +3,9 @@ use clap::{Args, Subcommand};
 use colored::*;
 
 use crate::utils::confirmation;
-use crate::utils::hardware_wallet::HardwareWalletKind;
+use crate::utils::hardware_wallet::{self, HardwareWalletKind};
 use crate::utils::horizon::FeeStats;
-use crate::utils::{config, horizon, print as p, tx_batch, wallet_signer};
+use crate::utils::{config, fee_payer, horizon, print as p, tx_batch, tx_builder, wallet_signer};
 
 #[derive(Args)]
 pub struct TxArgs {
@@ -68,6 +68,9 @@ pub struct SendArgs {
     /// Network to use
     #[arg(long, default_value = "testnet", value_parser = ["testnet", "mainnet"])]
     pub network: String,
+    /// Wallet that pays the network fee via a fee bump (CAP-15)
+    #[arg(long, value_name = "WALLET")]
+    pub fee_payer: Option<String>,
     /// Skip confirmation prompt
     #[arg(long, default_value = "false")]
     pub yes: bool,
@@ -318,6 +321,19 @@ fn batch_operation_to_payment(op: &tx_batch::BatchOperation) -> Result<horizon::
     }
 }
 
+/// Convert the validated decimal amount to stroops without going through a
+/// lossy `f64` round-trip where possible.
+fn amount_f64_to_stroops(amount: &f64) -> Result<i64> {
+    let stroops = (amount * 10_000_000.0).round();
+    if !stroops.is_finite() || stroops < 0.0 {
+        anyhow::bail!("amount '{}' is not a valid transfer amount", amount);
+    }
+    if stroops > i64::MAX as f64 {
+        anyhow::bail!("amount '{}' exceeds the maximum i64 stroop value", amount);
+    }
+    Ok(stroops as i64)
+}
+
 async fn handle_send(args: SendArgs) -> Result<()> {
     p::header("Send Stellar Payment");
 
@@ -420,28 +436,60 @@ async fn handle_send(args: SendArgs) -> Result<()> {
         }
     }
 
-    // Step 3: Build and simulate transaction
-    p::step(3, 3, "Building and simulating transaction…");
-    let tx_result = horizon::build_and_simulate_payment(
-        &wallet.public_key,
-        &args.to,
-        &args.amount,
-        asset_code.as_deref(),
-        asset_issuer.as_deref(),
-        &source_account.sequence,
-        &args.network,
-    )?;
+    // Step 3: Build the real payment envelope
+    p::step(3, 3, "Building transaction…");
+    let base_fee = fee_payer::resolve_base_fee(&args.network).await;
 
-    p::kv(
-        "Estimated Fee",
-        &format!("{:.7} XLM", tx_result.fee as f64 / 10_000_000.0),
-    );
+    let amount_stroops = amount_f64_to_stroops(&amount_f64)?;
+    let payment_request = tx_builder::PaymentRequest {
+        source: wallet.public_key.clone(),
+        destination: args.to.clone(),
+        amount: amount_stroops,
+        asset: match (&asset_code, &asset_issuer) {
+            (Some(code), Some(issuer)) => Some((code.clone(), issuer.clone())),
+            _ => None,
+        },
+        sequence: source_account.sequence.trim().parse::<i64>().map_err(|_| {
+            anyhow::anyhow!(
+                "Horizon returned an unreadable sequence for {}: '{}'",
+                wallet.public_key,
+                source_account.sequence
+            )
+        })?,
+        base_fee,
+    };
+    let plain_envelope = tx_builder::build_payment(&payment_request)?;
+
+    // Sign the inner payment as the sender, then optionally wrap it in a fee
+    // bump paid by a different wallet. Both layers are verified before this
+    // returns, so nothing unverifiable can reach Horizon.
+    let signed = fee_payer::sign_and_wrap(
+        plain_envelope,
+        &fee_payer::WrapOptions {
+            network: &args.network,
+            base_fee,
+            source_wallet: wallet,
+            hardware: args.hardware,
+            hd_path: &args.hd_path,
+            fee_payer: args.fee_payer.as_deref(),
+        },
+    )?;
+    let breakdown = signed.breakdown.clone();
+    let transaction_xdr = signed.xdr().to_string();
+
+    if args.fee_payer.is_some() {
+        p::header("Who Pays What");
+        for (key, value) in breakdown.rows() {
+            p::kv(key, &value);
+        }
+        p::separator();
+    }
+
+    p::kv("Network Fee", &tx_builder::stroops_xlm(breakdown.outer_fee));
+    p::kv("Fee Payer", breakdown.fee_payer.as_str());
     p::kv(
         "Transaction XDR",
-        &format!(
-            "{}...",
-            &tx_result.transaction_xdr[..tx_result.transaction_xdr.len().min(20)]
-        ),
+        &format!("{}...", &transaction_xdr[..transaction_xdr.len().min(20)]),
     );
 
     // Build operation summary for confirmation
@@ -451,7 +499,7 @@ async fn handle_send(args: SendArgs) -> Result<()> {
         confirmation::RiskLevel::Medium
     };
 
-    let summary = confirmation::OperationSummary::new(
+    let mut summary = confirmation::OperationSummary::new(
         "Send Stellar Payment".to_string(),
         args.network.clone(),
         risk_level,
@@ -460,10 +508,11 @@ async fn handle_send(args: SendArgs) -> Result<()> {
     .add("From Address", &wallet.public_key)
     .add("To Address", &args.to)
     .add("Amount", format!("{} {}", args.amount, args.asset))
-    .add(
-        "Estimated Fee",
-        format!("{:.7} XLM", tx_result.fee as f64 / 10_000_000.0),
-    );
+    .add("Network Fee", tx_builder::stroops_xlm(breakdown.outer_fee))
+    .add("Fee Payer", breakdown.fee_payer.as_str());
+    if let Some(payer) = &args.fee_payer {
+        summary = summary.add("Fee Bump Signed By", payer);
+    }
 
     let confirm_config = confirmation::ConfirmationConfig {
         risk_level,
@@ -484,25 +533,13 @@ async fn handle_send(args: SendArgs) -> Result<()> {
         return Ok(());
     }
 
-    // Submit transaction
+    // Submit the already-signed envelope. Both the inner payment and the fee
+    // bump were signed before confirmation so the preview showed a real,
+    // verified fee split rather than an estimate.
     println!();
 
-    let signing_request = wallet_signer::SigningRequest::from_options(
-        Some(wallet),
-        args.hardware,
-        Some(&args.hd_path),
-        &args.network,
-        args.yes,
-        "payment transaction",
-    )?;
-
     p::info("Submitting transaction…");
-    let submit_result = horizon::submit_payment_with_signing(
-        &tx_result.transaction_xdr,
-        &signing_request,
-        &args.network,
-    )
-    .await?;
+    let submit_result = horizon::submit_signed_envelope(&transaction_xdr, &args.network).await?;
 
     println!();
     p::separator();
