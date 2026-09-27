@@ -133,6 +133,7 @@ libc = "0.2"
 csv = "1.0"
 minijinja = "2.24"
 serde_yaml = "0.9.34"
+syn = { version = "2", features = ["full"] }
 async-trait = "0.1"
 futures = "0.3.33"
 ratatui = { version = "0.26", optional = true }

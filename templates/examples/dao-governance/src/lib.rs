@@ -36,8 +36,10 @@ pub struct {{PROJECT_NAME_PASCAL}};
 
 #[contractimpl]
 impl {{PROJECT_NAME_PASCAL}} {
+    // <starforge:add:methods>
     /// Initialize the DAO with its founding members.
     pub fn initialize(env: Env, members: Vec<Address>) {
+        // <starforge:pause-check>
         if env.storage().instance().has(&DataKey::Members) {
             panic!("already initialized");
         }
@@ -50,6 +52,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Create a new proposal. Only members may propose.
     pub fn propose(env: Env, proposer: Address, title: String) -> u32 {
+        // <starforge:pause-check>
         proposer.require_auth();
         Self::require_member(&env, &proposer);
 
@@ -71,6 +74,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Cast a vote on a proposal. Each member may vote once per proposal.
     pub fn vote(env: Env, voter: Address, proposal_id: u32, support: bool) {
+        // <starforge:pause-check>
         voter.require_auth();
         Self::require_member(&env, &voter);
 
@@ -97,6 +101,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Close a proposal so no further votes can be cast. Only the proposer may close.
     pub fn close(env: Env, caller: Address, proposal_id: u32) {
+        // <starforge:pause-check>
         caller.require_auth();
         let mut proposal = Self::proposal(&env, proposal_id);
         if caller != proposal.proposer {

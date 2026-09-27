@@ -8,8 +8,10 @@ pub struct {{PROJECT_NAME_PASCAL}};
 
 #[contractimpl]
 impl {{PROJECT_NAME_PASCAL}} {
+    // <starforge:add:methods>
     /// Increment the counter and return the new value
     pub fn increment(env: Env) -> u32 {
+        // <starforge:pause-check>
         let mut count: u32 = env.storage().instance().get(&COUNTER).unwrap_or(0);
         count += 1;
         env.storage().instance().set(&COUNTER, &count);
@@ -23,6 +25,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Reset the counter to zero
     pub fn reset(env: Env) {
+        // <starforge:pause-check>
         env.storage().instance().set(&COUNTER, &0u32);
     }
 }

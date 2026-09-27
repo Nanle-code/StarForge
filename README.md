@@ -44,6 +44,21 @@ starforge new contract my-dex --template uniswap-v2 --from marketplace
 starforge template publish ./my-template
 ```
 
+Add a built-in feature component to a StarForge-generated contract project:
+
+```bash
+starforge add access-control
+starforge add pausability --path ./my-contract --dry-run
+starforge add ownership --path ./my-contract
+starforge add upgradeability --path ./my-contract
+```
+
+Available components are `access-control`, `pausability`, `ownership`, and
+`upgradeability`. The command only patches contract files containing StarForge's
+generated insertion anchors, validates the Rust syntax before writing, and refuses
+duplicate or unsupported patches. Initialize each component's admin or owner
+through its generated initialization method before using its protected operations.
+
 ### 🚀 Contract Deployment
 Validate, size-check, and deploy compiled Soroban `.wasm` files to Testnet or Mainnet. Verifies account balance on-chain, calculates the Soroban WASM hash as a SHA-256 digest of the raw file bytes, and generates the exact `stellar contract deploy` command to complete the deployment.
 
@@ -511,6 +526,7 @@ stellar contract invoke --id <CONTRACT_ID> --source deployer --network testnet -
 |                         |                                                                                                                                                                                                                                       |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Scaffolding**         | `hello-world`, `token`, `nft` and `voting` templates, a template marketplace, and Vite + React dApp frontends. See [Usage](docs/USAGE.md#scaffold-commands).                                                                          |
+| **Components**          | Add access control, pausability, upgradeability or ownership to an existing contract with a safe, previewable patch. See [Adding components](docs/ADD_COMPONENTS.md).                                                                                |
 | **Wallets**             | Keys encrypted at rest (Argon2id + AES-256-GCM), BIP39, backups and recovery shares, Ledger/Trezor, import from stellar-cli. See [Usage](docs/USAGE.md#wallet-commands) and [wallet import security](docs/WALLET_IMPORT_SECURITY.md). |
 | **Safe deploys**        | WASM validation, balance and fee simulation, dry-run plans, deploy policies, checkpoints, history and rollback. See [Deploy policy](docs/DEPLOY_POLICY.md) and [checkpoints](docs/DEPLOYMENT_CHECKPOINTS.md).                         |
 | **Automation**          | A stable `--json` envelope, YAML invocation scripts with assertions, and non-interactive mode for CI. See [JSON stability](docs/CLI_JSON_STABILITY.md) and [Usage](docs/USAGE.md#repeatable-invocation-scripts).                      |

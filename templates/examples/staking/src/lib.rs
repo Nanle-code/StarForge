@@ -22,6 +22,7 @@ pub struct {{PROJECT_NAME_PASCAL}};
 
 #[contractimpl]
 impl {{PROJECT_NAME_PASCAL}} {
+    // <starforge:add:methods>
     /// Initialize the staking contract. Can only be called once.
     pub fn initialize(
         env: Env,
@@ -30,6 +31,7 @@ impl {{PROJECT_NAME_PASCAL}} {
         reward_token: Address,
         reward_rate: i128,
     ) {
+        // <starforge:pause-check>
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("already initialized");
         }
@@ -42,6 +44,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Stake `amount` of stake tokens. Adds to any existing stake.
     pub fn stake(env: Env, staker: Address, amount: i128) {
+        // <starforge:pause-check>
         staker.require_auth();
         // Settle any accrued rewards before changing the stake.
         Self::settle_rewards(&env, &staker);
@@ -56,6 +59,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Unstake `amount` of stake tokens and return them to `staker`.
     pub fn unstake(env: Env, staker: Address, amount: i128) {
+        // <starforge:pause-check>
         staker.require_auth();
         let current: i128 = env.storage().persistent().get(&DataKey::Stake(staker.clone())).unwrap_or(0);
         if current < amount {
@@ -73,6 +77,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Claim all accrued rewards. Returns the reward amount transferred.
     pub fn claim_rewards(env: Env, staker: Address) -> i128 {
+        // <starforge:pause-check>
         staker.require_auth();
         let rewards = Self::get_rewards(env.clone(), staker.clone());
         if rewards > 0 {

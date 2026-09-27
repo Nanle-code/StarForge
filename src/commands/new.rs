@@ -421,7 +421,7 @@ rustflags = ["-C", "target-feature=+multivalue,+sign-ext"]
 
 // ── Contract templates ────────────────────────────────────────────────────────
 
-fn hello_world_template(name: &str, storage: &str, include_tests: bool) -> String {
+pub(super) fn hello_world_template(name: &str, storage: &str, include_tests: bool) -> String {
     let pascal = to_pascal(name);
 
     let storage_import = match storage {
@@ -432,6 +432,7 @@ fn hello_world_template(name: &str, storage: &str, include_tests: bool) -> Strin
     let storage_method = match storage {
         "persistent" => r#"
     pub fn set_value(env: Env, key: Symbol, value: u64) {
+        // <starforge:pause-check>
         env.storage().persistent().set(&key, &value);
     }
 
@@ -441,6 +442,7 @@ fn hello_world_template(name: &str, storage: &str, include_tests: bool) -> Strin
         .to_string(),
         "temporary" => r#"
     pub fn set_value(env: Env, key: Symbol, value: u64) {
+        // <starforge:pause-check>
         env.storage().temporary().set(&key, &value);
     }
 
@@ -484,7 +486,9 @@ pub struct {pascal};
 
 #[contractimpl]
 impl {pascal} {{
+    // <starforge:add:methods>
     pub fn hello(env: Env, to: Symbol) -> Vec<Symbol> {{
+        // <starforge:pause-check>
         vec![&env, symbol_short!("Hello"), to]
     }}{storage_method}
 }}{test_module}
@@ -496,7 +500,7 @@ impl {pascal} {{
     )
 }
 
-fn token_template(name: &str) -> String {
+pub(super) fn token_template(name: &str) -> String {
     let pascal = to_pascal(name);
     format!(
         r#"#![no_std]
@@ -524,7 +528,9 @@ pub struct {pascal};
 
 #[contractimpl]
 impl {pascal} {{
+    // <starforge:add:methods>
     pub fn initialize(env: Env, admin: Address, decimal: u32, name: String, symbol: String) {{
+        // <starforge:pause-check>
         admin.require_auth();
         
         env.storage().instance().set(&DataKey::Admin, &admin);
@@ -533,6 +539,7 @@ impl {pascal} {{
     }}
 
     pub fn mint(env: Env, to: Address, amount: i128) {{
+        // <starforge:pause-check>
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
         
@@ -548,6 +555,7 @@ impl {pascal} {{
     }}
 
     pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {{
+        // <starforge:pause-check>
         from.require_auth();
         
         let from_balance = Self::balance(env.clone(), from.clone());
@@ -599,7 +607,7 @@ mod test {{
     )
 }
 
-fn voting_template(name: &str) -> String {
+pub(super) fn voting_template(name: &str) -> String {
     let pascal = to_pascal(name);
     format!(
         r#"#![no_std]
@@ -629,7 +637,9 @@ pub struct {pascal};
 
 #[contractimpl]
 impl {pascal} {{
+    // <starforge:add:methods>
     pub fn create_proposal(env: Env, creator: Address, title: String) -> u32 {{
+        // <starforge:pause-check>
         creator.require_auth();
         
         let count: u32 = env.storage().instance().get(&DataKey::ProposalCount).unwrap_or(0);
@@ -651,6 +661,7 @@ impl {pascal} {{
     }}
 
     pub fn vote(env: Env, voter: Address, proposal_id: u32, approve: bool) {{
+        // <starforge:pause-check>
         voter.require_auth();
         
         let vote_key = DataKey::Vote(proposal_id, voter.clone());
@@ -685,6 +696,7 @@ impl {pascal} {{
     }}
 
     pub fn close_proposal(env: Env, proposal_id: u32) {{
+        // <starforge:pause-check>
         let mut proposal: Proposal = env.storage().persistent()
             .get(&DataKey::Proposal(proposal_id))
             .unwrap_or_else(|| panic!("proposal not found"));
@@ -730,7 +742,7 @@ mod test {{
     )
 }
 
-fn nft_template(name: &str) -> String {
+pub(super) fn nft_template(name: &str) -> String {
     let pascal = to_pascal(name);
     format!(
         r#"#![no_std]
@@ -756,13 +768,16 @@ pub struct {pascal};
 
 #[contractimpl]
 impl {pascal} {{
+    // <starforge:add:methods>
     pub fn initialize(env: Env, admin: Address) {{
+        // <starforge:pause-check>
         admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::TotalSupply, &0u64);
     }}
 
     pub fn mint(env: Env, to: Address, token_id: u64, uri: String) {{
+        // <starforge:pause-check>
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
         
@@ -785,6 +800,7 @@ impl {pascal} {{
     }}
 
     pub fn transfer(env: Env, from: Address, to: Address, token_id: u64) {{
+        // <starforge:pause-check>
         from.require_auth();
         
         let mut metadata: NFTMetadata = env.storage().persistent()

@@ -33,6 +33,7 @@ pub struct {{PROJECT_NAME_PASCAL}};
 
 #[contractimpl]
 impl {{PROJECT_NAME_PASCAL}} {
+    // <starforge:add:methods>
     /// Initialize the escrow with its parties, token and amount.
     pub fn initialize(
         env: Env,
@@ -42,6 +43,7 @@ impl {{PROJECT_NAME_PASCAL}} {
         token: Address,
         amount: i128,
     ) {
+        // <starforge:pause-check>
         if env.storage().instance().has(&DataKey::Config) {
             panic!("already initialized");
         }
@@ -62,6 +64,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// The buyer deposits the agreed amount into the escrow.
     pub fn deposit(env: Env) {
+        // <starforge:pause-check>
         let config = Self::config(&env);
         config.buyer.require_auth();
 
@@ -83,6 +86,7 @@ impl {{PROJECT_NAME_PASCAL}} {
     /// Authorized by either the buyer (confirming delivery) or the arbiter
     /// (resolving a dispute in the seller's favor).
     pub fn release(env: Env, caller: Address) {
+        // <starforge:pause-check>
         let config = Self::config(&env);
         caller.require_auth();
         if caller != config.buyer && caller != config.arbiter {
@@ -96,6 +100,7 @@ impl {{PROJECT_NAME_PASCAL}} {
     /// Authorized by either the seller (cancelling the deal) or the arbiter
     /// (resolving a dispute in the buyer's favor).
     pub fn refund(env: Env, caller: Address) {
+        // <starforge:pause-check>
         let config = Self::config(&env);
         caller.require_auth();
         if caller != config.seller && caller != config.arbiter {

@@ -110,6 +110,9 @@ enum Commands {
     #[command(subcommand)]
     New(commands::new::NewCommands),
 
+    /// Add a feature component to an existing Soroban contract project
+    Add(commands::add::AddArgs),
+
     /// Contract operations (invoke, inspect, etc.)
     #[command(subcommand)]
     Contract(commands::contract::ContractCommands),
@@ -614,6 +617,7 @@ async fn run() {
         Commands::Wallet(cmd) => commands::wallet::handle(cmd).await,
         Commands::Nl(args) => commands::nl::handle(args).await,
         Commands::New(cmd) => commands::new::handle(cmd).await,
+        Commands::Add(args) => commands::add::handle(args),
         Commands::Generate(cmd) => commands::generate::handle(&cmd).await,
         Commands::Contract(cmd) => commands::contract::handle(cmd).await,
         Commands::Inspect(cmd) => commands::inspect::handle(cmd).await,

@@ -13,8 +13,10 @@ pub struct {{PROJECT_NAME_PASCAL}};
 
 #[contractimpl]
 impl {{PROJECT_NAME_PASCAL}} {
+    // <starforge:add:methods>
     /// Initialize the contract with an admin address
     pub fn initialize(env: Env, admin: Address) {
+        // <starforge:pause-check>
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("already initialized");
         }
@@ -28,6 +30,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Add an address to the allowlist (admin only)
     pub fn add(env: Env, address: Address) {
+        // <starforge:pause-check>
         let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
         admin.require_auth();
         env.storage().persistent().set(&DataKey::Allowed(address), &true);
@@ -35,6 +38,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Remove an address from the allowlist (admin only)
     pub fn remove(env: Env, address: Address) {
+        // <starforge:pause-check>
         let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
         admin.require_auth();
         env.storage().persistent().set(&DataKey::Allowed(address), &false);
@@ -42,6 +46,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Update the admin address (admin only)
     pub fn set_admin(env: Env, new_admin: Address) {
+        // <starforge:pause-check>
         let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
         admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &new_admin);

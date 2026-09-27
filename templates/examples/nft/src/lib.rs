@@ -20,8 +20,10 @@ pub struct {{PROJECT_NAME_PASCAL}};
 
 #[contractimpl]
 impl {{PROJECT_NAME_PASCAL}} {
+    // <starforge:add:methods>
     /// Initialize the contract. Can only be called once.
     pub fn initialize(env: Env, admin: Address) {
+        // <starforge:pause-check>
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("already initialized");
         }
@@ -32,6 +34,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Mint a new token to `to` with the given `token_id` and metadata `uri`. Admin only.
     pub fn mint(env: Env, to: Address, token_id: u32, uri: String) {
+        // <starforge:pause-check>
         let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
         admin.require_auth();
         if env.storage().persistent().has(&DataKey::Owner(token_id)) {
@@ -45,6 +48,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Transfer `token_id` from `from` to `to`. Requires auth from `from`.
     pub fn transfer(env: Env, from: Address, to: Address, token_id: u32) {
+        // <starforge:pause-check>
         from.require_auth();
         let owner: Address = env.storage().persistent().get(&DataKey::Owner(token_id)).expect("token not found");
         if owner != from {
@@ -66,6 +70,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Approve `spender` to transfer `token_id`. Must be called by the token owner.
     pub fn approve(env: Env, owner: Address, spender: Address, token_id: u32) {
+        // <starforge:pause-check>
         owner.require_auth();
         let actual_owner: Address = env.storage().persistent().get(&DataKey::Owner(token_id)).expect("token not found");
         if actual_owner != owner {
@@ -81,6 +86,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Burn `token_id`. Must be called by the token owner.
     pub fn burn(env: Env, owner: Address, token_id: u32) {
+        // <starforge:pause-check>
         owner.require_auth();
         let actual_owner: Address = env.storage().persistent().get(&DataKey::Owner(token_id)).expect("token not found");
         if actual_owner != owner {

@@ -41,12 +41,14 @@ pub struct {{PROJECT_NAME_PASCAL}};
 
 #[contractimpl]
 impl {{PROJECT_NAME_PASCAL}} {
+    // <starforge:add:methods>
     // ── Initialisation ───────────────────────────────────────────────────────
 
     /// Initialise the pool with the two token contract addresses.
     ///
     /// Can only be called once; reverts if already initialised.
     pub fn initialize(env: Env, token_a: Address, token_b: Address) {
+        // <starforge:pause-check>
         if env.storage().instance().has(&DataKey::Initialized) {
             panic!("pool already initialized");
         }
@@ -78,6 +80,7 @@ impl {{PROJECT_NAME_PASCAL}} {
         amount_a: i128,
         amount_b: i128,
     ) -> i128 {
+        // <starforge:pause-check>
         provider.require_auth();
 
         if amount_a <= 0 || amount_b <= 0 {
@@ -150,6 +153,7 @@ impl {{PROJECT_NAME_PASCAL}} {
     /// # Returns
     /// `(amount_a, amount_b)` returned to the provider.
     pub fn remove_liquidity(env: Env, provider: Address, shares: i128) -> (i128, i128) {
+        // <starforge:pause-check>
         provider.require_auth();
 
         if shares <= 0 {
@@ -212,6 +216,7 @@ impl {{PROJECT_NAME_PASCAL}} {
         amount_in: i128,
         min_amount_out: i128,
     ) -> i128 {
+        // <starforge:pause-check>
         trader.require_auth();
         let reserve_a = Self::reserve_a(env.clone());
         let reserve_b = Self::reserve_b(env.clone());
@@ -239,6 +244,7 @@ impl {{PROJECT_NAME_PASCAL}} {
         amount_in: i128,
         min_amount_out: i128,
     ) -> i128 {
+        // <starforge:pause-check>
         trader.require_auth();
         let reserve_a = Self::reserve_a(env.clone());
         let reserve_b = Self::reserve_b(env.clone());

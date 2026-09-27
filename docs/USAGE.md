@@ -211,6 +211,10 @@ starforge new contract --search lending --tags defi
 
 # Scaffold a Stellar dApp frontend (Vite + React)
 starforge new dapp my-dapp
+
+# Add features to a generated contract project
+starforge add access-control --path ./my-contract --dry-run
+starforge add ownership --path ./my-contract
 ```
 
 ```bash norun

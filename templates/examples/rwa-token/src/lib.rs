@@ -80,8 +80,10 @@ pub struct {{PROJECT_NAME_PASCAL}};
 
 #[contractimpl]
 impl {{PROJECT_NAME_PASCAL}} {
+    // <starforge:add:methods>
     /// Initialize the token. Can only be called once.
     pub fn initialize(env: Env, admin: Address, decimals: u32, name: String, symbol: String) {
+        // <starforge:pause-check>
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("already initialized");
         }
@@ -94,6 +96,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Admin function to allowlist an address for KYC.
     pub fn set_allowed(env: Env, addr: Address, allowed: bool) {
+        // <starforge:pause-check>
         let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
         admin.require_auth();
         env.storage().persistent().set(&DataKey::Allowed(addr.clone()), &allowed);
@@ -102,6 +105,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Admin function to freeze an address.
     pub fn set_frozen(env: Env, addr: Address, frozen: bool) {
+        // <starforge:pause-check>
         let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
         admin.require_auth();
         env.storage().persistent().set(&DataKey::Frozen(addr.clone()), &frozen);
@@ -110,6 +114,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Admin function to clawback tokens from an address.
     pub fn clawback(env: Env, from: Address, amount: i128) {
+        // <starforge:pause-check>
         let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
         admin.require_auth();
         check_nonnegative_amount(amount);
@@ -119,6 +124,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Admin function to force a transfer between addresses.
     pub fn forced_transfer(env: Env, from: Address, to: Address, amount: i128) {
+        // <starforge:pause-check>
         let admin: Address = env.storage().instance().get(&DataKey::Admin).expect("not initialized");
         admin.require_auth();
         check_nonnegative_amount(amount);
@@ -130,6 +136,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Mint `amount` tokens to `to`. Admin only.
     pub fn mint(env: Env, to: Address, amount: i128) {
+        // <starforge:pause-check>
         check_nonnegative_amount(amount);
         let admin: Address = env
             .storage()
@@ -144,6 +151,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Transfer `amount` tokens from `from` to `to`.
     pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
+        // <starforge:pause-check>
         from.require_auth();
         check_nonnegative_amount(amount);
         check_authorized(&env, &from);
@@ -161,6 +169,7 @@ impl {{PROJECT_NAME_PASCAL}} {
     ///
     /// The new amount replaces any previous allowance.
     pub fn approve(env: Env, from: Address, spender: Address, amount: i128) {
+        // <starforge:pause-check>
         from.require_auth();
         check_nonnegative_amount(amount);
         check_authorized(&env, &from);
@@ -182,6 +191,7 @@ impl {{PROJECT_NAME_PASCAL}} {
     /// Only `spender` authorizes this call; `from` authorized it earlier
     /// through `approve`.
     pub fn transfer_from(env: Env, spender: Address, from: Address, to: Address, amount: i128) {
+        // <starforge:pause-check>
         spender.require_auth();
         check_nonnegative_amount(amount);
         check_authorized(&env, &spender);
@@ -194,6 +204,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Burn `amount` tokens from `from`.
     pub fn burn(env: Env, from: Address, amount: i128) {
+        // <starforge:pause-check>
         from.require_auth();
         check_nonnegative_amount(amount);
         check_authorized(&env, &from);
@@ -202,6 +213,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Burn `amount` tokens from `from` using `spender`'s allowance.
     pub fn burn_from(env: Env, spender: Address, from: Address, amount: i128) {
+        // <starforge:pause-check>
         spender.require_auth();
         check_nonnegative_amount(amount);
         check_authorized(&env, &spender);

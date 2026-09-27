@@ -89,6 +89,25 @@ starforge multisig notify proposal.json --message "Please sign the treasury paym
 
 ---
 
+## `add`
+
+| Command | Purpose |
+|---------|---------|
+| `add <COMPONENT>` | Add `access-control`, `pausability`, `ownership`, or `upgradeability` to a StarForge-generated contract |
+
+Use `--path <PROJECT_DIR>` to target a project other than the current
+directory. Add `--dry-run` to inspect the complete patch without writing it.
+The command validates Rust syntax, checks for existing component methods, and
+refuses files without the expected StarForge insertion anchor. Initialize the
+component with its generated admin or owner entrypoint before relying on it.
+
+```bash norun
+starforge add access-control --path ./my-contract --dry-run
+starforge add pausability --path ./my-contract
+```
+
+---
+
 ## `contract` / `inspect` / `deploy`
 
 | Command | Purpose |

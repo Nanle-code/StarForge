@@ -74,8 +74,10 @@ pub struct {{PROJECT_NAME_PASCAL}};
 
 #[contractimpl]
 impl {{PROJECT_NAME_PASCAL}} {
+    // <starforge:add:methods>
     /// Initialize the token. Can only be called once.
     pub fn initialize(env: Env, admin: Address, decimals: u32, name: String, symbol: String) {
+        // <starforge:pause-check>
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("already initialized");
         }
@@ -88,6 +90,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Mint `amount` tokens to `to`. Admin only.
     pub fn mint(env: Env, to: Address, amount: i128) {
+        // <starforge:pause-check>
         check_nonnegative_amount(amount);
         let admin: Address = env
             .storage()
@@ -100,6 +103,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Transfer `amount` tokens from `from` to `to`.
     pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
+        // <starforge:pause-check>
         from.require_auth();
         check_nonnegative_amount(amount);
         spend_balance(&env, &from, amount);
@@ -115,6 +119,7 @@ impl {{PROJECT_NAME_PASCAL}} {
     ///
     /// The new amount replaces any previous allowance.
     pub fn approve(env: Env, from: Address, spender: Address, amount: i128) {
+        // <starforge:pause-check>
         from.require_auth();
         check_nonnegative_amount(amount);
         env.storage()
@@ -135,6 +140,7 @@ impl {{PROJECT_NAME_PASCAL}} {
     /// Only `spender` authorizes this call; `from` authorized it earlier
     /// through `approve`.
     pub fn transfer_from(env: Env, spender: Address, from: Address, to: Address, amount: i128) {
+        // <starforge:pause-check>
         spender.require_auth();
         check_nonnegative_amount(amount);
         spend_allowance(&env, &from, &spender, amount);
@@ -144,6 +150,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Burn `amount` tokens from `from`.
     pub fn burn(env: Env, from: Address, amount: i128) {
+        // <starforge:pause-check>
         from.require_auth();
         check_nonnegative_amount(amount);
         spend_balance(&env, &from, amount);
@@ -151,6 +158,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Burn `amount` tokens from `from` using `spender`'s allowance.
     pub fn burn_from(env: Env, spender: Address, from: Address, amount: i128) {
+        // <starforge:pause-check>
         spender.require_auth();
         check_nonnegative_amount(amount);
         spend_allowance(&env, &from, &spender, amount);

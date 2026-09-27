@@ -18,6 +18,7 @@ Global options: `--json`, `--quiet`/`-q`, `--log-format`, `--log-dir`, `--correl
 
 | Command | Description |
 |---|---|
+| `add` | Add a feature component to an existing Soroban contract project |
 | `advanced-perf` | Advanced contract performance analysis and profiling tools |
 | `ai` | Local LLM assistant for Soroban contracts (audit, explain, test, optimise, profile) |
 | `ai-accessibility` | AI accessibility features — screen reader, voice commands, text simplification |

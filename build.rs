@@ -54,6 +54,8 @@ enum Commands {
     Nl,
     #[command(about = "Generate Soroban project boilerplate")]
     New,
+    #[command(about = "Add a feature component to an existing Soroban contract project")]
+    Add,
     #[command(about = "Contract operations (invoke, inspect, etc.)")]
     Contract,
     #[command(about = "Generate smart contracts from natural language prompts")]
@@ -552,6 +554,10 @@ const SUBCOMMAND_INFO: &[(&str, &str)] = &[
     ),
     ("nl", "Natural language command interface"),
     ("new", "Generate Soroban project boilerplate"),
+    (
+        "add",
+        "Add a feature component to an existing Soroban contract project",
+    ),
     ("contract", "Contract operations (invoke, inspect, etc.)"),
     (
         "generate",

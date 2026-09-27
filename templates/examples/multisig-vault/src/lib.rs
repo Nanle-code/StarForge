@@ -38,8 +38,10 @@ pub struct {{PROJECT_NAME_PASCAL}};
 
 #[contractimpl]
 impl {{PROJECT_NAME_PASCAL}} {
+    // <starforge:add:methods>
     /// Initialize the vault with its owners and approval threshold.
     pub fn initialize(env: Env, owners: Vec<Address>, threshold: u32) {
+        // <starforge:pause-check>
         if env.storage().instance().has(&DataKey::Owners) {
             panic!("already initialized");
         }
@@ -56,6 +58,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Propose a token transfer from the vault. Counts as the proposer's approval.
     pub fn propose(env: Env, proposer: Address, token: Address, to: Address, amount: i128) -> u32 {
+        // <starforge:pause-check>
         proposer.require_auth();
         Self::require_owner(&env, &proposer);
         if amount <= 0 {
@@ -81,6 +84,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Approve a pending transaction. Each owner may approve once.
     pub fn approve(env: Env, owner: Address, tx_id: u32) {
+        // <starforge:pause-check>
         owner.require_auth();
         Self::require_owner(&env, &owner);
 
@@ -101,6 +105,7 @@ impl {{PROJECT_NAME_PASCAL}} {
 
     /// Execute a transaction once it has reached the approval threshold.
     pub fn execute(env: Env, owner: Address, tx_id: u32) {
+        // <starforge:pause-check>
         owner.require_auth();
         Self::require_owner(&env, &owner);
 
