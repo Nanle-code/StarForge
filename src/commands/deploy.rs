@@ -29,9 +29,9 @@ const SOROBAN_WASM_LIMIT_KB: f64 = 128.0;
 /// fees with `--simulate`. Pass `--execute` to run `stellar contract deploy`.
 #[derive(Args)]
 pub struct DeployArgs {
-    /// Path to the compiled .wasm file
+    /// Path to the compiled .wasm file (optional if starforge.toml project manifest exists)
     #[arg(long)]
-    pub wasm: PathBuf,
+    pub wasm: Option<PathBuf>,
     /// Network to deploy to
     #[arg(long, default_value = "testnet", value_parser = ["testnet", "mainnet"])]
     pub network: String,
@@ -410,7 +410,67 @@ async fn run_dry_run(
     Ok(())
 }
 
+fn resolve_deploy_target(args: &DeployArgs) -> Result<(PathBuf, String, Option<String>)> {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let manifest_opt = crate::manifest::find_and_load_manifest(&cwd)?;
+
+    let resolved_network = if let Some((_, ref manifest)) = manifest_opt {
+        if let Some(target_cfg) = manifest.deploy.get(&args.network) {
+            target_cfg.network.clone().unwrap_or_else(|| args.network.clone())
+        } else {
+            args.network.clone()
+        }
+    } else {
+        args.network.clone()
+    };
+
+    let resolved_wallet = if args.wallet.is_some() {
+        args.wallet.clone()
+    } else if let Some((_, ref manifest)) = manifest_opt {
+        manifest
+            .deploy
+            .get(&args.network)
+            .and_then(|d| d.source_wallet.clone())
+    } else {
+        None
+    };
+
+    let resolved_wasm = if let Some(ref wasm_path) = args.wasm {
+        wasm_path.clone()
+    } else if let Some((path_buf, ref manifest)) = manifest_opt {
+        let contract_wasm = manifest
+            .deploy
+            .get(&args.network)
+            .and_then(|d| d.contracts.as_ref())
+            .and_then(|c_list| c_list.first())
+            .and_then(|c_name| manifest.contracts.get(c_name))
+            .and_then(|c| c.wasm.clone())
+            .or_else(|| {
+                manifest
+                    .contracts
+                    .values()
+                    .find_map(|c| c.wasm.clone())
+            });
+
+        if let Some(wasm_rel) = contract_wasm {
+            let manifest_dir = path_buf.parent().unwrap_or_else(|| std::path::Path::new("."));
+            manifest_dir.join(wasm_rel)
+        } else {
+            anyhow::bail!(
+                "No contract WASM path found in starforge.toml. Please specify --wasm <path>."
+            );
+        }
+    } else {
+        anyhow::bail!(
+            "Missing --wasm argument and no starforge.toml project manifest found."
+        );
+    };
+
+    Ok((resolved_wasm, resolved_network, resolved_wallet))
+}
+
 pub async fn handle(args: DeployArgs) -> Result<()> {
+    let (target_wasm, target_network, target_wallet) = resolve_deploy_target(&args)?;
     let emit_json = args.json || output::is_json_mode_enabled();
     if emit_json {
         #[derive(serde::Serialize)]
@@ -427,14 +487,12 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
         }
 
         let cfg = config::load()?;
-        let wallet_name = args
-            .wallet
-            .clone()
+        let wallet_name = target_wallet
             .or_else(|| cfg.wallets.first().map(|w| w.name.clone()))
             .unwrap_or_default();
         let response = DeployResponse {
-            wasm: args.wasm.display().to_string(),
-            network: args.network.clone(),
+            wasm: target_wasm.display().to_string(),
+            network: target_network.clone(),
             wallet: wallet_name.clone(),
             dry_run: args.dry_run,
             execute: args.execute,
@@ -448,26 +506,26 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
 
     p::header("Deploy Soroban Contract");
 
-    if !args.wasm.exists() {
+    if !target_wasm.exists() {
         anyhow::bail!(
             "WASM file not found: {:?}\nRun `stellar contract build` first.",
-            args.wasm
+            target_wasm
         );
     }
 
-    let mut wasm_path = args.wasm.clone();
+    let mut wasm_path = target_wasm.clone();
     let mut wasm_bytes = fs::read(&wasm_path)?;
     let mut wasm_size_kb = wasm_bytes.len() as f64 / 1024.0;
 
     if args.optimize {
-        let optimized_path = args.wasm.with_file_name(format!(
+        let optimized_path = target_wasm.with_file_name(format!(
             "{}-optimized.wasm",
-            args.wasm.file_stem().unwrap_or_default().to_string_lossy()
+            target_wasm.file_stem().unwrap_or_default().to_string_lossy()
         ));
         p::header("WASM Optimization");
-        p::kv("Input WASM", &args.wasm.display().to_string());
+        p::kv("Input WASM", &target_wasm.display().to_string());
         p::kv("Output WASM", &optimized_path.display().to_string());
-        let result = optimizer::optimize_wasm(&args.wasm, &optimized_path)?;
+        let result = optimizer::optimize_wasm(&target_wasm, &optimized_path)?;
         wasm_path = optimized_path;
         wasm_bytes = fs::read(&wasm_path)?;
         wasm_size_kb = wasm_bytes.len() as f64 / 1024.0;

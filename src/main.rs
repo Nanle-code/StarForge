@@ -241,6 +241,9 @@ enum Commands {
     /// AI-driven project management for task tracking, sprints, resources, risks, and timelines
     #[command(subcommand)]
     Project(commands::project::ProjectCommands),
+    /// Project manifest management (starforge.toml: validate, schema, init, show)
+    #[command(subcommand)]
+    Manifest(commands::manifest::ManifestCommands),
     /// Manage community contract templates from the marketplace
     #[command(subcommand)]
     Template(commands::template::TemplateCommands),
@@ -546,6 +549,7 @@ async fn run() {
         Commands::Mutate(_) => "mutate",
         Commands::Privacy(_) => "privacy",
         Commands::Project(_) => "project",
+        Commands::Manifest(_) => "manifest",
         Commands::Template(_) => "template",
         Commands::Registry(_) => "registry",
         Commands::Upgrade(_) => "upgrade",
@@ -697,6 +701,7 @@ async fn run() {
         Commands::Verify(cmd) => commands::verify::handle(cmd).await,
         Commands::Cost(cmd) => commands::cost::handle(cmd).await,
         Commands::Project(cmd) => commands::project::handle(cmd).await,
+        Commands::Manifest(cmd) => commands::manifest::handle(cmd).await,
         Commands::FeatureFlags(args) => commands::feature_flags_cmd::handle(args).await,
         Commands::External(args) => handle_external_plugin(args),
         Commands::Help(args) => commands::help::handle(args).await,

@@ -273,10 +273,13 @@ async fn scaffold_contract(
     fs::create_dir_all(dir.join("src"))?;
     fs::create_dir_all(dir.join(".cargo"))?;
 
-    p::step(2, 4, "Writing Cargo.toml…");
+    p::step(2, 4, "Writing Cargo.toml & starforge.toml…");
     fs::write(dir.join("Cargo.toml"), cargo_toml(&name, license, author))?;
     fs::write(dir.join(".cargo/config.toml"), cargo_config())?;
     fs::write(dir.join(".gitignore"), "target/\n.soroban/\n")?;
+    let starter_manifest = crate::manifest::ProjectManifest::default_starter(&name);
+    let manifest_toml = toml::to_string_pretty(&starter_manifest)?;
+    fs::write(dir.join(crate::manifest::MANIFEST_FILENAME), manifest_toml)?;
 
     p::step(3, 4, &format!("Generating '{}' contract source…", template));
     let src = match template.as_str() {
@@ -350,6 +353,9 @@ fn scaffold_dapp(name: String) -> Result<()> {
     fs::write(dir.join("src/App.jsx"), dapp_app(&name))?;
     fs::write(dir.join(".gitignore"), "node_modules/\ndist/\n")?;
     fs::write(dir.join("README.md"), dapp_readme(&name))?;
+    let starter_manifest = crate::manifest::ProjectManifest::default_starter(&name);
+    let manifest_toml = toml::to_string_pretty(&starter_manifest)?;
+    fs::write(dir.join(crate::manifest::MANIFEST_FILENAME), manifest_toml)?;
 
     println!();
     p::success(&format!("dApp '{}' scaffolded!", name));
