@@ -122,6 +122,9 @@ pub async fn handle(args: InvokeScriptArgs) -> Result<()> {
             &network,
             Some(wallet),
             None,
+            &[],
+            None,
+            None,
         )
         .await
         .with_context(|| format!("steps[{}] '{}' failed", index, step.name))?;
