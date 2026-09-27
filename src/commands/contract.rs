@@ -11,6 +11,8 @@ use std::process::Command;
 pub enum ContractCommands {
     /// Invoke a deployed Soroban contract function
     Invoke(InvokeArgs),
+    /// Sign Soroban authorization entries from an offline JSON bundle
+    AuthSign(AuthSignArgs),
     /// Run an ordered YAML or JSON invocation script
     InvokeScript(invoke_script::InvokeScriptArgs),
     /// Inspect a deployed Soroban contract instance or local WASM metadata
@@ -223,6 +225,34 @@ pub struct InvokeArgs {
     /// HD derivation path for hardware wallet signing
     #[arg(long, default_value = crate::utils::hardware_wallet::STELLAR_HD_PATH)]
     pub hd_path: String,
+    /// Wallet name for a non-source Soroban authorization signer (repeatable)
+    #[arg(long = "auth-signer", action = clap::ArgAction::Append)]
+    pub auth_signers: Vec<String>,
+    /// Export simulated authorization entries for detached signing
+    #[arg(long, requires = "submit")]
+    pub auth_export: Option<PathBuf>,
+    /// Import detached authorization signatures before submission
+    #[arg(long, requires = "submit")]
+    pub auth_import: Option<PathBuf>,
+}
+
+#[derive(Args)]
+pub struct AuthSignArgs {
+    /// Authorization bundle exported by `contract invoke --auth-export`
+    #[arg(long)]
+    pub file: PathBuf,
+    /// Wallet name matching a required authorization address (repeatable)
+    #[arg(long = "auth-signer", action = clap::ArgAction::Append)]
+    pub auth_signers: Vec<String>,
+    /// Hardware wallet to use for authorization signing
+    #[arg(long, value_enum)]
+    pub hardware: Option<HardwareWalletKind>,
+    /// HD derivation path for hardware signing
+    #[arg(long, default_value = crate::utils::hardware_wallet::STELLAR_HD_PATH)]
+    pub hd_path: String,
+    /// Write the signed bundle to a separate file instead of replacing input
+    #[arg(long)]
+    pub output: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -313,6 +343,7 @@ pub struct GenerateBindingsArgs {
 pub async fn handle(cmd: ContractCommands) -> Result<()> {
     match cmd {
         ContractCommands::Invoke(args) => handle_invoke(args).await,
+        ContractCommands::AuthSign(args) => handle_auth_sign(args),
         ContractCommands::InvokeScript(args) => invoke_script::handle(args).await,
         ContractCommands::Inspect(args) => handle_inspect(args).await,
         ContractCommands::Build(args) => handle_build(args),
@@ -322,6 +353,29 @@ pub async fn handle(cmd: ContractCommands) -> Result<()> {
         ContractCommands::Deps(args) => handle_deps(args),
         ContractCommands::Version(args) => handle_version(args).await,
     }
+}
+
+fn handle_auth_sign(args: AuthSignArgs) -> Result<()> {
+    if args.auth_signers.is_empty() && args.hardware.is_none() {
+        anyhow::bail!("Specify one or more --auth-signer wallets or --hardware ledger|trezor");
+    }
+    let mut bundle: crate::utils::soroban_auth::AuthEntryBundle =
+        serde_json::from_slice(&std::fs::read(&args.file)?)?;
+    let cfg = config::load()?;
+    crate::utils::soroban_auth::sign_bundle_with_wallets(
+        &mut bundle,
+        &cfg.wallets,
+        &args.auth_signers,
+        args.hardware,
+        &args.hd_path,
+    )?;
+    let output = args.output.as_deref().unwrap_or(&args.file);
+    crate::utils::soroban_auth::export_bundle(&bundle, output)?;
+    p::success(&format!(
+        "Signed Soroban authorization bundle: {}",
+        output.display()
+    ));
+    Ok(())
 }
 
 pub fn handle_generate_bindings(args: &GenerateBindingsArgs) -> Result<()> {
@@ -803,6 +857,9 @@ async fn handle_invoke(args: InvokeArgs) -> Result<()> {
         &args.network,
         submit_wallet.as_ref(),
         signing_request.as_ref(),
+        &args.auth_signers,
+        args.auth_export.as_deref(),
+        args.auth_import.as_deref(),
     )
     .await?;
 
