@@ -44,11 +44,19 @@ fn scaffold(root: &Path, name: &str, template: &str) -> std::path::PathBuf {
         "starforge new {name} failed: {}",
         stderr(&output)
     );
-    assert!(project.join("src").join("lib.rs").exists(), "no lib.rs scaffolded");
+    assert!(
+        project.join("src").join("lib.rs").exists(),
+        "no lib.rs scaffolded"
+    );
     project
 }
 
-const COMPONENTS: [&str; 4] = ["access-control", "pausability", "upgradeability", "ownership"];
+const COMPONENTS: [&str; 4] = [
+    "access-control",
+    "pausability",
+    "upgradeability",
+    "ownership",
+];
 
 #[test]
 fn add_applies_each_component_to_a_scaffolded_project() {
@@ -135,9 +143,18 @@ fn add_dry_run_prints_a_diff_and_writes_nothing() {
         stderr(&output)
     );
     let printed = stdout(&output);
-    assert!(printed.contains("--- a/"), "expected a diff header, got: {printed}");
-    assert!(printed.contains("+++ b/"), "expected a diff header, got: {printed}");
-    assert!(printed.contains("@@"), "expected a hunk header, got: {printed}");
+    assert!(
+        printed.contains("--- a/"),
+        "expected a diff header, got: {printed}"
+    );
+    assert!(
+        printed.contains("+++ b/"),
+        "expected a diff header, got: {printed}"
+    );
+    assert!(
+        printed.contains("@@"),
+        "expected a hunk header, got: {printed}"
+    );
     assert!(
         printed.contains("assert_not_paused"),
         "expected the injected pause check in the diff, got: {printed}"
@@ -184,7 +201,10 @@ fn add_refuses_a_missing_project() {
         .arg(home.path().join("does-not-exist"))
         .output()
         .expect("spawn starforge add");
-    assert!(!output.status.success(), "expected a failure for a missing project");
+    assert!(
+        !output.status.success(),
+        "expected a failure for a missing project"
+    );
 }
 
 #[test]
@@ -239,7 +259,10 @@ fn add_works_on_every_packaged_example_template() {
     // Each packaged template must carry the anchor `add` relies on.
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("templates/examples");
     let mut checked = 0;
-    for entry in std::fs::read_dir(&root).expect("read templates/examples").flatten() {
+    for entry in std::fs::read_dir(&root)
+        .expect("read templates/examples")
+        .flatten()
+    {
         let lib = entry.path().join("src").join("lib.rs");
         if !lib.exists() {
             continue;
@@ -253,5 +276,8 @@ fn add_works_on_every_packaged_example_template() {
         );
         checked += 1;
     }
-    assert!(checked >= 10, "expected the built-in templates, saw {checked}");
+    assert!(
+        checked >= 10,
+        "expected the built-in templates, saw {checked}"
+    );
 }

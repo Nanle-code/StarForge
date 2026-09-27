@@ -197,7 +197,11 @@ pub fn handle(args: AddArgs) -> Result<()> {
 /// Apply `component` to `<project_dir>/src/lib.rs`.
 ///
 /// On a dry run the unified diff is printed and nothing is written.
-pub fn add_to_path(component: Component, project_dir: &std::path::Path, dry_run: bool) -> Result<()> {
+pub fn add_to_path(
+    component: Component,
+    project_dir: &std::path::Path,
+    dry_run: bool,
+) -> Result<()> {
     let source_path = project_dir.join("src").join("lib.rs");
     let source = fs::read_to_string(&source_path)
         .with_context(|| format!("Could not read {}", source_path.display()))?;
@@ -208,11 +212,7 @@ pub fn add_to_path(component: Component, project_dir: &std::path::Path, dry_run:
     } else {
         fs::write(&source_path, updated)
             .with_context(|| format!("Could not write {}", source_path.display()))?;
-        println!(
-            "Added {} to {}",
-            component.key(),
-            source_path.display()
-        );
+        println!("Added {} to {}", component.key(), source_path.display());
     }
     Ok(())
 }
@@ -257,10 +257,7 @@ fn apply_component(source: &str, component: Component) -> Result<String> {
     if component == Component::Pausability {
         // Only the anchor token is replaced, so the line keeps whatever
         // indentation it was written with and the statement lands in-column.
-        updated = updated.replace(
-            PAUSE_ANCHOR,
-            "Self::assert_not_paused(env.clone());",
-        );
+        updated = updated.replace(PAUSE_ANCHOR, "Self::assert_not_paused(env.clone());");
     }
 
     syn::parse_file(&updated)
@@ -334,7 +331,10 @@ mod tests {
                 "hello-world".into(),
                 new::hello_world_template("example", "persistent", true),
             ),
-            ("hello-world-temporary".into(), new::hello_world_template("example", "temporary", true)),
+            (
+                "hello-world-temporary".into(),
+                new::hello_world_template("example", "temporary", true),
+            ),
             ("token".into(), new::token_template("example")),
             ("voting".into(), new::voting_template("example")),
             ("nft".into(), new::nft_template("example")),
@@ -437,10 +437,14 @@ mod tests {
                 "{name} still has an un-rewritten pause anchor"
             );
             assert_eq!(
-                patched.matches("Self::assert_not_paused(env.clone());").count(),
+                patched
+                    .matches("Self::assert_not_paused(env.clone());")
+                    .count(),
                 anchors,
                 "{name}: expected {anchors} pause checks, found {}",
-                patched.matches("Self::assert_not_paused(env.clone());").count()
+                patched
+                    .matches("Self::assert_not_paused(env.clone());")
+                    .count()
             );
             // The injected statement must sit at the method-body indent, not be
             // double-indented by a replacement that carries its own padding.
@@ -505,11 +509,9 @@ mod tests {
 
     #[test]
     fn refuses_source_that_is_not_valid_rust() {
-        let err = apply_component("fn broken( {", Component::Ownership).expect_err("expected parse failure");
-        assert!(
-            err.to_string().contains("not valid Rust"),
-            "got: {err}"
-        );
+        let err = apply_component("fn broken( {", Component::Ownership)
+            .expect_err("expected parse failure");
+        assert!(err.to_string().contains("not valid Rust"), "got: {err}");
     }
 
     #[test]
