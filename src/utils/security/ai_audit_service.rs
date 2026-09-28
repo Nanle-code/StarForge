@@ -71,7 +71,8 @@ impl AiAuditService {
         }
 
         Ok(AiAuditService {
-            client: Client::new(),
+            // #902: shared client (proxy, custom CA bundle, user agent).
+            client: crate::utils::http_client::client().clone(),
             api_key,
             model: "claude-opus-4-1".to_string(), // High-capability model for security
         })

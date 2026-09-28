@@ -17,17 +17,13 @@ use stellar_xdr::curr::{
     LedgerKeyContractData, PublicKey, ScAddress, ScMap, ScString, ScSymbol, ScVal, Uint256,
 };
 
-fn build_http_client(timeout: Duration) -> Result<Client> {
-    Client::builder()
-        .timeout(timeout)
-        .pool_max_idle_per_host(10)
-        .build()
-        .context("Failed to create Soroban HTTP client")
+fn build_http_client(timeout: Duration) -> Client {
+    // #902: the central factory owns proxy, custom CA bundle and user agent.
+    crate::utils::http_client::client_with_timeout(timeout)
 }
 
-static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
-    build_http_client(Duration::from_secs(30)).expect("Failed to create shared Soroban HTTP client")
-});
+static HTTP_CLIENT: Lazy<Client> =
+    Lazy::new(|| build_http_client(Duration::from_secs(30)));
 
 /// Global RPC budget manager (thread-safe for concurrent access).
 static RPC_BUDGET_MANAGER: Lazy<Mutex<RpcBudgetManager>> = 
@@ -979,10 +975,9 @@ pub async fn poll_transaction_status(
     config: &PollConfig,
 ) -> Result<TxStatusResult> {
     let rpc_url = get_rpc_url(network)?;
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .context("Failed to build HTTP client for transaction polling")?;
+    // #902: same factory as the rest of the CLI, so the proxy and the custom CA
+    // bundle apply to polling too.
+    let client = crate::utils::http_client::client_with_timeout(std::time::Duration::from_secs(30));
 
     let mut not_found_streak = 0u32;
 

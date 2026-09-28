@@ -129,10 +129,8 @@ pub fn which_ollama() -> Option<std::path::PathBuf> {
 ///
 /// Returns `true` when Ollama is responding, `false` otherwise.
 pub async fn is_ollama_running() -> bool {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(3))
-        .build()
-        .unwrap_or_default();
+    // #902: shared client (proxy, custom CA bundle, user agent).
+    let client = crate::utils::http_client::client_with_timeout(Duration::from_secs(3));
 
     client
         .get(format!("{}/api/tags", OLLAMA_BASE_URL))
@@ -262,10 +260,8 @@ pub async fn generate(
     };
 
     // Use a longer timeout for LLM inference (default 30s may be too short).
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(300))
-        .build()
-        .context("Failed to build HTTP client for LLM request")?;
+    // #902: shared client (proxy, custom CA bundle, user agent).
+    let client = crate::utils::http_client::client_with_timeout(Duration::from_secs(300));
 
     let resp: GenerateResponse = client
         .post(&url)
