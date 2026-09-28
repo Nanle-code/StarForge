@@ -1,0 +1,45 @@
+{
+  "slug": "onboarding-15-minute",
+  "title": "15-Minute StarForge Onboarding",
+  "description": "Install StarForge, create a local wallet, scaffold a Soroban contract, and verify a deterministic offline simulation.",
+  "steps": [
+    {
+      "title": "Verify StarForge is installed (2 minutes)",
+      "description": "Run the CLI version command. This confirms the StarForge executable starts in your current shell.",
+      "command": "starforge --version",
+      "checkpoint": {
+        "kind": "cli_installed"
+      },
+      "repair_hint": "Install StarForge or build it with Cargo, ensure its executable is on PATH, then retry `starforge --version`."
+    },
+    {
+      "title": "Create a local wallet (3 minutes)",
+      "description": "Create an unfunded wallet. Key generation and local storage do not require a network connection.",
+      "command": "starforge wallet create onboarding",
+      "checkpoint": {
+        "kind": "wallet_exists",
+        "name": "onboarding"
+      },
+      "repair_hint": "Run `starforge wallet create onboarding` without `--fund`. If that name already exists, keep it and retry this checkpoint."
+    },
+    {
+      "title": "Scaffold a Soroban contract (6 minutes)",
+      "description": "Generate the built-in hello-world contract template in the current working directory.",
+      "command": "starforge new contract onboarding-contract --template hello-world",
+      "checkpoint": {
+        "kind": "contract_project_exists",
+        "path": "onboarding-contract"
+      },
+      "repair_hint": "Run the scaffold command from a writable directory where `onboarding-contract` does not already exist."
+    },
+    {
+      "title": "Run a local simulation (4 minutes)",
+      "description": "Run the deterministic simple-counter scenario. It uses the local simulator and does not broadcast a transaction.",
+      "command": "starforge network simulate run --scenario simple-counter",
+      "checkpoint": {
+        "kind": "simulation_runs"
+      },
+      "repair_hint": "List scenarios with `starforge network simulate list-scenarios`, then run `starforge network simulate run --scenario simple-counter` again."
+    }
+  ]
+}

@@ -12,9 +12,9 @@ Structured tutorial for your first Soroban deployment workflow with StarForge.
 ## Interactive flow
 
 ```bash
-starforge tutorial start hello-world
-starforge tutorial next    # after each milestone
-starforge tutorial status
+starforge tool tutorial start hello-world
+starforge tool tutorial next    # after each milestone
+starforge tool tutorial status
 ```
 
 Step definitions live in `tutorial.json` beside this README.

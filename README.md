@@ -612,6 +612,7 @@ StarForge has comprehensive documentation covering all aspects of the project:
 ### ?? Examples
 - **[examples/template_marketplace_usage.md](examples/template_marketplace_usage.md)** - Practical examples
 - **[tutorials/hello-world/](tutorials/hello-world/)** - Beginner tutorial
+- **[15-minute onboarding tutorial](tutorials/onboarding-15-minute/)** - Offline-first tutorial with verified install, wallet, scaffold, and simulation checkpoints
 
 **Total**: 17 documentation files with 7,700+ lines covering architecture, development, API reference, and examples.
 
