@@ -676,3 +676,21 @@ See `examples/binding_generator_example.md` for complete examples.
 ### Terminal UI
 The `starforge ui` command provides a live TUI (Terminal User Interface) overview of your project, showing balances, deployed contracts, TTLs, recent transactions, and a live event tail.
 ![StarForge UI](https://raw.githubusercontent.com/Nanle-code/StarForge/main/docs/ui-screenshot.png)
+# Add contract features
+
+Add reusable components to an existing Soroban contract:
+
+```sh
+starforge new contract my-token --template token
+cd my-token
+starforge add --list
+starforge add ownable
+starforge add pausable --dry-run
+starforge add access-control --path ../another-contract
+```
+
+`starforge add <component>` applies to the current directory. `--path` selects another project, `--dry-run` prints a unified diff without writing files, and `--list` shows the component registry. The command requires a Cargo package with `soroban-sdk` and `src/lib.rs` containing a contract struct. It refuses duplicate applications and generated API name collisions before changing anything.
+
+Components expose `owner` and `transfer_ownership` (`ownable`), `grant_role`, `revoke_role`, and `has_role` (`access-control`), `pause`, `unpause`, and `is_paused` (`pausable`), and `version` and `upgrade` (`upgradeable`). `pausable` and `access-control` accept an authenticated administrator address independently; `ownable` stores an owner. Components have separate storage keys and can be combined. `upgradeable` uses Soroban's current-contract WASM upgrade API. These utilities expose management APIs; contract business methods must call `is_paused` or `has_role` where enforcement is required.
+
+See [docs/ADDING_COMPONENTS.md](docs/ADDING_COMPONENTS.md) for API details, composition guidance, conflicts, and contributor instructions.
