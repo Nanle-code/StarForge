@@ -85,16 +85,12 @@ enum Commands {
     Contract(commands::contract::ContractCommands),
 
     /// Deploy a compiled Soroban contract and manage the deployment lifecycle
-    #[command(subcommand)]
-    Deploy(commands::tree::DeployTree),
+    Deploy(commands::deploy::DeployArgs),
 
     /// View or switch the active network, run a local node, simulate, snapshot
     #[command(subcommand)]
     Network(commands::network::NetworkCommands),
 
-    /// Manage community contract templates, versions, and the registry
-    #[command(subcommand)]
-    Wallet(commands::wallet::WalletCommands),
     /// On-chain account lifecycle with sponsored reserves (CAP-33)
     #[command(subcommand)]
     Account(commands::account::AccountCommands),
@@ -112,9 +108,6 @@ enum Commands {
     #[command(subcommand)]
     Plugin(commands::plugin::PluginCommands),
 
-    /// Contract operations (invoke, inspect, etc.)
-    #[command(subcommand)]
-    Contract(commands::contract::ContractCommands),
     /// Generate smart contracts from natural language prompts
     #[command(subcommand)]
     Generate(commands::generate::GenerateCommands),
@@ -130,8 +123,6 @@ enum Commands {
     /// Deep contract storage inspection (state, key, storage)
     #[command(subcommand)]
     Inspect(commands::inspect::InspectCommands),
-    /// Deploy a compiled Soroban contract (.wasm)
-    Deploy(commands::deploy::DeployArgs),
     /// Watch contract sources and rebuild/redeploy on save
     Dev(commands::dev::DevArgs),
     /// Deployment history, rollback, verification, and dashboard
@@ -149,9 +140,27 @@ enum Commands {
     #[command(subcommand)]
     Ai(commands::tree::AiTree),
 
-    /// Manage starforge configuration, telemetry, feature flags, and privacy
+    #[command(subcommand)]
+    Explain(commands::explain::ExplainCommands),
     #[command(subcommand)]
     Config(commands::config::ConfigCommands),
+    #[command(subcommand)]
+    Telemetry(commands::telemetry::TelemetryCommands),
+    Tx(commands::tx::TxArgs),
+    Sep10(commands::sep::Sep10Args),
+    #[command(subcommand)]
+    Template(commands::template::TemplateCommands),
+    #[command(subcommand)]
+    Verify(commands::verify::VerifyCommands),
+    Help(commands::help::HelpArgs),
+    #[command(subcommand)]
+    AiTelemetry(commands::ai_telemetry::AiTelemetryCommands),
+    #[command(subcommand)]
+    Optimize(commands::optimize::OptimizeCommands),
+    #[command(subcommand)]
+    AiSecurityTraining(commands::ai_security_training::AiSecurityTrainingCommands),
+    #[command(subcommand)]
+    ContractMonitor(commands::contract_monitor::ContractMonitorCommands),
 
     /// Project scaffolding and AI-driven project management
     #[command(subcommand)]
@@ -192,10 +201,6 @@ enum Commands {
         #[arg(long)]
         stats: bool,
     },
-
-    /// External plugins
-    #[command(external_subcommand)]
-    External(Vec<String>),
 
     /// Manage per-network contract and account aliases
     #[command(subcommand)]
@@ -270,8 +275,8 @@ async fn run() {
     // subcommand): record it so every command handler can short-circuit its
     // mutations behind a shared plan. Detection also scans the raw arguments
     // so it does not depend on where clap attached the global value.
-    let dry_run_requested = cli.dry_run
-        || std::env::args_os().any(|arg| arg.to_str() == Some("--dry-run"));
+    let dry_run_requested =
+        cli.dry_run || std::env::args_os().any(|arg| arg.to_str() == Some("--dry-run"));
     utils::dry_run::set_enabled(dry_run_requested);
     if utils::output::is_plain_mode_enabled() {
         // Global override: neutralizes every `colored` call in the codebase,
@@ -322,6 +327,8 @@ async fn run() {
     let command_name = match &cli.command {
         Commands::Wallet(_) => "wallet",
         Commands::Contract(_) => "contract",
+        Commands::New(_) => "new",
+        Commands::Add(_) => "add",
         Commands::Deploy(_) => "deploy",
         Commands::Dev(_) => "dev",
         Commands::Deployments(_) => "deployments",
@@ -330,7 +337,6 @@ async fn run() {
         Commands::BugReport(_) => "bug-report",
         Commands::Prompts(_) => "prompts",
         Commands::Explain(_) => "explain",
-        Commands::Config(_) => "config",
         Commands::Telemetry(_) => "telemetry",
         Commands::Tx(_) => "tx",
         Commands::Sep10(_) => "sep10",
@@ -388,7 +394,6 @@ async fn run() {
         Commands::BugReport(args) => commands::bug_report::handle(args).await,
         Commands::Prompts(cmd) => commands::prompts::handle(&cmd).await,
         Commands::Explain(ref cmd) => commands::explain::handle(cmd).await,
-        Commands::Config(cmd) => commands::config::handle(cmd).await,
         Commands::Telemetry(cmd) => commands::telemetry::handle(cmd).await,
         Commands::Tx(args) => commands::tx::handle(args).await,
         Commands::Sep10(args) => commands::sep::handle(args).await,

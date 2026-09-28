@@ -225,14 +225,27 @@ fn atomic_write(changes: &BTreeMap<PathBuf, String>) -> Result<()> {
     }
     let mut committed: Vec<(PathBuf, PathBuf)> = Vec::new();
     for (path, temp, backup) in &staged {
-        if let Err(error) = fs::rename(path, backup).and_then(|_| fs::rename(temp, path)) {
+        if let Err(error) = fs::rename(path, backup) {
             let _ = fs::remove_file(temp);
             for (written, saved) in committed.iter().rev() {
                 let _ = fs::remove_file(written);
                 let _ = fs::rename(saved, written);
             }
-            if backup.exists() {
-                let _ = fs::rename(backup, path);
+            for (_, leftover, _) in &staged {
+                let _ = fs::remove_file(leftover);
+            }
+            return Err(error).with_context(|| {
+                format!(
+                    "Failed writing {}; previous files were restored",
+                    path.display()
+                )
+            });
+        }
+        if let Err(error) = fs::rename(temp, path) {
+            let _ = fs::rename(backup, path);
+            for (written, saved) in committed.iter().rev() {
+                let _ = fs::remove_file(written);
+                let _ = fs::rename(saved, written);
             }
             for (_, leftover, _) in &staged {
                 let _ = fs::remove_file(leftover);
@@ -282,6 +295,10 @@ mod tests {
             REGISTRY.iter().map(|c| c.name).collect::<Vec<_>>(),
             ["ownable", "access-control", "pausable", "upgradeable"]
         );
+        for component in REGISTRY {
+            syn::parse_file(&format!("impl Component {{\n{}\n}}", component.template))
+                .unwrap_or_else(|error| panic!("invalid template {}: {error}", component.name));
+        }
     }
     #[test]
     fn invalid_project_refused() {
@@ -300,7 +317,11 @@ mod tests {
             "[package]\nname='x'\nversion='0.1.0'\n[dependencies]\nsoroban-sdk='22'\n",
         )
         .unwrap();
-        fs::write(d.path().join("src/lib.rs"), "pub struct C;\n").unwrap();
+        fs::write(
+            d.path().join("src/lib.rs"),
+            "pub struct C;\n#[contractimpl]\nimpl C {}\n",
+        )
+        .unwrap();
         let before = fs::read(d.path().join("src/lib.rs")).unwrap();
         apply("ownable", d.path(), true).unwrap();
         assert_eq!(before, fs::read(d.path().join("src/lib.rs")).unwrap());
@@ -314,11 +335,62 @@ mod tests {
             "[package]\nname='x'\nversion='0.1.0'\n[dependencies]\nsoroban-sdk='22'\n",
         )
         .unwrap();
-        fs::write(d.path().join("src/lib.rs"), "pub struct C;\n").unwrap();
+        fs::write(
+            d.path().join("src/lib.rs"),
+            "pub struct C;\n#[contractimpl]\nimpl C {}\n",
+        )
+        .unwrap();
         apply("ownable", d.path(), false).unwrap();
         assert!(apply("ownable", d.path(), false)
             .unwrap_err()
             .to_string()
             .contains("already applied"));
+    }
+
+    #[test]
+    fn name_collision_refuses_before_writing() {
+        let d = tempfile::tempdir().unwrap();
+        fs::create_dir(d.path().join("src")).unwrap();
+        fs::write(
+            d.path().join("Cargo.toml"),
+            "[package]\nname='x'\nversion='0.1.0'\n[dependencies]\nsoroban-sdk='22'\n",
+        )
+        .unwrap();
+        let source = "pub struct C;\n#[soroban_sdk::contractimpl]\nimpl C { pub fn owner(env: soroban_sdk::Env) {} }\n";
+        fs::write(d.path().join("src/lib.rs"), source).unwrap();
+        assert!(apply("ownable", d.path(), false)
+            .unwrap_err()
+            .to_string()
+            .contains("function 'owner' already exists"));
+        assert_eq!(
+            fs::read_to_string(d.path().join("src/lib.rs")).unwrap(),
+            source
+        );
+    }
+
+    #[test]
+    fn failed_multi_file_commit_rolls_back_prior_files() {
+        let d = tempfile::tempdir().unwrap();
+        let first = d.path().join("a.txt");
+        let second = d.path().join("b.txt");
+        fs::write(&first, "before-a").unwrap();
+        fs::write(&second, "before-b").unwrap();
+        let backup_collision =
+            second.with_extension(format!("starforge-{}-bak", std::process::id()));
+        fs::create_dir(&backup_collision).unwrap();
+        let mut changes = BTreeMap::new();
+        changes.insert(first.clone(), "after-a".to_string());
+        changes.insert(second.clone(), "after-b".to_string());
+        assert!(atomic_write(&changes).is_err());
+        assert_eq!(fs::read_to_string(first).unwrap(), "before-a");
+        assert_eq!(fs::read_to_string(second).unwrap(), "before-b");
+    }
+
+    #[test]
+    fn diff_contains_both_file_versions() {
+        let diff = unified_diff(Path::new("src/lib.rs"), "old", "new");
+        assert!(diff.contains("--- a/src/lib.rs"));
+        assert!(diff.contains("-old"));
+        assert!(diff.contains("+new"));
     }
 }
