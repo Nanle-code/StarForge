@@ -32,8 +32,8 @@ const SOROBAN_WASM_LIMIT_KB: f64 = 128.0;
 #[derive(Args)]
 pub struct DeployArgs {
     /// Path to the compiled .wasm file
-    #[arg(long)]
-    pub wasm: PathBuf,
+    #[arg(long, required_unless_present = "all")]
+    pub wasm: Option<PathBuf>,
     /// Network to deploy to
     #[arg(long, default_value = "testnet", value_parser = ["testnet", "mainnet"])]
     pub network: String,
@@ -46,6 +46,9 @@ pub struct DeployArgs {
     /// Skip confirmation prompt
     #[arg(long, default_value = "false")]
     pub yes: bool,
+    /// Deploy all contracts in a workspace in dependency order
+    #[arg(long, default_value = "false")]
+    pub all: bool,
     /// Execute deployment immediately if Stellar CLI is installed
     #[arg(long, default_value = "false")]
     pub execute: bool,
@@ -498,7 +501,7 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
             .or_else(|| cfg.wallets.first().map(|w| w.name.clone()))
             .unwrap_or_default();
         let response = DeployResponse {
-            wasm: args.wasm.display().to_string(),
+            wasm: args.wasm.as_ref().map(|w| w.display().to_string()).unwrap_or_default(),
             network: args.network.clone(),
             wallet: wallet_name.clone(),
             dry_run,
@@ -512,11 +515,17 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
     }
 
     p::header("Deploy Soroban Contract");
+    
+    if args.all {
+        return handle_deploy_all(args, dry_run, emit_json).await;
+    }
 
-    if !args.wasm.exists() {
+    let wasm_path = args.wasm.clone().ok_or_else(|| anyhow::anyhow!("--wasm is required unless --all is specified"))?;
+
+    if !wasm_path.exists() {
         anyhow::bail!(
             "WASM file not found: {:?}\nRun `stellar contract build` first.",
-            args.wasm
+            wasm_path
         );
     }
 
@@ -524,7 +533,7 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
     // here, never after a contract is already live.
     let smoke = load_smoke_tests(args.skip_smoke)?;
 
-    let mut wasm_path = args.wasm.clone();
+    let mut wasm_path = wasm_path.clone();
     let mut wasm_bytes = fs::read(&wasm_path)?;
     let mut wasm_size_kb = wasm_bytes.len() as f64 / 1024.0;
 
@@ -532,18 +541,18 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
         // A dry run must not touch the filesystem: report the planned
         // optimization without writing the optimized artifact (#943).
         p::header("WASM Optimization");
-        p::kv("Input WASM", &args.wasm.display().to_string());
+        p::kv("Input WASM", &wasm_path.display().to_string());
         p::info("Dry-run: optimization is planned but no optimized artifact is written.");
         p::separator();
     } else if args.optimize {
-        let optimized_path = args.wasm.with_file_name(format!(
+        let optimized_path = wasm_path.with_file_name(format!(
             "{}-optimized.wasm",
-            args.wasm.file_stem().unwrap_or_default().to_string_lossy()
+            wasm_path.file_stem().unwrap_or_default().to_string_lossy()
         ));
         p::header("WASM Optimization");
-        p::kv("Input WASM", &args.wasm.display().to_string());
+        p::kv("Input WASM", &wasm_path.display().to_string());
         p::kv("Output WASM", &optimized_path.display().to_string());
-        let result = optimizer::optimize_wasm(&args.wasm, &optimized_path)?;
+        let result = optimizer::optimize_wasm(&wasm_path, &optimized_path)?;
         wasm_path = optimized_path;
         wasm_bytes = fs::read(&wasm_path)?;
         wasm_size_kb = wasm_bytes.len() as f64 / 1024.0;

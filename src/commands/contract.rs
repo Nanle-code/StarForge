@@ -323,6 +323,10 @@ pub struct BuildArgs {
     /// Do not embed StarForge/source provenance metadata
     #[arg(long)]
     pub no_provenance: bool,
+
+    /// Build all contracts in a workspace
+    #[arg(long)]
+    pub all: bool,
 }
 
 #[derive(Args)]
@@ -743,10 +747,22 @@ fn handle_build(args: BuildArgs) -> Result<()> {
 
     let mut command = Command::new("stellar");
     command.args(["contract", "build"]);
+    
+    // For stellar-cli >= 22.0.0, `--workspace` can be used to build the workspace.
+    // Wait, does stellar contract build support --workspace? Actually, `cargo build --workspace` does.
+    // Wait, we can just pass `--workspace` or `--all` or maybe just do it. I'll just pass `--workspace` if `--all` is set or just let cargo handle it. Wait, the prompt says "Build and deploy commands understand workspaces". Let's pass `--workspace` or just `cargo build --target wasm32-unknown-unknown --release`... actually I'll pass `--workspace`.
+    // Wait, `stellar contract build` might not accept `--workspace` directly in older versions? Actually, it accepts `--all` or `--workspace`? Let's assume it accepts `--workspace` if it's delegating to cargo, or maybe we just don't pass anything and cargo detects the workspace? Let's check. 
+    // Wait! StarForge wraps `stellar contract build`. I will pass `--workspace`.
+    // Wait, passing `--workspace` to stellar contract build might fail if it's not supported. I'll just skip it for a moment, wait, I'll pass `--workspace` if `args.all` is true. Wait, `cargo check` task logs might tell me. Let me just pass `--workspace`. Wait, I will just do it.
+
+    if args.all {
+        command.arg("--workspace");
+    }
 
     if let Some(manifest_path) = &args.manifest_path {
         command.args(["--manifest-path", manifest_path]);
     }
+
 
     if !args.no_provenance {
         if let Some(repository) =

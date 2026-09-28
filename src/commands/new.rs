@@ -41,6 +41,11 @@ pub enum NewCommands {
         /// Project name
         name: String,
     },
+    /// Scaffold a multi-contract workspace
+    Workspace {
+        /// Workspace name
+        name: String,
+    },
 }
 
 pub async fn handle(cmd: NewCommands) -> Result<()> {
@@ -77,6 +82,7 @@ pub async fn handle(cmd: NewCommands) -> Result<()> {
             }
         }
         NewCommands::Dapp { name } => scaffold_dapp(name),
+        NewCommands::Workspace { name } => scaffold_workspace(name),
     }
 }
 
@@ -1534,4 +1540,214 @@ mod determinism_tests {
             }
         }
     }
+}
+// Helper to generate a multi-contract workspace
+fn scaffold_workspace(name: String) -> Result<()> {
+    let dir = Path::new(&name);
+    if dir.exists() {
+        anyhow::bail!("Directory '{}' already exists", name);
+    }
+
+    p::header(&format!("Scaffolding multi-contract workspace: {}", name));
+
+    let mut target_guard = crate::utils::PathCleanup::new(dir.to_path_buf());
+
+    p::step(1, 4, "Creating workspace structure…");
+    fs::create_dir_all(dir.join("contracts/contract-a/src"))?;
+    fs::create_dir_all(dir.join("contracts/contract-b/src"))?;
+    fs::create_dir_all(dir.join("contracts/contract-b/tests"))?;
+    fs::create_dir_all(dir.join("crates/shared-types/src"))?;
+    fs::create_dir_all(dir.join(".cargo"))?;
+
+    p::step(2, 4, "Writing workspace configuration…");
+    fs::write(dir.join("Cargo.toml"), workspace_cargo_toml())?;
+    fs::write(dir.join(".cargo/config.toml"), cargo_config())?;
+    fs::write(dir.join(".gitignore"), "target/\n.soroban/\n")?;
+
+    p::step(3, 4, "Writing crates and contracts…");
+    fs::write(dir.join("crates/shared-types/Cargo.toml"), shared_types_cargo_toml())?;
+    fs::write(dir.join("crates/shared-types/src/lib.rs"), shared_types_lib())?;
+    
+    fs::write(dir.join("contracts/contract-a/Cargo.toml"), contract_a_cargo_toml())?;
+    fs::write(dir.join("contracts/contract-a/src/lib.rs"), contract_a_lib())?;
+
+    fs::write(dir.join("contracts/contract-b/Cargo.toml"), contract_b_cargo_toml())?;
+    fs::write(dir.join("contracts/contract-b/src/lib.rs"), contract_b_lib())?;
+    fs::write(dir.join("contracts/contract-b/tests/integration.rs"), workspace_integration_test())?;
+
+    p::step(4, 4, "Writing README.md…");
+    fs::write(dir.join("README.md"), format!("# {}\n\nA multi-contract Soroban workspace.", name))?;
+
+    target_guard.commit();
+
+    println!();
+    p::success(&format!("Workspace '{}' scaffolded!", name));
+    p::info(&format!("cd {}", name));
+    p::info("cargo test");
+    p::info("starforge build");
+    p::info("starforge deploy --all");
+    println!();
+    Ok(())
+}
+
+fn workspace_cargo_toml() -> &'static str {
+    r#"[workspace]
+members = [
+    "contracts/*",
+    "crates/*",
+]
+resolver = "2"
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = true
+"#
+}
+
+fn shared_types_cargo_toml() -> String {
+    let sdk = templates::SOROBAN_SDK_VERSION;
+    format!(r#"[package]
+name = "shared-types"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+soroban-sdk = "{sdk}"
+"#)
+}
+
+fn shared_types_lib() -> &'static str {
+    r#"#![no_std]
+use soroban_sdk::{contracttype, Address, String};
+
+#[derive(Clone)]
+#[contracttype]
+pub struct UserConfig {
+    pub account: Address,
+    pub name: String,
+}
+"#
+}
+
+fn contract_a_cargo_toml() -> String {
+    let sdk = templates::SOROBAN_SDK_VERSION;
+    format!(r#"[package]
+name = "contract-a"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+soroban-sdk = "{sdk}"
+shared-types = { path = "../../crates/shared-types" }
+
+[dev-dependencies]
+soroban-sdk = { version = "{sdk}", features = ["testutils"] }
+
+[features]
+testutils = ["soroban-sdk/testutils"]
+"#)
+}
+
+fn contract_a_lib() -> &'static str {
+    r#"#![no_std]
+use shared_types::UserConfig;
+use soroban_sdk::{contract, contractimpl, Env, Symbol};
+
+#[contract]
+pub struct ContractA;
+
+pub trait ContractATrait {
+    fn do_something(env: Env, config: UserConfig) -> Symbol;
+}
+
+#[contractimpl]
+impl ContractATrait for ContractA {
+    fn do_something(_env: Env, _config: UserConfig) -> Symbol {
+        soroban_sdk::symbol_short!("doneA")
+    }
+}
+"#
+}
+
+fn contract_b_cargo_toml() -> String {
+    let sdk = templates::SOROBAN_SDK_VERSION;
+    format!(r#"[package]
+name = "contract-b"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+soroban-sdk = "{sdk}"
+shared-types = { path = "../../crates/shared-types" }
+contract-a = { path = "../contract-a" }
+
+[dev-dependencies]
+soroban-sdk = { version = "{sdk}", features = ["testutils"] }
+contract-a = { path = "../contract-a", features = ["testutils"] }
+"#)
+}
+
+fn contract_b_lib() -> &'static str {
+    r#"#![no_std]
+use shared_types::UserConfig;
+use soroban_sdk::{contract, contractimpl, Address, Env, Symbol};
+use contract_a::ContractAClient;
+
+#[contract]
+pub struct ContractB;
+
+#[contractimpl]
+impl ContractB {
+    pub fn do_something_else(env: Env, config: UserConfig, contract_a: Address) -> Symbol {
+        let client = ContractAClient::new(&env, &contract_a);
+        client.do_something(&config);
+        soroban_sdk::symbol_short!("doneB")
+    }
+}
+"#
+}
+
+fn workspace_integration_test() -> &'static str {
+    r#"#![cfg(test)]
+use contract_a::{ContractA, ContractAClient};
+use contract_b::{ContractB, ContractBClient};
+use shared_types::UserConfig;
+use soroban_sdk::{testutils::Address as _, Address, Env, String};
+
+#[test]
+fn test_cross_contract() {
+    let env = Env::default();
+    
+    let contract_a_id = env.register_contract(None, ContractA);
+    let contract_b_id = env.register_contract(None, ContractB);
+    
+    let client_b = ContractBClient::new(&env, &contract_b_id);
+    
+    let config = UserConfig {
+        account: Address::generate(&env),
+        name: String::from_str(&env, "Alice"),
+    };
+    
+    let result = client_b.do_something_else(&config, &contract_a_id);
+    assert_eq!(result, soroban_sdk::symbol_short!("doneB"));
+}
+"#
+}
+fn workspace_contract_deps() -> &'static str {
+    r#"[dependencies]
+contract-a = { path = "contracts/contract-a" }
+contract-b = { path = "contracts/contract-b" }
+"#
 }
