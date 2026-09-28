@@ -77,6 +77,7 @@ pub mod multi_network;
 pub mod multisig_builder;
 pub mod mutate;
 pub mod network;
+pub mod add;
 pub mod new;
 pub mod nl;
 pub mod node;

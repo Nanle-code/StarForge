@@ -101,6 +101,13 @@ enum Commands {
     /// Natural language command interface
     Nl(commands::nl::NlArgs),
 
+    /// Scaffold a new contract or Stellar dApp
+    #[command(subcommand)]
+    New(commands::new::NewCommands),
+
+    /// Add a reusable feature to an existing Soroban contract
+    Add(commands::add::AddCommands),
+
     /// Manage third-party plugins
     #[command(subcommand)]
     Plugin(commands::plugin::PluginCommands),
@@ -368,6 +375,7 @@ async fn run() {
         Commands::Account(cmd) => commands::account::handle(cmd).await,
         Commands::Nl(args) => commands::nl::handle(args).await,
         Commands::New(cmd) => commands::new::handle(cmd).await,
+        Commands::Add(cmd) => commands::add::handle(cmd, dry_run_requested),
         Commands::Generate(cmd) => commands::generate::handle(&cmd).await,
         Commands::Contract(cmd) => commands::contract::handle(cmd).await,
         Commands::Inspect(cmd) => commands::inspect::handle(cmd).await,

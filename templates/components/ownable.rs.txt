@@ -1,0 +1,10 @@
+    pub fn owner(env: soroban_sdk::Env) -> Option<soroban_sdk::Address> {
+        env.storage().instance().get(&soroban_sdk::symbol_short!("OWNER"))
+    }
+    pub fn transfer_ownership(env: soroban_sdk::Env, current: soroban_sdk::Address, next: soroban_sdk::Address) {
+        current.require_auth();
+        let key = soroban_sdk::symbol_short!("OWNER");
+        let owner: Option<soroban_sdk::Address> = env.storage().instance().get(&key);
+        if let Some(owner) = owner { if owner != current { panic!("unauthorized"); } }
+        env.storage().instance().set(&key, &next);
+    }
