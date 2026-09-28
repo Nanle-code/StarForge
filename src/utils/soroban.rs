@@ -13,8 +13,13 @@ use std::sync::Mutex;
 use std::time::Duration;
 use stellar_strkey::{ed25519, Contract};
 use stellar_xdr::curr::{
-    AccountId, ContractDataDurability, ContractExecutable, Hash, LedgerEntryData, LedgerKey,
-    LedgerKeyContractData, PublicKey, ScAddress, ScMap, ScString, ScSymbol, ScVal, Uint256,
+    AccountId, ContractDataDurability, ContractExecutable, DecoratedSignature, ExtensionPoint,
+    Hash, HostFunction, InvokeContractArgs, InvokeHostFunctionOp, LedgerEntryData, LedgerKey,
+    LedgerKeyContractData, Limits, Memo, MuxedAccount, Operation, OperationBody, Preconditions,
+    PublicKey, ScAddress, ScMap, ScString, ScSymbol, ScVal, SequenceNumber, Signature,
+    SignatureHint, SorobanAuthorizationEntry, SorobanResources, SorobanTransactionData,
+    Transaction, TransactionEnvelope, TransactionExt, TransactionSignaturePayload,
+    TransactionSignaturePayloadTaggedTransaction, TransactionV1Envelope, Uint256, VecM, WriteXdr,
 };
 
 fn build_http_client(timeout: Duration) -> Result<Client> {
@@ -30,7 +35,7 @@ static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
 });
 
 /// Global RPC budget manager (thread-safe for concurrent access).
-static RPC_BUDGET_MANAGER: Lazy<Mutex<RpcBudgetManager>> = 
+static RPC_BUDGET_MANAGER: Lazy<Mutex<RpcBudgetManager>> =
     Lazy::new(|| Mutex::new(RpcBudgetManager::new()));
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -48,6 +53,10 @@ pub struct SimulationResult {
     /// in that case the reason is appended to `errors`.
     #[serde(default)]
     pub resources: Option<SimulationResources>,
+    #[serde(default)]
+    pub authorization: Option<crate::utils::soroban_auth::AuthEntryBundle>,
+    #[serde(default)]
+    pub transaction_data: Option<String>,
 }
 
 impl SimulationResult {
@@ -143,12 +152,127 @@ pub async fn invoke_contract(
     network: &str,
     wallet: Option<&WalletEntry>,
     signing: Option<&SigningRequest>,
+    auth_signers: &[String],
+    auth_export: Option<&std::path::Path>,
+    auth_import: Option<&std::path::Path>,
 ) -> Result<InvokeOutcome> {
-    let simulation = simulate_transaction(contract_id, function, args, arg_types, network).await?;
+    let source_wallet = match wallet {
+        Some(wallet) => wallet.clone(),
+        None => config::load()?
+            .wallets
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("Simulation needs a source wallet; add one with `starforge wallet create`"))?,
+    };
+    let mut simulation = simulate_transaction_from(
+        contract_id,
+        function,
+        args,
+        arg_types,
+        network,
+        &source_wallet,
+    )
+    .await?;
     let transaction = match wallet {
-        Some(w) => Some(
-            submit_transaction(contract_id, function, args, arg_types, network, w, signing).await?,
-        ),
+        Some(w) => {
+            if let Some(mut bundle) = simulation.authorization.take() {
+                if let Some(input) = auth_import {
+                    crate::utils::soroban_auth::import_signatures(&mut bundle, input)?;
+                }
+                if !auth_signers.is_empty()
+                    || signing.is_some_and(|request| request.hardware.is_some())
+                {
+                    let cfg = config::load()?;
+                    crate::utils::soroban_auth::sign_bundle_with_wallets(
+                        &mut bundle,
+                        &cfg.wallets,
+                        auth_signers,
+                        signing.and_then(|request| request.hardware),
+                        signing
+                            .map(|request| request.hd_path.as_str())
+                            .unwrap_or(crate::utils::hardware_wallet::STELLAR_HD_PATH),
+                    )?;
+                }
+                if let Some(output) = auth_export {
+                    crate::utils::soroban_auth::export_bundle(&bundle, output)?;
+                    if bundle.entries.iter().any(|entry| entry.signature.is_none()) {
+                        anyhow::bail!(
+                            "Authorization entries exported to {}; collect remote signatures, then retry with --auth-import",
+                            output.display()
+                        );
+                    }
+                }
+                if let Some(missing) = bundle
+                    .entries
+                    .iter()
+                    .find(|entry| entry.signature.is_none())
+                {
+                    anyhow::bail!(
+                        "Missing Soroban authorization signer for address {}. Add its wallet with --auth-signer <wallet>, or import a signed bundle with --auth-import <path>.",
+                        missing.address
+                    );
+                }
+
+                if !bundle.entries.is_empty() {
+                    // Signing does not change the contract call, but refreshing the
+                    // simulation ensures the resource estimate is current at submit time.
+                    let refreshed = simulate_transaction_from(
+                        contract_id,
+                        function,
+                        args,
+                        arg_types,
+                        network,
+                        &source_wallet,
+                    )
+                    .await?;
+                    let refreshed_auth = refreshed.authorization.as_ref().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "Re-simulation returned no Soroban authorization entries; refusing to submit the signed authorization bundle"
+                        )
+                    })?;
+                    for signed in bundle.entries.iter() {
+                        let still_required =
+                            refreshed_auth
+                                .entries
+                                .iter()
+                                .try_fold(false, |matched, current| {
+                                    if matched {
+                                        Ok(true)
+                                    } else {
+                                        crate::utils::soroban_auth::same_authorization_call(
+                                            signed, current,
+                                        )
+                                    }
+                                })?;
+                        if !still_required {
+                            anyhow::bail!(
+                                "Soroban authorization for {} changed during re-simulation; export and collect signatures again",
+                                signed.address
+                            );
+                        }
+                    }
+                    simulation = refreshed;
+                }
+                simulation.authorization = Some(bundle.clone());
+            } else if auth_import.is_some() || auth_export.is_some() || !auth_signers.is_empty() {
+                anyhow::bail!(
+                    "No Soroban address authorization entries were returned by simulation"
+                );
+            }
+            Some(
+                submit_transaction(
+                    contract_id,
+                    function,
+                    args,
+                    arg_types,
+                    network,
+                    w,
+                    signing,
+                    &simulation,
+                )
+                .await?,
+            )
+        }
         None => None,
     };
     Ok(InvokeOutcome {
@@ -164,18 +288,48 @@ pub async fn simulate_transaction(
     arg_types: &[String],
     network: &str,
 ) -> Result<SimulationResult> {
+    let wallet = config::load()?
+        .wallets
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("Simulation needs a source wallet; add one with `starforge wallet create`"))?;
+    simulate_transaction_from(contract_id, function, args, arg_types, network, &wallet).await
+}
+
+async fn simulate_transaction_from(
+    contract_id: &str,
+    function: &str,
+    args: &[String],
+    arg_types: &[String],
+    network: &str,
+    source: &WalletEntry,
+) -> Result<SimulationResult> {
     let rpc_url = get_rpc_url(network)?;
-
-    // Convert arguments to XDR ScVal format
     let xdr_args = encode_arguments(args, arg_types)?;
+    let account = crate::utils::horizon::fetch_account(&source.public_key, network).await?;
+    let sequence = account
+        .sequence
+        .parse::<i64>()
+        .context("Horizon returned an invalid source account sequence")?
+        .checked_add(1)
+        .context("Source account sequence overflow")?;
+    let transaction = build_invoke_envelope_xdr(
+        contract_id,
+        function,
+        &xdr_args,
+        source,
+        sequence,
+        100,
+        TransactionExt::V0,
+        &[],
+    )?;
 
-    // Build the simulation request
     let request = SorobanRpcRequest {
         jsonrpc: "2.0".to_string(),
         id: 1,
         method: "simulateTransaction".to_string(),
         params: serde_json::json!({
-            "transaction": build_transaction_xdr(contract_id, function, &xdr_args)?,
+            "transaction": transaction,
         }),
     };
 
@@ -185,7 +339,7 @@ pub async fn simulate_transaction(
         .context("Simulation request failed")?;
 
     // Parse the simulation result (resources, fee, events, errors).
-    build_simulation_result(&result)
+    build_simulation_result(&result, network)
 }
 
 pub async fn simulate_deploy_transaction(
@@ -207,7 +361,7 @@ pub async fn simulate_deploy_transaction(
         .await
         .context("Deploy simulation request failed")?;
 
-    build_simulation_result(&result)
+    build_simulation_result(&result, network)
 }
 
 pub async fn submit_transaction(
@@ -218,16 +372,52 @@ pub async fn submit_transaction(
     network: &str,
     wallet: &WalletEntry,
     signing: Option<&SigningRequest>,
+    simulation: &SimulationResult,
 ) -> Result<TransactionResult> {
     crate::utils::network_guard::verify(network).await?;
     let rpc_url = get_rpc_url(network)?;
 
-    // Convert arguments to XDR ScVal format
     let xdr_args = encode_arguments(args, arg_types)?;
-
-    // Build and sign the transaction
-    let signed_tx_xdr =
-        build_and_sign_transaction(contract_id, function, &xdr_args, wallet, network, signing)?;
+    let transaction_data = simulation
+        .transaction_data
+        .as_deref()
+        .context("Simulation omitted transactionData; refusing to submit an unprepared Soroban invocation")?;
+    let transaction_data_bytes = BASE64
+        .decode(transaction_data)
+        .context("Simulation transactionData is not valid base64")?;
+    let transaction_data = SorobanTransactionData::from_xdr(
+        transaction_data_bytes.as_slice(),
+        Limits::none(),
+    )
+    .context("Simulation transactionData is not valid Soroban XDR")?;
+    let account = crate::utils::horizon::fetch_account(&wallet.public_key, network).await?;
+    let sequence = account
+        .sequence
+        .parse::<i64>()
+        .context("Horizon returned an invalid source account sequence")?
+        .checked_add(1)
+        .context("Source account sequence overflow")?;
+    let auth_entries = simulation
+        .authorization
+        .as_ref()
+        .map(|bundle| bundle.entries.as_slice())
+        .unwrap_or(&[]);
+    let fee_u64 = u64::try_from(transaction_data.resource_fee)
+        .context("Simulation reported a negative Soroban resource fee")?
+        .checked_add(simulation_resources::DEFAULT_INCLUSION_FEE_STROOPS)
+        .context("Transaction fee overflow")?;
+    let fee = u32::try_from(fee_u64).context("Transaction fee exceeds Stellar XDR limit")?;
+    let transaction = build_invoke_transaction(
+        contract_id,
+        function,
+        &xdr_args,
+        wallet,
+        sequence,
+        fee,
+        TransactionExt::V1(transaction_data),
+        auth_entries,
+    )?;
+    let signed_tx_xdr = sign_invoke_transaction(transaction, wallet, network, signing)?;
 
     // Build the submission request
     let request = SorobanRpcRequest {
@@ -377,7 +567,7 @@ where
         let mut manager = RPC_BUDGET_MANAGER.lock().unwrap();
         manager.get_budget(rpc_url)
     };
-    
+
     let _permit = budget.acquire_permit().await.with_context(|| {
         format!("RPC budget exhausted for {}. Wait or increase STARFORGE_RPC_MAX_QPS/STARFORGE_RPC_MAX_CONCURRENT.", rpc_url)
     })?;
@@ -591,7 +781,7 @@ fn extract_fee(resources: Option<&SimulationResources>) -> u64 {
 }
 
 /// Assemble a [`SimulationResult`] from a raw RPC response.
-fn build_simulation_result(result: &serde_json::Value) -> Result<SimulationResult> {
+fn build_simulation_result(result: &serde_json::Value, network: &str) -> Result<SimulationResult> {
     let mut errors = extract_simulation_errors(result);
 
     let resources = match extract_resources(result) {
@@ -607,12 +797,25 @@ fn build_simulation_result(result: &serde_json::Value) -> Result<SimulationResul
         }
     };
 
+    let authorization = if result
+        .get("results")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|results| results.iter().any(|item| item.get("auth").is_some()))
+    {
+        Some(crate::utils::soroban_auth::parse_simulation_auth_entries(
+            result, network,
+        )?)
+    } else {
+        None
+    };
+
     Ok(SimulationResult {
         return_value: decode_return_value(result)?,
         fee: extract_fee(resources.as_ref()),
         events: extract_events(result)?,
         errors,
         resources,
+        authorization,
     })
 }
 
@@ -1050,7 +1253,7 @@ mod tests {
             serde_json::from_str(&fixture).expect("failed to deserialize simulate_success.json");
         let result = response.result.expect("missing result in response");
 
-        let simulation = build_simulation_result(&result).unwrap();
+        let simulation = build_simulation_result(&result, "testnet").unwrap();
 
         assert_eq!(simulation.fee, 58_181);
         let resources = simulation.resources.as_ref().expect("resources parsed");
@@ -1073,7 +1276,7 @@ mod tests {
         // A response from a non-Soroban endpoint: no minResourceFee, no
         // transactionData. The fee must fall back rather than be invented.
         let result = serde_json::json!({ "returnValue": "ok", "events": [] });
-        let simulation = build_simulation_result(&result).unwrap();
+        let simulation = build_simulation_result(&result, "testnet").unwrap();
 
         assert_eq!(simulation.fee, FALLBACK_FEE_STROOPS);
         assert!(simulation.resources.is_none());
@@ -1089,7 +1292,7 @@ mod tests {
             "error": "HostError: Error(Budget, ExceededLimit)",
             "events": [],
         });
-        let simulation = build_simulation_result(&result).unwrap();
+        let simulation = build_simulation_result(&result, "testnet").unwrap();
 
         assert!(simulation.resources.is_none());
         assert!(simulation.fee_plan(20).is_none());
