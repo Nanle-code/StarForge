@@ -138,6 +138,11 @@ async-trait = "0.1"
 futures = "0.3.33"
 ratatui = { version = "0.30", optional = true }
 crossterm = { version = "0.29", optional = true }
+# mlock/munlock for the signing agent key store (Unix only).
+# The Windows signing agent uses VirtualLock via the winapi crate which is
+# already available through the standard Rust `windows-sys` transitive dep.
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.29", default-features = false, features = ["mman"] }
 
 [features]
 ai = []

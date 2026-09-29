@@ -4607,6 +4607,7 @@ dependencies = [
  "libloading",
  "minijinja",
  "mockito",
+ "nix 0.29.0",
  "once_cell",
  "proptest",
  "rand 0.9.5",
