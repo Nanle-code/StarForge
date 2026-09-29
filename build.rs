@@ -38,20 +38,6 @@ enum Commands {
     // `main()` below keeps it honest about the command count.
     #[command(about = "Manage test wallets (create, list, fund, sign), transactions, and devices")]
     Wallet,
-    #[command(
-        about = "Contract operations (invoke, build, test, audit, upgrade, inspect, monitor)"
-    )]
-    Ai,
-    #[command(about = "AI-driven performance profiling commands")]
-    AiProfile,
-    #[command(about = "AI-powered IDE integration commands")]
-    AiIde,
-    #[command(about = "AI-driven test maintenance commands")]
-    AiTestMaintain,
-    #[command(about = "AI-driven deployment testing commands")]
-    AiDeploymentTest,
-    #[command(about = "Manage test wallets (create, list, fund, show, remove)")]
-    Wallet,
     #[command(about = "On-chain account lifecycle with sponsored reserves (CAP-33)")]
     Account,
     #[command(about = "Natural language command interface")]

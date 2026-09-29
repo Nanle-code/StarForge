@@ -180,6 +180,30 @@ jobs:
 
       - name: Run each fuzz target
         run: |
+          set -euo pipefail
+          DURATION="${{ github.event.inputs.fuzz_duration || '10' }}"
+          # Enumerate all [[bin]] targets from the fuzz Cargo.toml.
+          targets=$(cargo fuzz list --fuzz-dir fuzz)
+          if [ -z "$targets" ]; then
+            echo "::error::No fuzz targets found"
+            exit 1
+          fi
+          any_fail=0
+          while IFS= read -r target; do
+            [ -z "$target" ] && continue
+            echo "--- fuzzing: $target for ${DURATION}s ---"
+            if ! cargo fuzz run --fuzz-dir fuzz "$target" -- \
+                -max_total_time="$DURATION" \
+                -jobs=1 \
+                -workers=1 \
+                -artifact_prefix="fuzz/corpus/${target}/"; then
+              echo "::error::Fuzz target $target produced a finding or crashed"
+              any_fail=1
+            fi
+          done <<< "$targets"
+          if [ "$any_fail" -ne 0 ]; then
+            exit 1
+          fi
           echo "All fuzz targets completed without findings."
 
       - name: Upload corpus artifacts on failure

@@ -26,7 +26,7 @@ jobs:
       issues: write   # on schedule, audit-check opens issues for new advisories
     steps:
       - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v1.4.1
+      - uses: rustsec/audit-check@v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           # Keep in sync with the documented, justified exceptions in audit.toml —
