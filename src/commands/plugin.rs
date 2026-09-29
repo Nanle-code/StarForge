@@ -3,9 +3,11 @@ use crate::plugins::manifest;
 use crate::plugins::registry::{self, RegisteredCommand, TrustLevel, UninstallOptions};
 use crate::plugins::{PluginLoadError, PluginManager};
 use crate::utils::config;
+use crate::utils::dry_run::{self, DryRunPlan, PlannedOperation};
 use crate::utils::output;
 use crate::utils::print as p;
 use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
 use clap::Subcommand;
 use std::path::Path;
 use std::path::PathBuf;
@@ -92,10 +94,18 @@ pub enum PluginCommands {
     Search {
         /// Search query (e.g. "ai", "security")
         query: Option<String>,
+        /// Emit machine-readable search results
+        #[arg(long)]
+        json: bool,
     },
 }
 
 pub async fn handle(cmd: PluginCommands) -> Result<()> {
+    if dry_run::is_enabled() {
+        if let Some(plan) = dry_run_plan(&cmd) {
+            return plan.emit(output::is_json_mode_enabled());
+        }
+    }
     match cmd {
         PluginCommands::Install {
             name,
@@ -117,7 +127,75 @@ pub async fn handle(cmd: PluginCommands) -> Result<()> {
         } => audit(name, runtime_check),
         PluginCommands::Update { name, yes } => update(name, yes),
         PluginCommands::Commands { name } => commands(name),
-        PluginCommands::Search { query } => search(query).await,
+        PluginCommands::Search { query, json } => search(query, json).await,
+    }
+}
+
+/// Build the plan shown by `--dry-run` for a mutating `plugin` subcommand.
+///
+/// Listing, loading, verifying, auditing, command discovery, and searching are
+/// read-only and return `None`.
+fn dry_run_plan(cmd: &PluginCommands) -> Option<DryRunPlan> {
+    match cmd {
+        PluginCommands::Install {
+            name,
+            path,
+            source,
+            force,
+        } => {
+            let mut operation = PlannedOperation::new(
+                "plugin.register",
+                name.clone(),
+                format!("would register plugin '{name}' in the local registry"),
+            );
+            if let Some(path) = path {
+                operation = operation.detail("Library", path.display().to_string());
+            }
+            if let Some(source) = source {
+                operation = operation.detail("Source", source.clone());
+            }
+            if *force {
+                operation = operation.detail("Force", "yes (may accept an untrusted source)");
+            }
+            Some(
+                DryRunPlan::new("plugin install", format!("Register plugin '{name}'"))
+                    .operation(operation)
+                    .writes_filesystem(),
+            )
+        }
+        PluginCommands::Uninstall { name, purge, .. } => Some(
+            DryRunPlan::new("plugin uninstall", format!("Remove plugin '{name}'"))
+                .operation(
+                    PlannedOperation::new(
+                        "plugin.unregister",
+                        name.clone(),
+                        format!("would remove plugin '{name}' from the local registry"),
+                    )
+                    .detail("Purge library file", dry_run::yes_no(*purge)),
+                )
+                .writes_filesystem(),
+        ),
+        PluginCommands::Update { name, .. } => {
+            let target = name.clone().unwrap_or_else(|| "all installed plugins".to_string());
+            Some(
+                DryRunPlan::new("plugin update", format!("Update {target}"))
+                    .operation(
+                        PlannedOperation::new(
+                            "plugin.update",
+                            target.clone(),
+                            format!("would check sources and replace outdated libraries for {target}"),
+                        )
+                        .detail("Preserves config and trust settings", "yes"),
+                    )
+                    .writes_filesystem(),
+            )
+        }
+        PluginCommands::List { .. }
+        | PluginCommands::Load
+        | PluginCommands::Verify { .. }
+        | PluginCommands::Audit { .. }
+        | PluginCommands::Commands { .. }
+        | PluginCommands::Search { .. } => None,
     }
 }
 
@@ -256,14 +334,70 @@ fn install(name: String, path: Option<PathBuf>, source: Option<String>, force: b
     Ok(())
 }
 
-#[derive(serde::Deserialize, Debug)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 struct MarketplacePlugin {
     name: String,
     description: String,
     url: String,
+    #[serde(default)]
+    verified: bool,
+    #[serde(default)]
+    publisher: Option<String>,
+    #[serde(default)]
+    signature: Option<String>,
+    #[serde(default)]
+    trust_expires_at: Option<String>,
 }
 
-async fn search(query: Option<String>) -> Result<()> {
+impl MarketplacePlugin {
+    fn trust_state(&self) -> &'static str {
+        if self.is_expired() {
+            "expired"
+        } else if self.verified {
+            "verified"
+        } else if self.signature.is_some() {
+            "unverified"
+        } else {
+            "unsigned"
+        }
+    }
+
+    fn is_expired(&self) -> bool {
+        self.trust_expires_at
+            .as_deref()
+            .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+            .is_some_and(|expires_at| expires_at.with_timezone(&Utc) <= Utc::now())
+    }
+
+    fn risk_notes(&self) -> Vec<String> {
+        let mut notes = Vec::new();
+        if self.is_expired() {
+            notes.push("trust metadata expired".to_string());
+        } else if !self.verified {
+            if self.signature.is_none() {
+                notes.push("unsigned publisher metadata".to_string());
+            } else {
+                notes.push("publisher is not verified".to_string());
+            }
+        }
+        if self.publisher.is_none() {
+            notes.push("publisher identity unavailable".to_string());
+        }
+        notes
+    }
+}
+
+#[derive(serde::Serialize)]
+struct MarketplaceSearchResult {
+    name: String,
+    description: String,
+    url: String,
+    trust_state: String,
+    publisher: Option<String>,
+    risk_notes: Vec<String>,
+}
+
+async fn search(query: Option<String>, json: bool) -> Result<()> {
     p::header("Plugin Marketplace — Search");
     if let Some(ref q) = query {
         p::kv("Query", q);
@@ -277,11 +411,19 @@ async fn search(query: Option<String>) -> Result<()> {
             name: "starforge-ai-audit".to_string(),
             description: "AI-powered smart contract auditing plugin".to_string(),
             url: "https://github.com/StarForge-Labs/starforge-ai-audit".to_string(),
+            verified: true,
+            publisher: Some("StarForge Labs".to_string()),
+            signature: Some("registry".to_string()),
+            trust_expires_at: None,
         },
         MarketplacePlugin {
             name: "starforge-defi".to_string(),
             description: "DeFi scaffold and AMM tools".to_string(),
             url: "https://github.com/Nanle-code/starforge-defi".to_string(),
+            verified: false,
+            publisher: Some("Nanle-code".to_string()),
+            signature: None,
+            trust_expires_at: None,
         },
     ];
 
@@ -299,18 +441,68 @@ async fn search(query: Option<String>) -> Result<()> {
     }
 
     if available_plugins.is_empty() {
+        if json {
+            return output::print_json(&Vec::<MarketplaceSearchResult>::new());
+        }
         p::info("No plugins found matching your search.");
         return Ok(());
+    }
+
+    if json || output::is_json_mode_enabled() {
+        let results = available_plugins
+            .into_iter()
+            .map(|plugin| {
+                let trust_state = plugin.trust_state().to_string();
+                let risk_notes = plugin.risk_notes();
+                MarketplaceSearchResult {
+                    name: plugin.name,
+                    description: plugin.description,
+                    url: plugin.url,
+                    trust_state,
+                    publisher: plugin.publisher,
+                    risk_notes,
+                }
+            })
+            .collect::<Vec<_>>();
+        return output::print_json(&results);
     }
 
     println!("\n  Found {} plugin(s):\n", available_plugins.len());
 
     let rows: Vec<Vec<String>> = available_plugins
         .into_iter()
-        .map(|p| vec![p.name, p.description, p.url])
+        .map(|p| {
+            let risks = p.risk_notes();
+            if !risks.is_empty() {
+                p::warn(&format!(
+                    "{}: {} ({})",
+                    p.name,
+                    p.trust_state(),
+                    risks.join(", ")
+                ));
+            }
+            vec![
+                p.name,
+                p.trust_state().to_string(),
+                p.publisher.unwrap_or_else(|| "unknown".to_string()),
+                risks.join(", "),
+                p.description,
+                p.url,
+            ]
+        })
         .collect();
 
-    p::table(&["Name", "Description", "Source URL"], &rows);
+    p::table(
+        &[
+            "Name",
+            "Trust",
+            "Publisher",
+            "Risk",
+            "Description",
+            "Source URL",
+        ],
+        &rows,
+    );
     println!("\nTo install a plugin, run: starforge plugin install <name> --source <url>");
 
     Ok(())
@@ -421,6 +613,39 @@ fn list(json: bool) -> Result<()> {
 
     p::separator();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MarketplacePlugin;
+
+    fn plugin(verified: bool, signature: Option<&str>, expires: Option<&str>) -> MarketplacePlugin {
+        MarketplacePlugin {
+            name: "example".to_string(),
+            description: "example plugin".to_string(),
+            url: "https://example.com/plugin".to_string(),
+            verified,
+            publisher: Some("Example Publisher".to_string()),
+            signature: signature.map(str::to_string),
+            trust_expires_at: expires.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn trust_badges_distinguish_verified_unsigned_and_expired_plugins() {
+        assert_eq!(plugin(true, Some("sig"), None).trust_state(), "verified");
+        assert_eq!(plugin(false, None, None).trust_state(), "unsigned");
+        assert_eq!(
+            plugin(true, Some("sig"), Some("2000-01-01T00:00:00Z")).trust_state(),
+            "expired"
+        );
+    }
+
+    #[test]
+    fn unsigned_plugins_explain_the_risk() {
+        let risks = plugin(false, None, None).risk_notes();
+        assert!(risks.iter().any(|note| note.contains("unsigned")));
+    }
 }
 
 fn load() -> Result<()> {

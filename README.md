@@ -38,7 +38,7 @@ Scaffold new Soroban smart contract projects from battle-tested templates with o
 starforge template search defi
 
 # Use a marketplace template
-starforge new contract my-dex --template uniswap-v2 --from marketplace
+starforge project new contract my-dex --template uniswap-v2 --from marketplace
 
 # Publish your own template
 starforge template publish ./my-template
@@ -47,7 +47,7 @@ starforge template publish ./my-template
 ### 🚀 Contract Deployment
 Validate, size-check, and deploy compiled Soroban `.wasm` files to Testnet or Mainnet. Verifies account balance on-chain, calculates the Soroban WASM hash as a SHA-256 digest of the raw file bytes, and generates the exact `stellar contract deploy` command to complete the deployment.
 
-The local hash shown by `starforge deploy` is intended to match the value reported by `stellar contract inspect --wasm <file>` for the same bytecode. StarForge now computes that hash through a shared helper that validates the WASM payload, rejects empty or malformed input, and fails explicitly on unsupported build environments instead of silently producing a different result.
+The local hash shown by `starforge deploy run` is intended to match the value reported by `stellar contract inspect --wasm <file>` for the same bytecode. StarForge now computes that hash through a shared helper that validates the WASM payload, rejects empty or malformed input, and fails explicitly on unsupported build environments instead of silently producing a different result.
 
 For contributors, the hash is intentionally defined as the SHA-256 digest of the raw `.wasm` bytecode. The implementation currently supports Linux, Windows, and macOS hosts; other environments are rejected with a clear error so reproducibility checks do not silently drift.
 
@@ -188,7 +188,7 @@ cp target/release/starforge /usr/local/bin/
 starforge --version
 # starforge 0.1.0
 
-starforge info
+starforge config info
 ```
 
 ---
@@ -392,25 +392,25 @@ cp ~/.starforge/config.backup.v0.<timestamp>.toml ~/.starforge/config.toml
 
 ```bash
 # Scaffold a Soroban contract (hello-world template)
-starforge new contract my-contract
+starforge project new contract my-contract
 
 # Scaffold interactively with custom options
-starforge new contract my-contract --interactive
+starforge project new contract my-contract --interactive
 
 # Scaffold with a specific template
-starforge new contract my-token --template token
-starforge new contract my-nft --template nft
-starforge new contract my-vote --template voting
+starforge project new contract my-token --template token
+starforge project new contract my-nft --template nft
+starforge project new contract my-vote --template voting
 
 # Search marketplace templates
 starforge template search defi
-starforge new contract --search lending --tags defi
+starforge project new contract --search lending --tags defi
 
 # Use a marketplace template
-starforge new contract my-dex --template uniswap-v2 --from marketplace
+starforge project new contract my-dex --template uniswap-v2 --from marketplace
 
 # Scaffold a Stellar dApp frontend (Vite + React)
-starforge new dapp my-dapp
+starforge project new dapp my-dapp
 ```
 
 ### Local AI assistant
@@ -486,7 +486,7 @@ These commands run offline in a throwaway `HOME`, and CI executes them on
 every PR:
 
 ```bash run
-starforge new contract hello              # scaffold from a template
+starforge project new contract hello              # scaffold from a template
 starforge wallet create alice             # local keypair (add --encrypt to protect it)
 starforge network show                    # testnet, mainnet, or your own
 starforge template search defi            # community templates
@@ -501,8 +501,8 @@ cd hello && stellar contract build
 stellar keys generate deployer                          # or reuse an existing identity
 starforge wallet import --from-stellar-cli deployer     # same wallet, now in StarForge
 starforge wallet fund deployer
-starforge deploy --wasm target/wasm32v1-none/release/hello.wasm --wallet deployer --dry-run
-starforge deploy --wasm target/wasm32v1-none/release/hello.wasm --wallet deployer --yes --execute
+starforge deploy run --wasm target/wasm32v1-none/release/hello.wasm --wallet deployer --dry-run
+starforge deploy run --wasm target/wasm32v1-none/release/hello.wasm --wallet deployer --yes --execute
 stellar contract invoke --id <CONTRACT_ID> --source deployer --network testnet -- hello --to Stellar
 ```
 
@@ -526,6 +526,14 @@ still does better.
 - [Installation](docs/INSTALL.md) · [Usage guide](docs/USAGE.md) · [Command reference](docs/COMMAND_REFERENCE.md) · [Cheat sheet](docs/COMMAND_CHEATSHEET.md)
 - [Configuration](docs/CONFIGURATION.md) · [Architecture](ARCHITECTURE.md) · [All documentation](docs/README.md)
 - Docs site: <https://nanle-code.github.io/StarForge/> (built from [`docs/`](docs/))
+
+### Nightly end-to-end suite
+
+A scheduled workflow exercises the real Stellar **testnet** every night:
+ephemeral wallet → Friendbot funding → scaffold/build/deploy/invoke/upgrade/verify
+for each built-in template, with failures opening or updating a single tracking
+issue. See [docs/NIGHTLY_E2E.md](docs/NIGHTLY_E2E.md) for how to run the suite
+locally and how to change the cron schedule.
 
 ## Status and stability
 

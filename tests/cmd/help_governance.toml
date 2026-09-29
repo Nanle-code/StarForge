@@ -1,0 +1,3 @@
+# Golden CLI case: starforge governance --help
+description = "starforge governance --help"
+args = ["governance", "--help"]

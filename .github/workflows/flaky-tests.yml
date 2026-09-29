@@ -1,0 +1,128 @@
+name: Flaky Test Detection
+
+# Detects tests that pass only on a retry ("flaky" tests) and publishes the
+# result as a build artifact. This workflow is additive: it does not modify or
+# gate any existing workflow, and it runs the suite with cargo-nextest using
+# the `ci` profile defined in `.config/nextest.toml`.
+#
+# The report is also appended to the run summary and each flaky test is
+# annotated inline. See CONTRIBUTING.md > "Flaky Tests & Quarantine" for the
+# owner + deadline quarantine process.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'benches/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.config/nextest.toml'
+      - 'scripts/flaky-report.py'
+      - '.github/flaky-quarantine.json'
+      - '.github/workflows/flaky-tests.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'benches/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.config/nextest.toml'
+      - 'scripts/flaky-report.py'
+      - '.github/flaky-quarantine.json'
+      - '.github/workflows/flaky-tests.yml'
+  schedule:
+    # Nightly flake sweep (02:30 UTC) so trends surface even when no PR is open.
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+
+# Least privilege: the job only reads the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: flaky-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  # nextest writes JUnit XML relative to <store.dir>/<profile>; keep the path
+  # in one place so the report and upload steps agree.
+  JUNIT_PATH: target/nextest/ci/junit.xml
+
+jobs:
+  flaky-tests:
+    name: Flaky Test Detection (nextest)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev libusb-1.0-0-dev
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Run tests with retries and JUnit output
+        # A test that passes on a retry does NOT fail this step: the flaky
+        # result is reported below instead of breaking the build. Real
+        # (non-flaky) failures still surface through the preserved exit code.
+        run: |
+          set +e
+          cargo nextest run --locked --profile ci --no-fail-fast
+          status=$?
+          set -e
+          echo "NEXTEST_EXIT_CODE=$status" >> "$GITHUB_ENV"
+          echo "cargo nextest exited with status $status"
+          exit 0
+
+      - name: Generate flaky-test report
+        if: always()
+        run: |
+          python3 scripts/flaky-report.py \
+            --input "$JUNIT_PATH" \
+            --markdown flaky-report.md \
+            --json flaky-report.json \
+            --quarantine .github/flaky-quarantine.json \
+            --summary "$GITHUB_STEP_SUMMARY" \
+            --annotations
+
+      - name: Upload flaky-test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flaky-test-report-nextest
+          path: |
+            flaky-report.md
+            flaky-report.json
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload nextest JUnit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nextest-junit-report
+          path: ${{ env.JUNIT_PATH }}
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Fail when the suite has non-flaky failures
+        if: always()
+        run: |
+          code="${NEXTEST_EXIT_CODE:-0}"
+          if [ "$code" != "0" ]; then
+            echo "::error title=Test failures::cargo nextest exited with status ${code}. Real failures (not flakes) are present; see the nextest-junit-report artifact."
+            exit "$code"
+          fi
+          echo "No non-flaky test failures."

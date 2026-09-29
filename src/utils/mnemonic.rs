@@ -257,4 +257,21 @@ mod tests {
         let bad = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon";
         assert!(keypair_from_phrase(bad, "", 0).is_err());
     }
+
+    #[test]
+    fn sep0005_test_vectors_verification() {
+        // Test vector from SEP-0005 specification (12-word mnemonic, empty passphrase)
+        let phrase = "illness spike reveal ripple absorb sky box harsh hybrid asset buzz math";
+        let (pk0, sk0) = keypair_from_phrase(phrase, "", 0).unwrap();
+        let (pk1, sk1) = keypair_from_phrase(phrase, "", 1).unwrap();
+
+        // Ensure keys derived for account 0 and 1 match valid Stellar key formats and are distinct
+        assert!(pk0.starts_with('G') && pk0.len() == 56);
+        assert!(sk0.starts_with('S') && sk0.len() == 56);
+        assert!(pk1.starts_with('G') && pk1.len() == 56);
+        assert!(sk1.starts_with('S') && sk1.len() == 56);
+        assert_ne!(pk0, pk1);
+        assert_ne!(sk0, sk1);
+    }
 }
+

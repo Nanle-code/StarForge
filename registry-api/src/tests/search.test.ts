@@ -11,6 +11,9 @@ describe("Intelligent Template Search", () => {
       .send({
         version: "1.0.0",
         author: "Stellar Community",
+        authors: ["Stellar Community"],
+        attribution: "Copyright (c) 2026 Stellar Community",
+        license: "MIT",
         content: Buffer.from("content").toString("base64"),
         ...overrides,
       });

@@ -386,6 +386,100 @@ Headers indicate limits:
 - `X-RateLimit-Remaining`
 - `X-RateLimit-Reset`
 
+## Query Depth Limits & Complexity Cost Analysis
+
+To prevent denial-of-service attacks and resource exhaustion from maliciously nested or unbounded queries on public and registry-adjacent endpoints, the GraphQL server enforces strict query depth and complexity cost ceilings.
+
+### Safe Defaults for Public Exposure
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `max_depth` | `7` | Maximum nesting depth for field selections |
+| `max_complexity` | `100` | Maximum calculated complexity score per query |
+| `default_field_cost` | `1` | Base cost assigned to each scalar or object field |
+| `max_multiplier` | `100` | Upper bound cap on argument multipliers (e.g., `limit: 1000`) |
+| `enable_metrics` | `false` | Opt-in metrics for rejected expensive queries |
+
+### Field Weights & Multipliers
+
+Operations and queries that touch database indexes or execute intensive transactions carry higher base complexity weights:
+
+- `deployContract`: 30
+- `submitTransaction`: 25
+- `invokeContract`: 20
+- `transactions`: 10
+- `wallets`, `contracts`, `templates`, `account`: 5
+- Scalar fields (`id`, `name`, `balance`, etc.): 1
+
+#### Argument Multipliers
+
+When list fields include arguments such as `limit`, `first`, `take`, `count`, or `size`, the cost of nested child selections is scaled by that factor:
+$$\text{Cost}(\text{field}) = \text{base\_cost} + \min(\text{limit}, 100) \times \sum \text{Cost}(\text{children})$$
+
+### Error Responses on Limit Breach
+
+When an incoming query exceeds configured ceilings, execution is blocked immediately and a clear GraphQL error response is returned:
+
+#### Depth Limit Exceeded
+```json
+{
+  "errors": [
+    {
+      "message": "Query depth limit of 7 exceeded: query depth is 9",
+      "extensions": {
+        "code": "GRAPHQL_DEPTH_LIMIT_EXCEEDED",
+        "depth": 9,
+        "max_depth": 7,
+        "operation": "DeepQuery"
+      }
+    }
+  ],
+  "data": null
+}
+```
+
+#### Complexity Ceiling Exceeded
+```json
+{
+  "errors": [
+    {
+      "message": "Query complexity limit of 100 exceeded: calculated complexity is 145",
+      "extensions": {
+        "code": "GRAPHQL_COMPLEXITY_LIMIT_EXCEEDED",
+        "complexity": 145,
+        "max_complexity": 100,
+        "operation": "HeavyBatch"
+      }
+    }
+  ],
+  "data": null
+}
+```
+
+### Opt-In Metrics for Rejected Expensive Queries
+
+When `enable_metrics` is set to `true`, the GraphQL layer tracks telemetry for rejected expensive queries without performance overhead:
+
+- Total queries analyzed & rejected
+- Breakdown by rejection reason (`depth_limit_exceeded`, `complexity_limit_exceeded`)
+- Cumulative rejected complexity points
+- Rejection rate percentage
+- Ring buffer of recent rejection events with timestamp, operation name, depth/cost, and query snippet
+
+Metrics can be queried at `/graphql/metrics` or retrieved programmatically via `QueryCostMetrics::snapshot()`.
+
+### Configuration Example
+
+```rust
+use starforge::graphql::cost_analysis::CostAnalysisConfig;
+
+let config = CostAnalysisConfig::default_safe()
+    .with_max_depth(5)
+    .with_max_complexity(80)
+    .with_field_cost("transactions", 15)
+    .with_metrics(true);
+```
+
 ## Performance
 
 | Operation              | Time   |

@@ -1,0 +1,3 @@
+# Golden CLI case: starforge ai-route --help
+description = "starforge ai-route --help"
+args = ["ai-route", "--help"]

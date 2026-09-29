@@ -162,6 +162,9 @@ Cargo.toml.local
 local-dev/
 sandbox/
 playground/
+/proposal_*.json
+/.issue-*
+/.kiro/
 
 # Security and secrets
 *.pem

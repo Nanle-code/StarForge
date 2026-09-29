@@ -1,0 +1,3 @@
+# Golden CLI case: starforge verify --help
+description = "starforge verify --help"
+args = ["verify", "--help"]

@@ -1,0 +1,3 @@
+# Golden CLI case: unknown command: plugin fallback error
+description = "unknown command: plugin fallback error"
+args = ["definitely-not-a-command-xyz"]

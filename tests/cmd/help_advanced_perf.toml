@@ -1,0 +1,3 @@
+# Golden CLI case: starforge advanced-perf --help
+description = "starforge advanced-perf --help"
+args = ["advanced-perf", "--help"]

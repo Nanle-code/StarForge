@@ -921,7 +921,6 @@ mod tests {
         let orig_userprofile = std::env::var("USERPROFILE").ok();
 
         let tmp = tempfile::tempdir().unwrap();
-        std::env::set_var("HOME", tmp.path());
         std::env::set_var("USERPROFILE", tmp.path());
         TEST_METRICS_DIR.with(|d| *d.borrow_mut() = Some(tmp.path().to_path_buf()));
 
@@ -929,7 +928,6 @@ mod tests {
 
         TEST_METRICS_DIR.with(|d| *d.borrow_mut() = None);
         if let Some(h) = orig_home {
-            std::env::set_var("HOME", h);
         } else {
             std::env::remove_var("HOME");
         }

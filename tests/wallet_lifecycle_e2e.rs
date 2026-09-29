@@ -12,6 +12,9 @@ mod wallet_lifecycle_e2e_tests {
         network: String,
         created_at: String,
         funded: bool,
+        derivation_index: Option<u32>,
+        derivation_path: Option<String>,
+        mnemonic_wallet: Option<String>,
     }
 
     #[derive(Debug, Clone)]
@@ -63,10 +66,43 @@ mod wallet_lifecycle_e2e_tests {
                 network: network.unwrap_or_else(|| self.network.clone()),
                 created_at: chrono::Utc::now().to_rfc3339(),
                 funded: false,
+                derivation_index: None,
+                derivation_path: None,
+                mnemonic_wallet: None,
             };
 
             self.wallets.push(wallet);
             Ok(())
+        }
+
+        fn derive_wallet(
+            &mut self,
+            mnemonic_wallet: String,
+            index: u32,
+            name: String,
+            public_key: String,
+            secret_key: Option<String>,
+        ) -> Result<(), String> {
+            if self.wallets.iter().any(|w| w.name == name) {
+                return Err(format!("Wallet '{}' already exists", name));
+            }
+
+            let path = format!("m/44'/148'/{}'", index);
+            let wallet = WalletEntry {
+                name,
+                public_key,
+                secret_key,
+                network: self.network.clone(),
+                created_at: chrono::Utc::now().to_rfc3339(),
+                funded: false,
+                derivation_index: Some(index),
+                derivation_path: Some(path),
+                mnemonic_wallet: Some(mnemonic_wallet),
+            };
+
+            self.wallets.push(wallet);
+            Ok(())
+        }
         }
 
         fn list_wallets(&self) -> Vec<&WalletEntry> {
@@ -667,5 +703,43 @@ mod wallet_lifecycle_e2e_tests {
             wallet.secret_key.as_ref().unwrap(),
             "SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
         );
+    }
+
+    #[test]
+    fn test_sep5_mnemonic_account_derivation() {
+        let mut config = WalletConfig::new();
+
+        // Derive deployer at index 0 and admin at index 1 from single mnemonic root
+        config
+            .derive_wallet(
+                "team-seed".to_string(),
+                0,
+                "deployer".to_string(),
+                "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_string(),
+                Some("SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".to_string()),
+            )
+            .unwrap();
+
+        config
+            .derive_wallet(
+                "team-seed".to_string(),
+                1,
+                "admin".to_string(),
+                "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB".to_string(),
+                Some("SBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB".to_string()),
+            )
+            .unwrap();
+
+        assert_eq!(config.wallets.len(), 2);
+
+        let deployer = config.get_wallet("deployer").unwrap();
+        assert_eq!(deployer.derivation_index, Some(0));
+        assert_eq!(deployer.derivation_path.as_deref(), Some("m/44'/148'/0'"));
+        assert_eq!(deployer.mnemonic_wallet.as_deref(), Some("team-seed"));
+
+        let admin = config.get_wallet("admin").unwrap();
+        assert_eq!(admin.derivation_index, Some(1));
+        assert_eq!(admin.derivation_path.as_deref(), Some("m/44'/148'/1'"));
+        assert_eq!(admin.mnemonic_wallet.as_deref(), Some("team-seed"));
     }
 }

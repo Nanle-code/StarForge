@@ -1,0 +1,3 @@
+# Golden CLI case: starforge --help-all
+description = "starforge --help-all"
+args = ["--help-all"]

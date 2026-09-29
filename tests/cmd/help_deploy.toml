@@ -1,0 +1,3 @@
+# Golden CLI case: starforge deploy --help
+description = "starforge deploy --help"
+args = ["deploy", "--help"]

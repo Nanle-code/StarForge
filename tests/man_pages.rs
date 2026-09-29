@@ -20,27 +20,33 @@ fn build_script_generates_main_man_page() {
 #[test]
 fn build_script_generates_subcommand_man_pages() {
     let man_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("man");
+    // Noun-verb page names (ADR 0007); nested verbs use their dashed path.
     for name in &[
         "wallet",
-        "deploy",
-        "network",
-        "config",
-        "template",
-        "plugin",
-        "test",
-        "gas",
-        "benchmark",
-        "tutorial",
-        "debug",
-        "inspect",
+        "wallet-auth",
         "contract",
-        "new",
-        "info",
-        "upgrade",
-        "security",
-        "perf",
-        "docs",
-        "analytics",
+        "contract-storage",
+        "contract-upgrade",
+        "contract-docs",
+        "deploy",
+        "deploy-run",
+        "deploy-history",
+        "network",
+        "network-node",
+        "network-snapshot",
+        "template",
+        "template-registry",
+        "plugin",
+        "ai",
+        "ai-local",
+        "ai-security-audit",
+        "config",
+        "config-flags",
+        "project",
+        "project-new",
+        "tool",
+        "tool-tutorial",
+        "completions",
     ] {
         let page = man_dir.join(format!("starforge-{}.1", name));
         assert!(page.exists(), "man/starforge-{}.1 must exist", name);
@@ -123,8 +129,8 @@ fn man_pages_directory_has_expected_count() {
         })
         .count();
     assert!(
-        count >= 50,
-        "expected at least 50 man pages, found {}",
+        count >= 40,
+        "expected at least 40 man pages, found {}",
         count
     );
 }

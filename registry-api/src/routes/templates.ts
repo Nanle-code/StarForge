@@ -4,7 +4,7 @@ import { TemplateStore, ITemplate } from "../models/Template";
 import { searchAnalytics } from "../models/SearchAnalytics";
 import { searchEngine, SearchOptions } from "../services/searchEngine";
 import { verifyToken, optionalAuth } from "../middleware/auth";
-import { mutationRateLimiter } from "../middleware/rateLimiter";
+import { mutationRateLimiter, searchRateLimiter } from "../middleware/rateLimiter";
 import { ownershipHistoryStore } from "../models/OwnershipHistory";
 import { userStore } from "../models/User";
 import { organizationStore } from "../models/Organization";
@@ -17,6 +17,48 @@ const router = express.Router();
 export const templateStore = new TemplateStore();
 
 const STORAGE_DIR = process.env.STORAGE_DIR || "./storage/templates";
+
+const SPDX_LICENSE_IDS = new Set([
+  "0BSD",
+  "AFL-3.0",
+  "AGPL-3.0-only",
+  "AGPL-3.0-or-later",
+  "Apache-1.1",
+  "Apache-2.0",
+  "Artistic-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSD-3-Clause-Clear",
+  "BSD-4-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "CDDL-1.0",
+  "CDDL-1.1",
+  "EPL-1.0",
+  "EPL-2.0",
+  "EUPL-1.1",
+  "EUPL-1.2",
+  "GPL-1.0-only",
+  "GPL-1.0-or-later",
+  "GPL-2.0-only",
+  "GPL-2.0-or-later",
+  "GPL-3.0-only",
+  "GPL-3.0-or-later",
+  "ISC",
+  "LGPL-2.0-only",
+  "LGPL-2.0-or-later",
+  "LGPL-2.1-only",
+  "LGPL-2.1-or-later",
+  "LGPL-3.0-only",
+  "LGPL-3.0-or-later",
+  "MIT",
+  "MPL-1.1",
+  "MPL-2.0",
+  "MS-PL",
+  "Unlicense",
+  "WTFPL",
+  "Zlib",
+]);
 
 // Ensure storage directory exists
 if (!fs.existsSync(STORAGE_DIR)) {
@@ -33,6 +75,8 @@ function serializeTemplate(tpl: ITemplate) {
     version: tpl.version,
     description: tpl.description,
     author: tpl.author,
+    authors: tpl.authors || [],
+    attribution: tpl.attribution || "",
     tags: tpl.tags,
     functionality: tpl.functionality || [],
     license: tpl.license,
@@ -73,7 +117,7 @@ function storageName(name: string): string {
 // personalization, filtering, sorting, and usage analytics. See
 // registry-api/INTELLIGENT_SEARCH.md for the full design notes.
 
-router.post("/search", optionalAuth, async (req: Request, res: Response) => {
+router.post("/search", optionalAuth, searchRateLimiter, async (req: Request, res: Response) => {
   try {
     const {
       query = "",
@@ -203,6 +247,7 @@ router.post("/search", optionalAuth, async (req: Request, res: Response) => {
 router.get(
   "/search/suggestions",
   optionalAuth,
+  searchRateLimiter,
   async (req: Request, res: Response) => {
     try {
       const q = String(req.query.q || "");
@@ -654,6 +699,8 @@ router.post("/publish", verifyToken, mutationRateLimiter, async (req: Request, r
       version,
       description,
       author,
+      authors,
+      attribution,
       tags,
       functionality,
       license,
@@ -666,6 +713,26 @@ router.post("/publish", verifyToken, mutationRateLimiter, async (req: Request, r
 
     if (!requestedName || !version || !description || !author || !content) {
       return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    if (typeof license !== "string" || !SPDX_LICENSE_IDS.has(license)) {
+      return res.status(400).json({
+        error:
+          "A valid SPDX license identifier is required (for example MIT or Apache-2.0).",
+      });
+    }
+
+    const hasAuthors =
+      (typeof authors === "string" && authors.trim().length > 0) ||
+      (Array.isArray(authors) &&
+        authors.some((value) => typeof value === "string" && value.trim().length > 0));
+    const hasAttribution =
+      typeof attribution === "string" && attribution.trim().length > 0;
+    if (!hasAuthors && !hasAttribution) {
+      return res.status(400).json({
+        error:
+          "Attribution metadata is required; provide a non-empty authors list or attribution string.",
+      });
     }
 
     if (!req.userId) {
@@ -713,6 +780,12 @@ router.post("/publish", verifyToken, mutationRateLimiter, async (req: Request, r
       version,
       description,
       author,
+      authors: Array.isArray(authors)
+        ? authors.filter((value: unknown): value is string => typeof value === "string" && value.trim().length > 0)
+        : typeof authors === "string" && authors.trim()
+          ? [authors.trim()]
+          : [],
+      attribution,
       tags: tags || [],
       functionality: functionality || [],
       license,

@@ -228,6 +228,32 @@ jobs:
    starforge template fetch my-template --version 1.0.0
    ```
 
+### Upgrade a scaffolded project
+
+Each `starforge template-vcs commit` release writes the template name and
+version to the template root's `.starforge-template.json`. Keep this file in
+the template so newly scaffolded projects retain their source version. For
+example, a project created from template version `1.2.0` can request guidance
+for version `4.0.0`:
+
+```bash
+starforge template-vcs upgrade ./my-contract --to 4.0.0 --patch-hints
+```
+
+The command reports the `1.x -> 2.x`, `2.x -> 3.x`, and `3.x -> 4.x`
+transitions, then prints a checklist and optional manual patch suggestions. It
+does not overwrite or edit project files; review and apply changes yourself.
+Older projects without `.starforge-template.json` are reported as unknown
+instead of guessing from the application's own package version. Add the marker
+to those projects when you know their source template version:
+
+```json
+{
+  "template": "contract",
+  "version": "1.2.0"
+}
+```
+
 ## Troubleshooting
 
 ### SDK Version Not Detected

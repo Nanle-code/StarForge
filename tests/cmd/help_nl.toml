@@ -1,0 +1,3 @@
+# Golden CLI case: starforge nl --help
+description = "starforge nl --help"
+args = ["nl", "--help"]

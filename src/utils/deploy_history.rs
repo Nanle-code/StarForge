@@ -40,6 +40,23 @@ pub struct DeployRecord {
     pub verification_passed: bool,
     pub duration_ms: Option<u64>,
     pub fee_stroops: Option<u64>,
+    /// Operator-supplied reason for this deployment (`deploy --note "..."`).
+    /// Optional both in code and on disk: history files written before
+    /// annotations existed deserialize with `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    /// Change-log snippet attached to this deployment (`deploy --changelog "..."`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changelog: Option<String>,
+}
+
+/// The human-readable annotation attached to a deployment record, returned by
+/// [`annotation`] / [`annotations`].
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DeploymentAnnotation {
+    pub deployment_id: String,
+    pub note: Option<String>,
+    pub changelog: Option<String>,
 }
 
 impl DeployRecord {
@@ -65,7 +82,19 @@ impl DeployRecord {
             verification_passed: false,
             duration_ms: None,
             fee_stroops: None,
+            note: None,
+            changelog: None,
         }
+    }
+
+    /// Attach a human-readable annotation to this record.
+    ///
+    /// Both fields are optional; passing `None` for one leaves it unset. This
+    /// is how `deploy --note/--changelog` records *why* a deployment happened.
+    pub fn with_annotation(mut self, note: Option<String>, changelog: Option<String>) -> Self {
+        self.note = note;
+        self.changelog = changelog;
+        self
     }
 
     /// Build a new record that reverts the active deployment back to `target`.
@@ -90,8 +119,50 @@ impl DeployRecord {
             verification_passed: target.verification_passed,
             duration_ms: None,
             fee_stroops: None,
+            note: None,
+            changelog: None,
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Deployment annotations (#750)
+// ---------------------------------------------------------------------------
+//
+// A deployment record already says *what* was deployed and *when*. These
+// helpers surface the *why*: the `--note`/`--changelog` captured at deploy
+// time and persisted with the record itself (same store, same lifecycle).
+
+/// The annotation attached to a deployment, or `None` when the record does not
+/// exist or carries neither a note nor a changelog. `id` may be a prefix,
+/// mirroring [`get_record`].
+pub fn annotation(id: &str) -> Result<Option<DeploymentAnnotation>> {
+    let Some(record) = get_record(id)? else {
+        return Ok(None);
+    };
+    if record.note.is_none() && record.changelog.is_none() {
+        return Ok(None);
+    }
+    Ok(Some(DeploymentAnnotation {
+        deployment_id: record.id,
+        note: record.note,
+        changelog: record.changelog,
+    }))
+}
+
+/// Every annotated deployment in history, oldest first. Records without any
+/// annotation are skipped, so callers get the audit trail of *why*
+/// deployments happened without filtering noise.
+pub fn annotations() -> Result<Vec<DeploymentAnnotation>> {
+    Ok(load_history()?
+        .into_iter()
+        .filter(|record| record.note.is_some() || record.changelog.is_some())
+        .map(|record| DeploymentAnnotation {
+            deployment_id: record.id,
+            note: record.note,
+            changelog: record.changelog,
+        })
+        .collect())
 }
 
 fn history_path() -> PathBuf {
@@ -445,5 +516,158 @@ mod tests {
         assert!(reason.contains("wasm_hash mismatch"));
         assert!(reason.contains("contract_id mismatch"));
         assert!(reason.contains("status is pending"));
+    }
+
+    // -----------------------------------------------------------------------
+    // Annotation persistence and retrieval (#750)
+    // -----------------------------------------------------------------------
+
+    /// Redirect `HOME` to an empty temp dir so the history store under
+    /// `<home>/.starforge/` is isolated. Mirrors the `lock_home_env` pattern
+    /// used elsewhere (`contract_test_runner.rs`).
+    fn isolated_home() -> (tempfile::TempDir, std::sync::MutexGuard<'static, ()>) {
+        let guard = crate::utils::lock_home_env();
+        let home = tempfile::TempDir::new().expect("temp home");
+        std::env::set_var("HOME", home.path());
+        (home, guard)
+    }
+
+    #[test]
+    fn annotation_round_trips_through_the_history_store() {
+        let (_home, _guard) = isolated_home();
+
+        let record = DeployRecord::new("v2.wasm", "hash-v2", "testnet", "alice", None)
+            .with_annotation(
+                Some("Release 1.2.0: payout cap fix".to_string()),
+                Some("- payouts: cap weekly withdrawal at 10k".to_string()),
+            );
+        let id = record_deployment(record).expect("record deployment");
+
+        let stored = get_record(&id)
+            .expect("load history")
+            .expect("record persisted");
+        assert_eq!(stored.note.as_deref(), Some("Release 1.2.0: payout cap fix"));
+        assert_eq!(
+            stored.changelog.as_deref(),
+            Some("- payouts: cap weekly withdrawal at 10k")
+        );
+    }
+
+    #[test]
+    fn annotation_survives_a_full_save_and_reload_cycle() {
+        let (_home, _guard) = isolated_home();
+
+        let record = DeployRecord::new("v3.wasm", "hash-v3", "mainnet", "bob", None)
+            .with_annotation(Some("Audit-required prod rollout".to_string()), None);
+        let id = record_deployment(record).expect("record deployment");
+
+        // Reload from disk (a fresh `load_history` call re-reads the JSON
+        // file) and confirm the annotation is what comes back.
+        let reloaded = load_history().expect("reload history");
+        let stored = reloaded.iter().find(|r| r.id == id).expect("record");
+        assert_eq!(
+            stored.note.as_deref(),
+            Some("Audit-required prod rollout")
+        );
+        assert!(stored.changelog.is_none());
+    }
+
+    #[test]
+    fn annotation_finds_records_by_id_prefix() {
+        let (_home, _guard) = isolated_home();
+
+        let record = DeployRecord::new("v4.wasm", "hash-v4", "testnet", "carol", None)
+            .with_annotation(Some("Fix rounding in fee calc".to_string()), None);
+        let id = record_deployment(record).expect("record deployment");
+
+        let found = annotation(&id[..8]).expect("annotation lookup").expect("found");
+        assert_eq!(found.deployment_id, id);
+        assert_eq!(found.note.as_deref(), Some("Fix rounding in fee calc"));
+        assert!(found.changelog.is_none());
+    }
+
+    #[test]
+    fn annotation_is_none_for_unannotated_records() {
+        let (_home, _guard) = isolated_home();
+
+        let id = record_deployment(DeployRecord::new(
+            "v5.wasm", "hash-v5", "testnet", "dave", None,
+        ))
+        .expect("record deployment");
+
+        assert!(annotation(&id).expect("annotation lookup").is_none());
+    }
+
+    #[test]
+    fn annotation_is_none_for_unknown_ids() {
+        let (_home, _guard) = isolated_home();
+
+        assert!(
+            annotation("does-not-exist")
+                .expect("annotation lookup")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn annotations_lists_only_annotated_deployments() {
+        let (_home, _guard) = isolated_home();
+
+        record_deployment(DeployRecord::new(
+            "plain.wasm",
+            "hash-plain",
+            "testnet",
+            "erin",
+            None,
+        ))
+        .expect("plain record");
+        let annotated_id = record_deployment(
+            DeployRecord::new("v6.wasm", "hash-v6", "testnet", "frank", None)
+                .with_annotation(None, Some("chore: bump soroban-env-host".to_string())),
+        )
+        .expect("annotated record");
+
+        let listed = annotations().expect("annotations list");
+        assert_eq!(listed.len(), 1, "only the annotated record is listed");
+        assert_eq!(listed[0].deployment_id, annotated_id);
+        assert_eq!(
+            listed[0].changelog.as_deref(),
+            Some("chore: bump soroban-env-host")
+        );
+        assert!(listed[0].note.is_none());
+    }
+
+    #[test]
+    fn annotations_deserialize_from_history_written_before_annotations_existed() {
+        let (_home, _guard) = isolated_home();
+
+        // A history file from before annotations existed: no `note`/
+        // `changelog` keys at all. `serde(default)` must tolerate it.
+        let legacy = "[{\"id\":\"legacy-1\",\"contract_id\":null,\"wasm_path\":\"old.wasm\",\"wasm_hash\":\"h\",\"network\":\"testnet\",\"wallet\":\"gina\",\"timestamp\":\"2024-01-01T00:00:00Z\",\"status\":\"success\",\"error\":null,\"previous_id\":null,\"approved_by\":null,\"verification_passed\":false,\"duration_ms\":null,\"fee_stroops\":null}]";
+        let path = crate::utils::config::config_dir().join("deploy_history.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, legacy).unwrap();
+
+        let history = load_history().expect("legacy history loads");
+        assert_eq!(history.len(), 1);
+        assert!(history[0].note.is_none());
+        assert!(history[0].changelog.is_none());
+        assert!(annotation("legacy-1").expect("lookup").is_none());
+    }
+
+    #[test]
+    fn annotated_record_serializes_note_fields_into_json() {
+        // JSON output must include structured note fields when present, and
+        // omit them (rather than emitting nulls) when absent.
+        let annotated = DeployRecord::new("v7.wasm", "h7", "testnet", "hal", None)
+            .with_annotation(Some("why".to_string()), Some("what".to_string()));
+        let json = serde_json::to_string(&annotated).unwrap();
+        assert!(json.contains("\"note\":\"why\""), "json: {json}");
+        assert!(json.contains("\"changelog\":\"what\""), "json: {json}");
+
+        let plain = DeployRecord::new("v8.wasm", "h8", "testnet", "iris", None);
+        let json = serde_json::to_string(&plain).unwrap();
+        assert!(!json.contains("\"note\""), "json: {json}");
+        assert!(!json.contains("\"changelog\""), "json: {json}");
     }
 }

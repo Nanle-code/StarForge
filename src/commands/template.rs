@@ -1,7 +1,10 @@
 use crate::utils::template_integration;
 use crate::utils::template_performance;
 use crate::utils::template_provenance;
-use crate::utils::{output, print as p, template_customization_ai, templates};
+use crate::utils::{
+    dry_run::{self, DryRunPlan, PlannedOperation},
+    output, print as p, template_customization_ai, templates,
+};
 use anyhow::{Context, Result};
 use clap::Subcommand;
 use colored::Colorize;
@@ -247,9 +250,41 @@ pub enum TemplateCommands {
         /// Optional index to rollback to (0 is oldest, omit for previous)
         index: Option<usize>,
     },
+    /// Manage the local offline template cache
+    Cache {
+        #[command(subcommand)]
+        command: TemplateCacheCommands,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum TemplateCacheCommands {
+    /// List cached templates and their integrity status
+    List {
+        /// Emit machine-readable JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Clear templates from the local cache
+    Clear {
+        /// Specific template name to clear
+        #[arg(long)]
+        name: Option<String>,
+        /// Clear all cached templates
+        #[arg(long, conflicts_with = "name")]
+        all: bool,
+        /// Force removal without prompting
+        #[arg(long, short)]
+        force: bool,
+    },
 }
 
 pub async fn handle(cmd: TemplateCommands) -> Result<()> {
+    if dry_run::is_enabled() {
+        if let Some(plan) = dry_run_plan(&cmd) {
+            return plan.emit(output::is_json_mode_enabled());
+        }
+    }
     match cmd {
         TemplateCommands::Install {
             path,
@@ -366,7 +401,212 @@ pub async fn handle(cmd: TemplateCommands) -> Result<()> {
         TemplateCommands::CustomizeRollback { path, index } => {
             template_customize_rollback(path, index).await
         }
+        TemplateCommands::Cache { command } => handle_cache(command).await,
     }
+}
+
+async fn handle_cache(cmd: TemplateCacheCommands) -> Result<()> {
+    match cmd {
+        TemplateCacheCommands::List { json } => cache_list(json),
+        TemplateCacheCommands::Clear { name, all, force } => cache_clear(name, all, force),
+    }
+}
+
+/// Build the plan shown by `--dry-run` for a mutating `template` subcommand.
+///
+/// Searching, listing, showing, linting, info, testing, validating, auditing,
+/// and printing docs to stdout are read-only and return `None`.
+fn dry_run_plan(cmd: &TemplateCommands) -> Option<DryRunPlan> {
+    match cmd {
+        TemplateCommands::Install { path, name, sign, .. } => {
+            let target = name
+                .clone()
+                .unwrap_or_else(|| path.display().to_string());
+            Some(
+                DryRunPlan::new("template install", format!("Install template '{target}'"))
+                    .operation(
+                        PlannedOperation::new(
+                            "template.write",
+                            target.clone(),
+                            format!("would install template '{target}' into the local registry"),
+                        )
+                        .detail("Package", path.display().to_string())
+                        .detail("Sign with Sigstore", dry_run::yes_no(*sign)),
+                    )
+                    .writes_filesystem(),
+            )
+        }
+        TemplateCommands::Publish { path, name, sign, .. } => {
+            let target = name
+                .clone()
+                .unwrap_or_else(|| path.display().to_string());
+            Some(
+                DryRunPlan::new("template publish", format!("Publish template '{target}'"))
+                    .operation(
+                        PlannedOperation::new(
+                            "template.publish",
+                            target.clone(),
+                            format!("would publish template '{target}' to the local marketplace"),
+                        )
+                        .detail("Source", path.display().to_string())
+                        .detail("Sign with Sigstore", dry_run::yes_no(*sign)),
+                    )
+                    .writes_filesystem(),
+            )
+        }
+        TemplateCommands::Remove { name, purge } => Some(
+            DryRunPlan::new("template remove", format!("Remove template '{name}'"))
+                .operation(
+                    PlannedOperation::new(
+                        "template.remove",
+                        name.clone(),
+                        format!("would remove template '{name}' from the local marketplace"),
+                    )
+                    .detail("Purge cached files", dry_run::yes_no(*purge)),
+                )
+                .writes_filesystem(),
+        ),
+        TemplateCommands::New { name, output } => Some(
+            DryRunPlan::new(
+                "template new",
+                format!("Scaffold template authoring kit '{name}'"),
+            )
+            .operation(PlannedOperation::new(
+                "file.write",
+                output.display().to_string(),
+                format!("would scaffold a template authoring kit for '{name}'"),
+            ))
+            .writes_filesystem(),
+        ),
+        TemplateCommands::Fetch {
+            source,
+            name,
+            version,
+            force,
+            require_signed,
+        } => {
+            let mut operation = PlannedOperation::new(
+                "template.install",
+                name.clone().unwrap_or_else(|| source.clone()),
+                format!("would fetch and install a template from '{source}'"),
+            )
+            .detail("Overwrite existing", dry_run::yes_no(*force))
+            .detail("Require signature", dry_run::yes_no(*require_signed));
+            if let Some(version) = version {
+                operation = operation.detail("Version", version.clone());
+            }
+            Some(
+                DryRunPlan::new("template fetch", format!("Fetch template from '{source}'"))
+                    .operation(operation)
+                    .writes_filesystem(),
+            )
+        }
+        TemplateCommands::Update { name, all } => {
+            let target = if *all {
+                "all installed templates".to_string()
+            } else {
+                name.clone().unwrap_or_else(|| "installed templates".to_string())
+            };
+            Some(
+                DryRunPlan::new("template update", format!("Update {target}"))
+                    .operation(PlannedOperation::new(
+                        "template.update",
+                        target.clone(),
+                        format!("would update {target} to the latest available version"),
+                    ))
+                    .writes_filesystem(),
+            )
+        }
+        TemplateCommands::Rollback { name } => Some(
+            DryRunPlan::new(
+                "template rollback",
+                format!("Roll back template '{name}' to its previous state"),
+            )
+            .operation(
+                PlannedOperation::new(
+                    "template.rollback",
+                    name.clone(),
+                    format!("would restore the previously tracked state of '{name}'"),
+                )
+                .detail("Restore point", "last tracked update"),
+            )
+            .writes_filesystem(),
+        ),
+        TemplateCommands::Customize { path, requirements } => Some(
+            DryRunPlan::new(
+                "template customize",
+                format!("Customize template at {} using AI", path.display()),
+            )
+            .operation(PlannedOperation::new(
+                "template.write",
+                path.display().to_string(),
+                "would apply AI customization to the template",
+            ))
+            .warn(format!(
+                "Requirements preview: {}",
+                truncate_for_plan(requirements)
+            ))
+            .writes_filesystem(),
+        ),
+        TemplateCommands::CustomizeRollback { path, index } => Some(
+            DryRunPlan::new(
+                "template customize-rollback",
+                format!("Roll back customization for {}", path.display()),
+            )
+            .operation(
+                PlannedOperation::new(
+                    "template.rollback",
+                    path.display().to_string(),
+                    "would restore a previous customization state",
+                )
+                .detail(
+                    "Target index",
+                    index
+                        .as_ref()
+                        .map(|i| i.to_string())
+                        .unwrap_or_else(|| "previous".to_string()),
+                ),
+            )
+            .writes_filesystem(),
+        ),
+        TemplateCommands::Docs {
+            name,
+            output: Some(output),
+        } => Some(
+            DryRunPlan::new(
+                "template docs",
+                format!("Generate documentation for '{name}'"),
+            )
+            .operation(PlannedOperation::new(
+                "file.write",
+                output.display().to_string(),
+                format!("would write generated docs for '{name}'"),
+            ))
+            .writes_filesystem(),
+        ),
+        TemplateCommands::Search { .. }
+        | TemplateCommands::List { .. }
+        | TemplateCommands::Show { .. }
+        | TemplateCommands::Lint { .. }
+        | TemplateCommands::Info { .. }
+        | TemplateCommands::Test { .. }
+        | TemplateCommands::Validate { .. }
+        | TemplateCommands::Audit { .. }
+        | TemplateCommands::CustomizeHistory { .. }
+        | TemplateCommands::Docs { output: None, .. } => None,
+    }
+}
+
+/// Shorten a free-form string so it renders as a single readable plan warning.
+fn truncate_for_plan(value: &str) -> String {
+    const LIMIT: usize = 80;
+    let trimmed = value.trim();
+    if trimmed.chars().count() <= LIMIT {
+        return trimmed.to_string();
+    }
+    let mut shortened: String = trimmed.chars().take(LIMIT).collect();
+    shortened.push('…');
+    shortened
 }
 
 // Not currently called from any code path in this crate. Kept rather than
@@ -681,9 +921,9 @@ async fn list(json: bool, limit: Option<usize>, cursor: Option<String>) -> Resul
     for (i, template) in shown.iter().enumerate() {
         let compat_badge = match check_template_compatibility(template) {
             CompatibilityStatus::Compatible => "[COMPATIBLE]",
-            CompatibilityStatus::TooOld { .. } | CompatibilityStatus::TooNew { .. } => {
-                "[INCOMPATIBLE]"
-            }
+            CompatibilityStatus::TooOld { .. }
+            | CompatibilityStatus::TooNew { .. }
+            | CompatibilityStatus::SorobanSdkIncompatible { .. } => "[INCOMPATIBLE]",
             CompatibilityStatus::MalformedMetadata { .. } => "[BAD-META]",
         };
         let mut badges = template.trust_indicators();
@@ -806,9 +1046,9 @@ async fn search(
         let template = &result.entry;
         let compat_badge = match check_template_compatibility(template) {
             CompatibilityStatus::Compatible => "[COMPATIBLE]",
-            CompatibilityStatus::TooOld { .. } | CompatibilityStatus::TooNew { .. } => {
-                "[INCOMPATIBLE]"
-            }
+            CompatibilityStatus::TooOld { .. }
+            | CompatibilityStatus::TooNew { .. }
+            | CompatibilityStatus::SorobanSdkIncompatible { .. } => "[INCOMPATIBLE]",
             CompatibilityStatus::MalformedMetadata { .. } => "[BAD-META]",
         };
         let mut badges = template.trust_indicators();
@@ -903,6 +1143,22 @@ async fn show(name: String) -> Result<()> {
         CompatibilityStatus::MalformedMetadata { reason } => {
             p::warn(&format!("Malformed version metadata: {}", reason));
         }
+        CompatibilityStatus::SorobanSdkIncompatible {
+            sdk_min,
+            sdk_max,
+            found_version,
+        } => {
+            let range = match (sdk_min, sdk_max) {
+                (Some(min), Some(max)) => format!(">= {} and <= {}", min, max),
+                (Some(min), None) => format!(">= {}", min),
+                (None, Some(max)) => format!("<= {}", max),
+                (None, None) => "compatible".to_string(),
+            };
+            p::warn(&format!(
+                "Incompatible: requires Soroban SDK {} (running {})",
+                range, found_version
+            ));
+        }
     }
     print_quality_signals(&template);
     Ok(())
@@ -962,21 +1218,18 @@ fn template_lint(path: PathBuf) -> Result<()> {
     }
 
     let metadata = std::fs::read_to_string(&metadata_path)?;
-    let value = crate::utils::template_schema::parse_json(&metadata)
+    let origin_str = metadata_path.display().to_string();
+    let value = crate::utils::template_schema::parse_json(&metadata, &origin_str)
         .map_err(|e| anyhow::anyhow!("Invalid template.json: {}", e))?;
-    crate::utils::template_schema::validate_template_entry(&value, &metadata_path.display().to_string())
+    crate::utils::template_schema::validate_template_entry(&value, &origin_str)
+        .into_result()
         .map_err(|e| anyhow::anyhow!("Schema validation failed: {}", e))?;
 
     p::success("Schema checks passed");
 
-    let license = value
-        .get("license")
-        .and_then(|v| v.as_str())
-        .filter(|v| !v.trim().is_empty());
-    if license.is_none() {
-        anyhow::bail!("License check failed: template.json must contain a non-empty license");
-    }
-    p::success(&format!("License check passed ({})", license.unwrap()));
+    let license = templates::validate_template_publish_requirements(&path, None)
+        .map_err(|err| anyhow::anyhow!("License and attribution check failed: {}", err))?;
+    p::success(&format!("License and attribution checks passed ({})", license));
 
     let security_path = {
         let src = path.join("src");
@@ -1034,6 +1287,8 @@ fn template_new(name: String, output: PathBuf) -> Result<()> {
   "version": "1.0.0",
   "description": "One-line description of what the contract does",
   "author": "Your Name",
+    "authors": ["Your Name"],
+    "attribution": "Copyright (c) 2026 Your Name",
   "tags": ["standard"],
   "source": {{ "type": "builtin", "id": "{}" }},
   "verified": false,
@@ -1066,6 +1321,11 @@ fn template_new(name: String, output: PathBuf) -> Result<()> {
             "# {}\n\nDescribe your template and its public functions here.\n",
             name
         ),
+    )?;
+
+    std::fs::write(
+        template_dir.join("LICENSE"),
+        "MIT License\n\nCopyright (c) 2026 Your Name\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
     )?;
 
     std::fs::write(
@@ -1269,6 +1529,22 @@ async fn info(name: String) -> Result<()> {
         )),
         CompatibilityStatus::MalformedMetadata { reason } => {
             p::warn(&format!("Malformed version metadata: {}", reason))
+        }
+        CompatibilityStatus::SorobanSdkIncompatible {
+            sdk_min,
+            sdk_max,
+            found_version,
+        } => {
+            let range = match (sdk_min, sdk_max) {
+                (Some(min), Some(max)) => format!(">= {} and <= {}", min, max),
+                (Some(min), None) => format!(">= {}", min),
+                (None, Some(max)) => format!("<= {}", max),
+                (None, None) => "compatible".to_string(),
+            };
+            p::warn(&format!(
+                "Incompatible: requires Soroban SDK {} (running {})",
+                range, found_version
+            ))
         }
     }
 
@@ -1861,6 +2137,7 @@ mod template_authoring_tests {
 
         let dir = temp.path().join("test-template");
         assert!(dir.join("template.json").exists());
+        assert!(dir.join("LICENSE").exists());
         assert!(dir.join("README.md").exists());
         assert!(dir.join("Cargo.toml").exists());
         assert!(dir.join("src/lib.rs").exists());

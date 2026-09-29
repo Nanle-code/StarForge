@@ -18,6 +18,7 @@ Global options: `--json`, `--quiet`/`-q`, `--log-format`, `--log-dir`, `--correl
 
 | Command | Description |
 |---|---|
+| `account` | On-chain account lifecycle with sponsored reserves (CAP-33) |
 | `advanced-perf` | Advanced contract performance analysis and profiling tools |
 | `ai` | Local LLM assistant for Soroban contracts (audit, explain, test, optimise, profile) |
 | `ai-accessibility` | AI accessibility features — screen reader, voice commands, text simplification |
@@ -40,6 +41,7 @@ Global options: `--json`, `--quiet`/`-q`, `--log-format`, `--log-dir`, `--correl
 | `ai-telemetry` | AI usage telemetry and analytics: calls, tokens, latency, cost, opt-out |
 | `ai-test` | AI-driven testing assistance (generate, optimize, analyze, maintain tests) |
 | `ai-test-maintain` | AI-driven test maintenance commands |
+| `alias` | Manage per-network contract and account aliases |
 | `analytics` | Contract deployment analytics, dashboards, and reporting |
 | `approval` | Approval workflow for contract deployments (multi-level approvals, audit, compliance) |
 | `audit` | Run a comprehensive security audit on a Soroban contract |
@@ -77,24 +79,17 @@ Global options: `--json`, `--quiet`/`-q`, `--log-format`, `--log-dir`, `--correl
 | `perf` | Contract performance monitoring and metrics dashboard |
 | `pipeline` | Visual pipeline builder for contract deployment workflows |
 | `plugin` | Manage third-party plugins |
-| `privacy` | Privacy protection, anonymization, consent, and reporting |
-| `project` | AI-driven project management for task tracking, sprints, resources, risks, and timelines |
-| `prompts` | Manage AI prompt templates and versioning |
-| `registry` | Interact with the remote template registry |
-| `schedule` | Schedule deployments for future execution with approval workflows |
-| `security` | Security hardening, validation, and monitoring |
-| `sep10` | SEP-10 web authentication for Stellar anchors |
-| `shell` | Interactive REPL for local Soroban contract testing |
-| `simulate` | Local network simulation and testing environment |
-| `telemetry` | Manage telemetry settings directly |
-| `template` | Manage community contract templates from the marketplace |
-| `template-vcs` | Template version control (versioning, branching, changelog) |
-| `test` | Contract testing utilities for Soroban wasm |
-| `tutorial` | Interactive CLI tutorials |
-| `tx` | Fetch a transaction for the account |
-| `upgrade` | Contract upgrade management (propose, approve, execute, rollback) |
-| `verify` | Run formal verification on a contract |
-| `wallet` | Manage test wallets (create, list, fund, show, remove) |
+| `project` | Project scaffolding and AI-driven project management |
+| `template` | Manage community contract templates, versions, and the registry |
+| `tool` | Developer-environment utilities: tutorials, natural language, PR checks |
+| `wallet` | Manage test wallets (create, list, fund, sign), transactions, and devices |
+
+## `account` subcommands
+
+| Subcommand | Description |
+|---|---|
+| `create --sponsor <WALLET> --to <G...>` | Create an account with sponsored reserves (CAP-33, --fee-payer, --yes) |
+| `end-sponsorship --wallet <WALLET>` | Release a sponsor's reserve (--fee-payer, --yes) |
 
 ## `wallet` subcommands
 
@@ -111,7 +106,10 @@ Global options: `--json`, `--quiet`/`-q`, `--log-format`, `--log-dir`, `--correl
 | `export <NAME>` | Export backup JSON |
 | `import` | Import from file or --mnemonic |
 | `sign` | Sign a payload with a saved wallet |
-| `multisig` | Multisig helpers |
+| `multisig` | Multi-signature account management |
+| `tx` | Fetch a transaction for the account |
+| `auth` | SEP-10 web authentication against an anchor |
+| `diagnostics` | Ledger/Trezor connectivity diagnostics |
 
 ## `contract` subcommands
 
@@ -119,24 +117,47 @@ Global options: `--json`, `--quiet`/`-q`, `--log-format`, `--log-dir`, `--correl
 |---|---|
 | `invoke` | Invoke a deployed Soroban contract function |
 | `invoke-script` | Run an ordered YAML or JSON invocation script (--dry-run) |
+| `build` | Build a contract with StarForge provenance metadata |
 | `inspect` | Inspect a deployed Soroban contract instance |
 | `upload` | Upload a WASM binary to the Stellar network |
 | `generate-bindings <WASM>` | Generate typed client bindings (--lang rust\|ts\|python\|go) |
-| `call-graph` | Visualize cross-contract call graph from Soroban source |
-| `deps` | Manage contract dependencies |
-| `version` | Track contract versions, resolve conflicts, migrations |
+| `storage <state\|key\|storage>` | Deep storage inspection |
+| `debug` | Breakpoints, stepping, and inspection |
+| `repl` | Interactive REPL for local contract testing |
+| `test --wasm <FILE>` | Run contract tests (--coverage, --fixture, --report) |
+| `audit` | Run a comprehensive security audit |
+| `security` | Hardening, validation, monitoring, incidents |
+| `governance` | Upgrade proposals, voting, timelock, audit |
+| `upgrade` | Propose, approve, execute, roll back an upgrade |
+| `verify` | Run formal verification |
+| `migrate` | Storage migrations (transform, validate, rollback) |
+| `generate` | Generate contracts from natural language |
+| `explain` | Explain contract code with AI |
+| `lint` | Static analysis and linting |
+| `optimize` | WASM/source optimisation for gas and size |
+| `gas` | Gas analysis, diffs, estimates, alerts |
+| `metrics` | Performance metrics, dashboards, regression baselines |
+| `profile` | Advanced performance analysis and profiling |
+| `benchmark` | Performance benchmarks and comparisons |
+| `docs` | Contract documentation portal |
+| `mutate` | AI mutation testing |
+| `monitor` | Live contract event or wallet-threshold monitoring |
+| `health` | Contract health monitoring and alerting |
 
 ## `deploy` subcommands
 
 | Subcommand | Description |
 |---|---|
-| `deploy --wasm <FILE>` | Prepare a Soroban deployment (--simulate, --execute) |
-
-## `inspect` subcommands
-
-| Subcommand | Description |
-|---|---|
-| `inspect storage` | Deep storage inspection (state, key, storage) |
+| `run --wasm <FILE>` | Prepare a Soroban deployment (--simulate, --execute) |
+| `history` | Deployment history, rollback, verification, dashboard |
+| `env` | Manage dev/staging/production environments |
+| `schedule` | Schedule deployments with approval workflows |
+| `orchestrate` | Multi-contract deployment orchestration |
+| `pipeline` | Visual pipeline builder for deployment workflows |
+| `approval` | Multi-level deployment approvals |
+| `cost` | Budgets, forecasting, and cross-network comparison |
+| `analytics` | Deployment analytics and reporting |
+| `backup` | Backup and disaster recovery |
 
 ## `network` subcommands
 
@@ -146,22 +167,9 @@ Global options: `--json`, `--quiet`/`-q`, `--log-format`, `--log-dir`, `--correl
 | `switch <NAME>` | Switch the active network (testnet, mainnet, custom) |
 | `add` | Add a custom network endpoint |
 | `test` | Test connectivity to a network |
-
-## `sep10` subcommands
-
-| Subcommand | Description |
-|---|---|
-| `auth <--domain <HOME_DOMAIN>> <--wallet <NAME>>` | Validate, sign, and exchange a SEP-10 challenge for a session JWT |
-
-## `config` subcommands
-
-| Subcommand | Description |
-|---|---|
-| `show` | Show effective configuration (user config + project lockfile) |
-| `set <KEY> <VALUE>` | Set a configuration key/value pair |
-| `set-encryption` | Set global wallet encryption parameters (Argon2id) |
-| `doctor` | Validate configuration and check network connectivity |
-| `db` | SQLite database management |
+| `node` | Local Soroban devnet (Docker quickstart) |
+| `simulate` | Local network simulation and testing |
+| `snapshot` | Deterministic live-ledger snapshots |
 
 ## `template` subcommands
 
@@ -173,6 +181,8 @@ Global options: `--json`, `--quiet`/`-q`, `--log-format`, `--log-dir`, `--correl
 | `init <ID> <DIR>` | Scaffold from template |
 | `publish` | Publish template metadata |
 | `remove <ID>` | Remove local template entry |
+| `vcs` | Template version control (branch, changelog) |
+| `registry` | Interact with the remote template registry |
 
 ## `plugin` subcommands
 
@@ -180,128 +190,67 @@ Global options: `--json`, `--quiet`/`-q`, `--log-format`, `--log-dir`, `--correl
 |---|---|
 | `install` | Install a third-party plugin |
 | `list` | List installed plugins |
-| `run` | Run a plugin command |
+| `verify` | Verify a plugin signature |
+| `audit` | Audit a plugin |
 
-## `test` subcommands
-
-| Subcommand | Description |
-|---|---|
-| `test --wasm <FILE>` | Run Soroban contract tests (--coverage, --fixture, --report) |
-
-## `gas` subcommands
+## `ai` subcommands
 
 | Subcommand | Description |
 |---|---|
-| `analyse <WASM>` | Heuristic gas/cpu report |
-| `optimize` | Lightweight WASM shrink pass |
-| `diff <OLD> <NEW>` | Compare estimated costs |
+| `local <status\|models\|pull\|ask\|…>` | Local LLM assistant (Ollama) |
+| `debug` | Error analysis and fix suggestions |
+| `navigate` | Definitions, references, code graphs |
+| `gate` | Code quality, security, coverage, license gates |
+| `security-audit` | AI security audit of a contract |
+| `tests` | Generate, optimize, and analyze tests |
+| `test-maintain` | Keep the test suite healthy |
+| `deploy-test` | AI-driven deployment testing |
+| `property-test` | Discover properties, validate invariants |
+| `search` | Code search and pattern discovery |
+| `recommend` | Best practice recommendations |
+| `route` | Model selection and routing |
+| `plan` | Requirements, architecture, timeline, risks |
+| `suggest` | Context-aware contract function suggestions |
+| `docs` | Documentation Q&A with citations |
+| `profiling` | Performance profiling |
+| `feedback` | Record feedback, track quality |
+| `telemetry` | AI usage telemetry and cost |
+| `training` | Security training lessons and progress |
+| `accessibility` | Screen reader, voice, text simplification |
+| `ide` | Editor snippets and task providers |
+| `prompts` | Prompt templates and versioning |
+| `help` | Contextual help for commands and workflows |
 
-## `optimize` subcommands
-
-| Subcommand | Description |
-|---|---|
-| `analyse <WASM>` | WASM performance issues + score |
-| `size --wasm <FILE>` | Section breakdown + size budgets (--budget, --fail-on-overage) |
-| `transform --src <FILE>` | Apply code transformation hints |
-| `bench` | Benchmark two WASM binaries |
-| `report` | Show the last optimization report |
-
-## `security` subcommands
-
-| Subcommand | Description |
-|---|---|
-| `audit <PATH>` | Run built-in Soroban analysis (--format, --ci, --track) |
-| `remediation list` | Review tracked audit and pentest remediation items |
-| `best-practices analyze [PATH]` | Score contracts against the best-practices library (--track, --fail-on) |
-
-## `governance` subcommands
-
-| Subcommand | Description |
-|---|---|
-| `propose` | Create upgrade proposal (--contract-id, --wasm, --threshold) |
-| `list` | List proposals |
-| `show` | Show proposal details and votes |
-| `vote` | Cast a vote (--for / --against) |
-| `reject` | Reject a proposal |
-| `execute` | Execute after timelock and threshold met |
-| `emergency` | Emergency upgrade (bypasses timelock) |
-| `audit` | Show governance audit trail |
-
-## `upgrade` subcommands
+## `config` subcommands
 
 | Subcommand | Description |
 |---|---|
-| `prepare` | Validate upgrade WASM |
-| `auto compat` | Compare old/new WASM ABI and storage layout |
-| `auto plan` | Generate compatibility-aware upgrade plan |
-| `propose` | Create governance proposal |
-| `list / status` | List pending proposals |
-| `approve` | Approve proposal |
-| `execute` | Execute approved upgrade |
-| `rollback` | Roll back contract version |
-| `history` | Show upgrade history |
+| `show` | Show effective configuration (user config + project lockfile) |
+| `set <KEY> <VALUE>` | Set a configuration key/value pair |
+| `set-encryption` | Set global wallet encryption parameters (Argon2id) |
+| `doctor` | Validate configuration and check network connectivity |
+| `db` | SQLite database management |
+| `info` | Show config and environment info |
+| `telemetry` | Telemetry settings and opt-out |
+| `flags` | AI feature flags, rollouts, rollback |
+| `privacy` | Anonymization, consent, and reporting |
 
-## `multisig` subcommands
-
-| Subcommand | Description |
-|---|---|
-| `wizard` | Interactive transaction proposal builder |
-| `create` | Create a proposal with threshold, signers, metadata |
-| `status <FILE>` | Show signature collection progress |
-| `verify <FILE>` | Validate signatures and threshold readiness |
-| `notify <FILE>` | Queue signature request notifications |
-| `export / import` | Share proposal JSON between signers |
-
-## `tutorial` subcommands
+## `project` subcommands
 
 | Subcommand | Description |
 |---|---|
-| `list` | List tutorials |
-| `start <SLUG>` | Begin a guided flow |
-| `next` | Mark step complete and show next milestone |
-| `status` | Show active tutorial and current step |
+| `new` | Generate Soroban project boilerplate |
+| `task` | Create, assign, track, and complete tasks |
+| `progress` | Visualize task progress |
+| `sprint` | Sprint planning and burndown |
+| `collab` | Code review, conflict resolution, knowledge base |
 
-## `simulate` subcommands
-
-| Subcommand | Description |
-|---|---|
-| `resources` | Report CPU, memory, footprint, and minimum resource fee |
-
-## `cost` subcommands
+## `tool` subcommands
 
 | Subcommand | Description |
 |---|---|
-| `resources` | Price a simulation and check against budgets (--enforce) |
-
-## `perf` subcommands
-
-| Subcommand | Description |
-|---|---|
-| `regression baseline` | Record a named performance baseline (--input, --run) |
-| `regression check` | Fail on regressions vs a baseline (--fail-pct, --format markdown) |
-| `regression history` | Show how baseline metrics evolved |
-
-## `advanced-perf` subcommands
-
-| Subcommand | Description |
-|---|---|
-| `profile <WASM>` | Profile a compiled Soroban contract artifact |
-| `analyze <CONTRACT>` | Analyze recorded runtime metrics |
-| `compare <CONTRACT>` | Compare profiles across time windows |
-| `generate-dashboard <CONTRACT>` | Show the recorded-metrics dashboard |
-
-## `docs` subcommands
-
-| Subcommand | Description |
-|---|---|
-| `generate <CONTRACT>` | Generate documentation (--source, --lang) |
-| `extract <PATH>` | Extract rustdoc comments |
-| `show / list / search` | Browse the local docs store |
-| `html / api-ref / publish` | HTML site and publishing helpers |
-
-## `sep10` subcommands
-
-| Subcommand | Description |
-|---|---|
-| `auth --domain <DOMAIN> --wallet <NAME>` | Authenticate against a SEP-10 server and print the JWT (--verbose, --toml-url) |
+| `tutorial` | Interactive, step-by-step CLI tutorials |
+| `nl <INPUT>` | Natural language command interface |
+| `pr` | Check PR readiness (CI green, no conflicts) |
+| `bug-report` | Prefilled environment bug report |
 

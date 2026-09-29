@@ -530,9 +530,7 @@ fn assertion_suite_merge() {
 
 #[test]
 fn runner_sequential_basic() {
-    let _home_guard = home_lock();
     let home = TempDir::new().unwrap();
-    std::env::set_var("HOME", home.path());
 
     let dir = TempDir::new().unwrap();
     let wasm = dir.path().join("seq.wasm");
@@ -555,9 +553,7 @@ fn runner_sequential_basic() {
 
 #[test]
 fn runner_parallel_workers() {
-    let _home_guard = home_lock();
     let home = TempDir::new().unwrap();
-    std::env::set_var("HOME", home.path());
 
     let dir = TempDir::new().unwrap();
     let wasm = dir.path().join("par.wasm");
@@ -577,9 +573,7 @@ fn runner_parallel_workers() {
 
 #[test]
 fn runner_with_source_generation_and_coverage() {
-    let _home_guard = home_lock();
     let home = TempDir::new().unwrap();
-    std::env::set_var("HOME", home.path());
 
     let mut src_file = NamedTempFile::new().unwrap();
     src_file.write_all(COUNTER_SOURCE.as_bytes()).unwrap();
@@ -694,9 +688,7 @@ fn framework_full_run_without_wasm() {
 
 #[test]
 fn framework_full_run_with_wasm() {
-    let _home_guard = home_lock();
     let home = TempDir::new().unwrap();
-    std::env::set_var("HOME", home.path());
 
     let dir = TempDir::new().unwrap();
     let wasm = dir.path().join("full.wasm");
@@ -898,7 +890,3 @@ fn fixture_teardown_hook_fires() {
 /// `std::env::set_var` affects every thread in the binary while libtest runs
 /// these tests in parallel, so without this two tests race and one reads back
 /// paths under the other's temp home.
-fn home_lock() -> std::sync::MutexGuard<'static, ()> {
-    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
-}

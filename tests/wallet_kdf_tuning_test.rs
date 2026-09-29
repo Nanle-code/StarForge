@@ -193,6 +193,10 @@ fn test_wallet_entry_kdf_metadata_extraction() {
             parallelism: Some(2),
         }),
         rotation_history: vec![],
+        derivation_index: None,
+        derivation_path: None,
+        mnemonic_wallet: None,
+        usage_policy: Default::default(),
     };
 
     let meta = entry.kdf_metadata().expect("metadata should extract");

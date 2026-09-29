@@ -155,6 +155,24 @@ See [SECURE_DEFAULTS_AUDIT.md](SECURE_DEFAULTS_AUDIT.md) for the full checklist.
 
 ---
 
+### Job: Plugin Capability Enforcement
+
+**Purpose**: Prove that plugin filesystem/network capability boundaries are enforced  
+**Trigger**: Every push and pull request
+
+```bash
+cargo test --test plugin_capability_integration --locked
+```
+
+**What it checks:**
+- A malicious sample plugin with no declared capabilities is denied `fs:read`, `fs:write` and `network`
+- Its WASM modules importing WASI filesystem/socket functions are rejected by the sandbox before running
+- A benign sample plugin is granted exactly the capabilities it declares and runs successfully
+
+See [docs/plugins/capabilities.md](docs/plugins/capabilities.md#5-testing-capability-enforcement) for the harness and fixtures.
+
+---
+
 ### Job: Build, Test & Clippy
 
 **Purpose**: Compile the project, run tests, and check for common mistakes  

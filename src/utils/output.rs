@@ -4,8 +4,12 @@ use std::env;
 
 #[derive(Serialize)]
 pub struct JsonErrorEnvelope {
-    code: String,
-    message: String,
+    pub code: String,
+    pub message: String,
+    pub cause: String,
+    pub fix: String,
+    pub docs: String,
+    pub exit_code: i32,
 }
 
 #[derive(Serialize)]
@@ -93,16 +97,28 @@ pub fn print_json<T: Serialize>(value: &T) -> Result<()> {
     Ok(())
 }
 
-pub fn print_error_json(code: &str, message: &str) -> Result<()> {
-    let envelope = JsonEnvelope::<()> {
+fn error_json_envelope(
+    code: crate::utils::errors::ErrorCode,
+    message: &str,
+) -> JsonEnvelope<()> {
+    let explanation: crate::utils::errors::ErrorExplanation = code.into();
+    JsonEnvelope::<()> {
         version: 1,
         ok: false,
         data: None,
         error: Some(JsonErrorEnvelope {
-            code: code.to_string(),
+            code: explanation.code,
             message: message.to_string(),
+            cause: explanation.cause.to_string(),
+            fix: explanation.fix.to_string(),
+            docs: explanation.docs,
+            exit_code: explanation.exit_code,
         }),
-    };
+    }
+}
+
+pub fn print_error_json(code: crate::utils::errors::ErrorCode, message: &str) -> Result<()> {
+    let envelope = error_json_envelope(code, message);
     let rendered = serde_json::to_string_pretty(&envelope)?;
     let redacted = crate::utils::redaction::redact_secrets(&rendered);
     eprintln!("{redacted}");
@@ -112,6 +128,20 @@ pub fn print_error_json(code: &str, message: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn json_error_contains_stable_code_and_remediation() {
+        let envelope = error_json_envelope(
+            crate::utils::errors::ErrorCode::DeploySubmissionFailed,
+            "transaction rejected",
+        );
+        let value = serde_json::to_value(envelope).unwrap();
+        assert_eq!(value["error"]["code"], "SF1203");
+        assert!(value["error"]["cause"].is_string());
+        assert!(value["error"]["fix"].is_string());
+        assert!(value["error"]["docs"].as_str().unwrap().contains("ERRORS.md#sf1203"));
+        assert_eq!(value["error"]["exit_code"], 6);
+    }
 
     /// Every test in this module mutates process-wide env vars
     /// (`STARFORGE_OUTPUT_JSON`, `STARFORGE_PLAIN`, `STARFORGE_NO_COLOR`,

@@ -34,25 +34,17 @@ fn cheat_sheet_covers_top_level_commands() {
     let contents = cheat_sheet();
     for cmd in [
         "wallet",
+        "account",
         "contract",
         "deploy",
         "network",
-        "config",
         "template",
         "plugin",
-        "test",
-        "gas",
-        "security",
-        "governance",
-        "upgrade",
-        "multisig",
-        "tutorial",
-        "docs",
-        "benchmark",
-        "simulate",
-        "cost",
-        "info",
-        "new",
+        "ai",
+        "config",
+        "project",
+        "tool",
+        "completions",
     ] {
         assert!(
             contents.contains(&format!("| `{}` |", cmd)),
@@ -67,14 +59,20 @@ fn cheat_sheet_covers_major_subcommands() {
     let contents = cheat_sheet();
     for (group, sub) in [
         ("wallet", "create"),
+        ("wallet", "auth"),
         ("contract", "generate-bindings"),
+        ("contract", "storage"),
+        ("deploy", "run --wasm"),
         ("network", "switch"),
-        ("config", "set"),
+        ("network", "node"),
         ("template", "init"),
-        ("governance", "propose"),
-        ("multisig", "wizard"),
-        ("tutorial", "start"),
-        ("docs", "generate"),
+        ("template", "registry"),
+        ("ai", "local"),
+        ("ai", "security-audit"),
+        ("config", "set"),
+        ("config", "flags"),
+        ("project", "collab"),
+        ("tool", "tutorial"),
     ] {
         assert!(
             contents.contains(&format!("## `{}` subcommands", group)),
@@ -93,19 +91,38 @@ fn cheat_sheet_covers_major_subcommands() {
 #[test]
 fn cheat_sheet_excludes_internal_and_hidden_commands() {
     let contents = cheat_sheet();
-    for internal in [
-        "`external`",
-        "`autocomplete`",
-        "`man`",
-        "`feature-flags`",
-        "`help`",
-    ] {
+    // `help` and `feature-flags` are no longer top-level commands, so they are
+    // not in this list any more: `ai help` and `config flags` are ordinary verbs.
+    for internal in ["`external`", "`autocomplete`", "`man`"] {
         assert!(
             !contents.contains(internal),
             "cheat sheet must exclude the internal command {}",
             internal
         );
     }
+}
+
+/// Issue #936: `--help` must not become a wall of 80+ top-level commands again.
+#[test]
+fn cheat_sheet_stays_within_the_top_level_budget() {
+    let contents = cheat_sheet();
+    let top_level = contents
+        .lines()
+        .skip_while(|line| !line.starts_with("## Top-level commands"))
+        .skip(1)
+        .take_while(|line| !line.starts_with("## "))
+        .filter(|line| line.starts_with("| `"))
+        .count();
+    assert!(
+        top_level <= 20,
+        "expected at most 20 top-level commands in the cheat sheet, found {}",
+        top_level
+    );
+    assert!(
+        top_level >= 10,
+        "expected the cheat sheet to still list the top-level commands, found {}",
+        top_level
+    );
 }
 
 #[test]

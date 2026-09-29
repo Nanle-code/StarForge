@@ -773,9 +773,7 @@ mod tests {
     }
 
     fn with_home<T>(f: impl FnOnce() -> T) -> T {
-        let _guard = crate::utils::lock_home_env();
         let home = tempfile::tempdir().expect("temp home");
-        std::env::set_var("HOME", home.path());
         std::env::set_var("USERPROFILE", home.path());
         f()
     }

@@ -151,6 +151,7 @@ pub struct OperationSummary {
     pub items: Vec<(String, String)>,
     pub network: String,
     pub risk_level: RiskLevel,
+    pub auth_trees: Vec<crate::utils::soroban::AuthNode>,
 }
 
 impl OperationSummary {
@@ -160,11 +161,17 @@ impl OperationSummary {
             items: Vec::new(),
             network,
             risk_level,
+            auth_trees: Vec::new(),
         }
     }
 
     pub fn add(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.items.push((key.into(), value.into()));
+        self
+    }
+
+    pub fn with_auth_trees(mut self, auth_trees: Vec<crate::utils::soroban::AuthNode>) -> Self {
+        self.auth_trees = auth_trees;
         self
     }
 
@@ -183,7 +190,54 @@ impl OperationSummary {
             p::kv(key, value);
         }
 
+        if !self.auth_trees.is_empty() {
+            println!();
+            p::info("Authorization Trees:");
+            for (i, tree) in self.auth_trees.iter().enumerate() {
+                println!("  [{}]", i);
+                Self::print_auth_node(tree, 2);
+            }
+        }
+
         p::separator();
+    }
+
+    fn print_auth_node(node: &crate::utils::soroban::AuthNode, indent: usize) {
+        let pad = " ".repeat(indent * 2);
+        
+        let function_name = if node.function == "transfer" || node.function == "approve" {
+            node.function.cyan().bold().to_string()
+        } else {
+            node.function.clone()
+        };
+
+        // Try to get alias for contract ID if known
+        let alias_or_id = crate::utils::config::load().ok()
+            .and_then(|cfg| {
+                cfg.contracts.iter().find_map(|(alias, id)| {
+                    if id == &node.contract_id {
+                        Some(format!("{} ({})", alias.bright_green(), id.dimmed()))
+                    } else {
+                        None
+                    }
+                })
+            })
+            .unwrap_or_else(|| {
+                format!("{} {}", "Unknown Contract".red(), node.contract_id.dimmed())
+            });
+
+        println!("{}Invocation: {}::{}", pad, alias_or_id, function_name);
+        if !node.args.is_empty() {
+            for (i, arg) in node.args.iter().enumerate() {
+                println!("{}  Arg [{}]: {}", pad, i, arg);
+            }
+        }
+        
+        if !node.sub_invocations.is_empty() {
+            for sub in &node.sub_invocations {
+                Self::print_auth_node(sub, indent + 1);
+            }
+        }
     }
 }
 

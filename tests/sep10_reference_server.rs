@@ -39,7 +39,7 @@ fn isolated_home() -> tempfile::TempDir {
 fn starforge(home: &std::path::Path) -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_starforge"));
     cmd.arg("-q");
-    cmd.env("HOME", home);
+    cmd.env("STARFORGE_HOME", home);
     cmd.env("USERPROFILE", home);
     cmd.env("STARFORGE_CONFIG_DIR", home.join(".starforge"));
     cmd

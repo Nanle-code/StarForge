@@ -7,6 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::utils::config;
+use crate::utils::progress::ProgressReporter;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DeployManifest {
@@ -337,6 +338,7 @@ pub fn execute_plan(state: &mut DeploymentState, dry_run: bool) -> Result<()> {
     state.updated_at = Utc::now().to_rfc3339();
     save_state(state)?;
 
+    let reporter = ProgressReporter::new(state.steps.len());
     for i in 0..state.steps.len() {
         if state.steps[i].status == DeployStepStatus::Deployed {
             crate::utils::print::info(&format!(
@@ -350,6 +352,7 @@ pub fn execute_plan(state: &mut DeploymentState, dry_run: bool) -> Result<()> {
             continue;
         }
 
+        reporter.started(i + 1, state.steps[i].contract_id.clone());
         state.steps[i].status = DeployStepStatus::Running;
         save_state(state)?;
 
@@ -359,6 +362,11 @@ pub fn execute_plan(state: &mut DeploymentState, dry_run: bool) -> Result<()> {
         state.steps[i].status = DeployStepStatus::Deployed;
         state.updated_at = Utc::now().to_rfc3339();
         save_state(state)?;
+        reporter.completed(
+            i + 1,
+            state.steps[i].contract_id.clone(),
+            if dry_run { "simulated" } else { "deployed" },
+        );
     }
 
     state.status = if dry_run {
@@ -423,6 +431,7 @@ pub fn execute_plan_parallel(
     let workers = concurrency.clamp(1, state.steps.len().max(1));
 
     let started = std::time::Instant::now();
+    let reporter = ProgressReporter::new(state.steps.len());
     let mut deployed_count = 0usize;
 
     for (wave_idx, wave) in waves.iter().enumerate() {
@@ -468,9 +477,15 @@ pub fn execute_plan_parallel(
             })?;
 
         for (idx, address, error) in thread_results.into_iter().flatten() {
+            reporter.started(idx + 1, state.steps[idx].contract_id.clone());
             if error.is_some() {
                 state.steps[idx].status = DeployStepStatus::Failed;
                 state.steps[idx].error = error;
+                reporter.failed(
+                    idx + 1,
+                    state.steps[idx].contract_id.clone(),
+                    state.steps[idx].error.clone().unwrap_or_else(|| "worker failed".into()),
+                );
             } else {
                 state.steps[idx].status = DeployStepStatus::Running;
                 // Apply the (deterministic) simulated result back on the
@@ -478,6 +493,11 @@ pub fn execute_plan_parallel(
                 state.steps[idx].deployed_address = Some(address);
                 state.steps[idx].status = DeployStepStatus::Deployed;
                 deployed_count += 1;
+                reporter.completed(
+                    idx + 1,
+                    state.steps[idx].contract_id.clone(),
+                    if dry_run { "simulated" } else { "deployed" },
+                );
             }
             state.updated_at = Utc::now().to_rfc3339();
             save_state(state)?;
