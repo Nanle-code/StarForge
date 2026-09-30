@@ -19,7 +19,7 @@ fn starforge(home: &Path, cwd: &Path, args: &[&str]) -> Output {
         .arg("-q")
         .args(args)
         .current_dir(cwd)
-        .env("HOME", home)
+        .env("STARFORGE_HOME", home)
         .env("USERPROFILE", home)
         .env_remove("STELLAR_CONFIG_HOME")
         .env_remove("XDG_CONFIG_HOME")

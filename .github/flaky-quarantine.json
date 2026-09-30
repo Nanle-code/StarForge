@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "description": "Known flaky tests (tests that pass only on a retry). Read by scripts/flaky-report.py; the policy is documented in CONTRIBUTING.md > 'Flaky Tests & Quarantine'. Every entry must name one accountable owner and a deadline no more than 30 days out.",
+  "quarantinePolicy": {
+    "maxDays": 30,
+    "requiredFields": ["test", "owner", "deadline"],
+    "process": "CONTRIBUTING.md#flaky-tests--quarantine"
+  },
+  "_example": {
+    "test": "starforge::utils::wallet::creates_wallet_from_seed",
+    "owner": "@github-handle",
+    "issue": 924,
+    "quarantinedOn": "2026-09-26",
+    "deadline": "2026-10-26",
+    "reason": "Intermittent filesystem timing; see tracking issue."
+  },
+  "quarantined": []
+}

@@ -408,11 +408,10 @@ async fn list() -> Result<()> {
     for (i, template) in registry.templates.iter().enumerate() {
         let compat_badge = match check_template_compatibility(template) {
             CompatibilityStatus::Compatible => "[COMPATIBLE]",
-            CompatibilityStatus::TooOld { .. } | CompatibilityStatus::TooNew { .. } => {
-                "[INCOMPATIBLE]"
-            }
+            CompatibilityStatus::TooOld { .. }
+            | CompatibilityStatus::TooNew { .. }
+            | CompatibilityStatus::SorobanSdkIncompatible { .. } => "[INCOMPATIBLE]",
             CompatibilityStatus::MalformedMetadata { .. } => "[BAD-META]",
-            CompatibilityStatus::SorobanSdkIncompatible { .. } => "[SDK-INCOMPAT]",
         };
         let mut badges = template.trust_indicators();
         badges.push(compat_badge.to_string());
@@ -508,11 +507,10 @@ async fn search(
         let template = &result.entry;
         let compat_badge = match check_template_compatibility(template) {
             CompatibilityStatus::Compatible => "[COMPATIBLE]",
-            CompatibilityStatus::TooOld { .. } | CompatibilityStatus::TooNew { .. } => {
-                "[INCOMPATIBLE]"
-            }
+            CompatibilityStatus::TooOld { .. }
+            | CompatibilityStatus::TooNew { .. }
+            | CompatibilityStatus::SorobanSdkIncompatible { .. } => "[INCOMPATIBLE]",
             CompatibilityStatus::MalformedMetadata { .. } => "[BAD-META]",
-            CompatibilityStatus::SorobanSdkIncompatible { .. } => "[SDK-INCOMPAT]",
         };
         let mut badges = template.trust_indicators();
         badges.push(compat_badge.to_string());
@@ -604,8 +602,21 @@ async fn show(name: String) -> Result<()> {
         CompatibilityStatus::MalformedMetadata { reason } => {
             p::warn(&format!("Malformed version metadata: {}", reason));
         }
-        CompatibilityStatus::SorobanSdkIncompatible { .. } => {
-            p::warn("Incompatible: Soroban SDK version requirements not met");
+        CompatibilityStatus::SorobanSdkIncompatible {
+            sdk_min,
+            sdk_max,
+            found_version,
+        } => {
+            let range = match (sdk_min, sdk_max) {
+                (Some(min), Some(max)) => format!(">= {} and <= {}", min, max),
+                (Some(min), None) => format!(">= {}", min),
+                (None, Some(max)) => format!("<= {}", max),
+                (None, None) => "compatible".to_string(),
+            };
+            p::warn(&format!(
+                "Incompatible: requires Soroban SDK {} (running {})",
+                range, found_version
+            ));
         }
     }
     print_quality_signals(&template);
@@ -717,8 +728,21 @@ async fn info(name: String) -> Result<()> {
         CompatibilityStatus::MalformedMetadata { reason } => {
             p::warn(&format!("Malformed version metadata: {}", reason))
         }
-        CompatibilityStatus::SorobanSdkIncompatible { .. } => {
-            p::warn("Incompatible: Soroban SDK version requirements not met")
+        CompatibilityStatus::SorobanSdkIncompatible {
+            sdk_min,
+            sdk_max,
+            found_version,
+        } => {
+            let range = match (sdk_min, sdk_max) {
+                (Some(min), Some(max)) => format!(">= {} and <= {}", min, max),
+                (Some(min), None) => format!(">= {}", min),
+                (None, Some(max)) => format!("<= {}", max),
+                (None, None) => "compatible".to_string(),
+            };
+            p::warn(&format!(
+                "Incompatible: requires Soroban SDK {} (running {})",
+                range, found_version
+            ))
         }
     }
 

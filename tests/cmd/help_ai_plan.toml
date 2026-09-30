@@ -1,0 +1,3 @@
+# Golden CLI case: starforge ai-plan --help
+description = "starforge ai-plan --help"
+args = ["ai-plan", "--help"]

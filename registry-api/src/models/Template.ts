@@ -4,6 +4,8 @@ export interface ITemplate {
   version: string;
   description: string;
   author: string;
+  authors?: string[];
+  attribution?: string;
   tags: string[];
   // Structured functionality keywords (e.g. ["escrow", "refund", "timeout"])
   // used by search to match "find a template that does X" style queries

@@ -9,7 +9,7 @@ pub fn db_path() -> PathBuf {
 }
 
 /// Current schema version of the database
-pub const CURRENT_SCHEMA_VERSION: i64 = 1;
+pub const CURRENT_SCHEMA_VERSION: i64 = 2;
 
 /// Migration trait for defining schema changes
 pub trait Migration: Send + Sync {
@@ -222,9 +222,11 @@ impl Database {
         if self.get_meta("schema_version")?.is_some() {
             self.run_migrations()?;
         } else {
-            // Fresh database - set initial version
-            self.set_meta("schema_version", &CURRENT_SCHEMA_VERSION.to_string())?;
-            self.record_migration(CURRENT_SCHEMA_VERSION, "initial_schema")?;
+            // Fresh databases bootstrap at v1, then use the same migration path
+            // as existing databases for subsequent schema versions.
+            self.set_meta("schema_version", "1")?;
+            self.record_migration(1, "initial_schema")?;
+            self.run_migrations()?;
         }
 
         // The feature-flags schema is shipped alongside the rest of the
@@ -455,6 +457,7 @@ impl Database {
     fn get_migration(&self, version: i64) -> Option<Box<dyn Migration>> {
         match version {
             1 => Some(Box::new(MigrationV1 {})),
+            2 => Some(Box::new(MigrationV2 {})),
             _ => None,
         }
     }
@@ -497,8 +500,8 @@ impl Database {
     pub fn insert_wallet(&self, wallet: &WalletRow) -> Result<()> {
         self.conn.execute(
             "INSERT OR REPLACE INTO wallets \
-             (name, public_key, secret_key, network, created_at, funded, rotation_history) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+             (name, public_key, secret_key, network, created_at, funded, rotation_history, usage_policy) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 wallet.name,
                 wallet.public_key,
@@ -507,6 +510,7 @@ impl Database {
                 wallet.created_at,
                 wallet.funded,
                 wallet.rotation_history,
+                wallet.usage_policy,
             ],
         )?;
         Ok(())
@@ -514,7 +518,7 @@ impl Database {
 
     pub fn list_wallets(&self) -> Result<Vec<WalletRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT name, public_key, secret_key, network, created_at, funded, rotation_history FROM wallets ORDER BY created_at",
+            "SELECT name, public_key, secret_key, network, created_at, funded, rotation_history, usage_policy FROM wallets ORDER BY created_at",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(WalletRow {
@@ -525,6 +529,7 @@ impl Database {
                 created_at: row.get(4)?,
                 funded: row.get(5)?,
                 rotation_history: row.get(6)?,
+                usage_policy: row.get(7)?,
             })
         })?;
         rows.map(|r| r.map_err(anyhow::Error::from)).collect()
@@ -532,7 +537,7 @@ impl Database {
 
     pub fn get_wallet(&self, name: &str) -> Result<Option<WalletRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT name, public_key, secret_key, network, created_at, funded, rotation_history FROM wallets WHERE name = ?1",
+            "SELECT name, public_key, secret_key, network, created_at, funded, rotation_history, usage_policy FROM wallets WHERE name = ?1",
         )?;
         let mut rows = stmt.query(params![name])?;
         if let Some(row) = rows.next()? {
@@ -544,6 +549,7 @@ impl Database {
                 created_at: row.get(4)?,
                 funded: row.get(5)?,
                 rotation_history: row.get(6)?,
+                usage_policy: row.get(7)?,
             }))
         } else {
             Ok(None)
@@ -627,6 +633,7 @@ impl Database {
     pub fn load_config(&self) -> Result<crate::utils::config::Config> {
         use crate::utils::config::{
             Config, NetworkConfig, PluginTrustConfig, WalletEntry, WalletRotationRecord,
+            WalletUsagePolicy,
         };
         use std::collections::HashMap;
 
@@ -694,6 +701,8 @@ impl Database {
                         iterations: Some(m.iterations),
                         parallelism: Some(m.parallelism),
                     });
+                let usage_policy = serde_json::from_str::<WalletUsagePolicy>(&wallet.usage_policy)
+                    .unwrap_or_default();
                 WalletEntry {
                     name: wallet.name,
                     public_key: wallet.public_key,
@@ -703,6 +712,10 @@ impl Database {
                     funded: wallet.funded,
                     kdf_options,
                     rotation_history,
+                    derivation_index: None,
+                    derivation_path: None,
+                    mnemonic_wallet: None,
+                    usage_policy,
                 }
             })
             .collect();
@@ -727,6 +740,7 @@ impl Database {
                 created_at: wallet.created_at.clone(),
                 funded: wallet.funded,
                 rotation_history: serde_json::to_string(&wallet.rotation_history)?,
+                usage_policy: serde_json::to_string(&wallet.usage_policy)?,
             })?;
         }
 
@@ -1162,7 +1176,8 @@ CREATE TABLE IF NOT EXISTS wallets (
     network     TEXT NOT NULL DEFAULT 'testnet',
     created_at  TEXT NOT NULL,
     funded      INTEGER NOT NULL DEFAULT 0,
-    rotation_history TEXT NOT NULL DEFAULT '[]'
+    rotation_history TEXT NOT NULL DEFAULT '[]',
+    usage_policy TEXT NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS networks (
@@ -1228,6 +1243,12 @@ pub struct WalletRow {
     pub created_at: String,
     pub funded: bool,
     pub rotation_history: String,
+    #[serde(default = "default_wallet_policy_json")]
+    pub usage_policy: String,
+}
+
+fn default_wallet_policy_json() -> String {
+    "{}".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1352,6 +1373,39 @@ impl Migration for MigrationV1 {
     }
 }
 
+struct MigrationV2;
+
+impl Migration for MigrationV2 {
+    fn version(&self) -> i64 {
+        2
+    }
+
+    fn description(&self) -> &str {
+        "wallet_usage_policy"
+    }
+
+    fn up(&self, conn: &Connection) -> Result<()> {
+        let mut stmt = conn.prepare("PRAGMA table_info(wallets)")?;
+        let columns = stmt.query_map([], |row| row.get::<_, String>(1))?;
+        if !columns
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .iter()
+            .any(|name| name == "usage_policy")
+        {
+            conn.execute(
+                "ALTER TABLE wallets ADD COLUMN usage_policy TEXT NOT NULL DEFAULT '{}'",
+                [],
+            )?;
+        }
+        Ok(())
+    }
+
+    fn down(&self, conn: &Connection) -> Result<()> {
+        conn.execute("ALTER TABLE wallets DROP COLUMN usage_policy", [])?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1373,11 +1427,15 @@ mod tests {
             created_at: "2024-01-01T00:00:00Z".to_string(),
             funded: false,
             rotation_history: "[]".to_string(),
+            usage_policy: r#"{"allowed_networks":["mainnet"],"max_fee":250000,"allowed_contracts":[],"require_confirmation":true}"#.to_string(),
         })
         .unwrap();
         let wallets = db.list_wallets().unwrap();
         assert_eq!(wallets.len(), 1);
         assert_eq!(wallets[0].name, "alice");
+        assert!(wallets[0].usage_policy.contains("mainnet"));
+        assert!(wallets[0].usage_policy.contains("250000"));
+        assert!(wallets[0].usage_policy.contains("true"));
     }
 
     #[test]
@@ -1413,6 +1471,7 @@ mod tests {
             created_at: "2024-01-01T00:00:00Z".to_string(),
             funded: true,
             rotation_history: "[]".to_string(),
+            usage_policy: "{}".to_string(),
         })
         .unwrap();
         let stats = db.stats().unwrap();
@@ -1430,6 +1489,7 @@ mod tests {
             created_at: "2024-01-01T00:00:00Z".to_string(),
             funded: false,
             rotation_history: "[]".to_string(),
+            usage_policy: "{}".to_string(),
         })
         .unwrap();
         let removed = db.delete_wallet("temp").unwrap();

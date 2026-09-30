@@ -1,0 +1,3 @@
+# Golden CLI case: starforge upgrade --help
+description = "starforge upgrade --help"
+args = ["upgrade", "--help"]

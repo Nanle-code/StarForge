@@ -1,6 +1,7 @@
 use crate::commands::invoke_script;
+use crate::utils::config::WalletEntry;
 use crate::utils::hardware_wallet::HardwareWalletKind;
-use crate::utils::{bindings, call_graph, config, contract_id, print as p, soroban, wallet_signer};
+use crate::utils::{bindings, call_graph, config, print as p, soroban, wallet_signer};
 use anyhow::Result;
 use clap::{Args, Subcommand, ValueEnum};
 use colored::*;
@@ -29,8 +30,154 @@ pub enum ContractCommands {
     Deps(DepsArgs),
     /// Track contract versions, resolve conflicts, and manage migrations
     Version(VersionArgs),
-    /// Predict a contract ID from deployer, salt, and WASM hash
+    /// Predict a contract ID from deployer and salt
     Id(ContractIdArgs),
+
+    // ── Commands moved under `contract` by ADR 0007 ──────────────────────
+    // Each moved command keeps its own argument struct, so no flag definition
+    // is duplicated here; `handle` forwards to the owning module.
+    /// Deep contract storage inspection (state, key, storage)
+    #[command(subcommand)]
+    Storage(crate::commands::inspect::InspectCommands),
+    /// Debug Soroban contracts with breakpoints, stepping, and inspection
+    #[command(subcommand)]
+    Debug(crate::commands::debug::DebugCommands),
+    /// Interactive REPL for local Soroban contract testing
+    Repl {
+        #[command(flatten)]
+        args: crate::commands::shell::ShellArgs,
+    },
+    /// Contract testing utilities for Soroban wasm
+    Test {
+        #[command(flatten)]
+        args: crate::commands::test::TestArgs,
+    },
+    /// Run a comprehensive security audit on a Soroban contract
+    Audit {
+        #[command(flatten)]
+        args: crate::commands::audit::AuditArgs,
+    },
+    /// Security hardening, validation, and monitoring
+    #[command(subcommand)]
+    Security(crate::commands::security::SecurityCommands),
+    /// Contract upgrade governance (proposals, voting, timelock, audit)
+    #[command(subcommand)]
+    Governance(crate::commands::governance::GovernanceCommands),
+    /// Contract upgrade management (propose, approve, execute, rollback)
+    #[command(subcommand)]
+    Upgrade(crate::commands::upgrade::UpgradeCommands),
+    /// Run formal verification on a contract
+    #[command(subcommand)]
+    Verify(crate::commands::verify::VerifyCommands),
+    /// Contract storage migration tools (transform, validate, rollback)
+    #[command(subcommand)]
+    Migrate(crate::commands::migrate::MigrateCommands),
+    /// Generate smart contracts from natural language prompts
+    #[command(subcommand)]
+    Generate(crate::commands::generate::GenerateCommands),
+    /// Smart contract completion assistant
+    #[command(subcommand)]
+    Complete(crate::commands::complete::CompleteCommands),
+    /// Analyze and explain smart contract code using AI
+    #[command(subcommand)]
+    Explain(crate::commands::explain::ExplainCommands),
+    /// Static analysis and linting for Soroban contracts
+    Lint {
+        #[command(flatten)]
+        args: crate::commands::lint::LintArgs,
+    },
+    /// Analyse and optimize compiled WASM / Rust contract source for gas and size
+    #[command(subcommand)]
+    Optimize(crate::commands::optimize::OptimizeCommands),
+    /// Gas analysis and optimization helpers
+    #[command(subcommand)]
+    Gas(crate::commands::gas::GasCommands),
+    /// Contract performance monitoring and metrics dashboard
+    #[command(subcommand)]
+    Metrics(crate::commands::perf::PerfCommands),
+    /// Advanced contract performance analysis and profiling tools
+    #[command(subcommand)]
+    Profile(crate::commands::perf::AdvancedPerfCommands),
+    /// Performance benchmarking utilities and industry-standard comparisons
+    #[command(subcommand)]
+    Benchmark(crate::commands::benchmark::BenchmarkCommands),
+    /// Contract documentation portal (generate, view, search)
+    #[command(subcommand)]
+    Docs(crate::commands::docs::DocsCommands),
+    /// AI mutation testing for Soroban contracts
+    #[command(subcommand)]
+    Mutate(crate::commands::mutate::MutateCommands),
+    /// Live monitoring (contract events or wallet threshold)
+    Monitor {
+        #[command(flatten)]
+        args: crate::commands::monitor::MonitorArgs,
+    },
+    /// Contract health monitoring and alerting
+    #[command(subcommand)]
+    Health(crate::commands::contract_monitor::ContractMonitorCommands),
+    /// Inspect and extend ledger-entry TTLs (instance, code, persistent)
+    #[command(subcommand)]
+    Ttl(TtlCommands),
+}
+
+#[derive(Subcommand)]
+pub enum TtlCommands {
+    /// List instance/code/persistent entries with live-until ledger and ETA
+    Show(TtlShowArgs),
+    /// Build (and optionally submit) an ExtendFootprintTTL operation
+    Extend(TtlExtendArgs),
+}
+
+#[derive(Args)]
+pub struct TtlShowArgs {
+    /// Contract ID whose ledger entries to inspect
+    pub contract_id: String,
+    /// Ledger-key selectors (`instance`, `code`, `symbol:NAME`, or base64 LedgerKey XDR).
+    /// Repeatable. Defaults to instance + code.
+    #[arg(long = "key")]
+    pub keys: Vec<String>,
+    /// Network to query
+    #[arg(long, default_value = "testnet")]
+    pub network: String,
+    /// Exit non-zero when any entry has fewer than N ledgers remaining (cron/monitor)
+    #[arg(long = "warn-below")]
+    pub warn_below: Option<u32>,
+    /// Emit JSON
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args)]
+pub struct TtlExtendArgs {
+    /// Contract ID whose ledger entries to extend
+    pub contract_id: String,
+    /// Target TTL floor in ledgers from now (`extendTo`)
+    #[arg(long)]
+    pub ledgers: u32,
+    /// Ledger-key selectors (`instance`, `code`, `symbol:NAME`, or base64 LedgerKey XDR)
+    #[arg(long = "key")]
+    pub keys: Vec<String>,
+    /// Network to use
+    #[arg(long, default_value = "testnet")]
+    pub network: String,
+    /// Wallet used to sign the extend transaction
+    #[arg(long)]
+    pub wallet: Option<String>,
+    /// Submit after showing the cost estimate (default: simulate only)
+    #[arg(long)]
+    pub submit: bool,
+    /// Skip confirmation of the extend cost
+    #[arg(long)]
+    pub yes: bool,
+    /// Emit JSON
+    #[arg(long)]
+    pub json: bool,
+    /// Sign with a hardware wallet instead of a local secret key
+    #[arg(long, value_enum)]
+    pub hardware: Option<HardwareWalletKind>,
+    /// HD derivation path for hardware wallet signing
+    #[arg(long, default_value = crate::utils::hardware_wallet::STELLAR_HD_PATH)]
+    pub hd_path: String,
 }
 
 #[derive(Args)]
@@ -90,6 +237,31 @@ pub struct DepsGraphArgs {
 pub struct VersionArgs {
     #[command(subcommand)]
     pub cmd: VersionCommands,
+}
+
+#[derive(Args)]
+pub struct ContractIdArgs {
+    /// Deployer public key (StrKey starting with 'G')
+    #[arg(long)]
+    pub deployer: String,
+    /// 32-byte salt as hex string (64 hex chars, or shorter with left-padding)
+    #[arg(long)]
+    pub salt: String,
+    /// WASM hash as hex string (64 hex chars) - required for full contract ID prediction
+    #[arg(long)]
+    pub wasm_hash: Option<String>,
+    /// Network to use for derivation (testnet, mainnet, futurenet)
+    #[arg(long, default_value = "testnet", value_parser = ["testnet", "mainnet", "futurenet"])]
+    pub network: String,
+    /// Wallet name to use for deployer (alternative to --deployer)
+    #[arg(long, conflicts_with = "deployer")]
+    pub wallet: Option<String>,
+    /// Show the derivation preimage components
+    #[arg(long, default_value = "false")]
+    pub verbose: bool,
+    /// Output as JSON
+    #[arg(long, default_value = "false")]
+    pub json: bool,
 }
 
 #[derive(Subcommand)]
@@ -172,31 +344,6 @@ pub struct MigrationPathArgs {
 }
 
 #[derive(Args)]
-pub struct ContractIdArgs {
-    /// Deployer public key (StrKey starting with 'G')
-    #[arg(long)]
-    pub deployer: String,
-    /// 32-byte salt as hex string (64 hex chars, or shorter with left-padding)
-    #[arg(long)]
-    pub salt: String,
-    /// WASM hash as hex string (64 hex chars) - required for full contract ID prediction
-    #[arg(long)]
-    pub wasm_hash: Option<String>,
-    /// Network to use for derivation (testnet, mainnet, futurenet)
-    #[arg(long, default_value = "testnet", value_parser = ["testnet", "mainnet", "futurenet"])]
-    pub network: String,
-    /// Wallet name to use for deployer (alternative to --deployer)
-    #[arg(long, conflicts_with = "deployer")]
-    pub wallet: Option<String>,
-    /// Show the derivation preimage components
-    #[arg(long, default_value = "false")]
-    pub verbose: bool,
-    /// Output as JSON
-    #[arg(long, default_value = "false")]
-    pub json: bool,
-}
-
-#[derive(Args)]
 pub struct CallGraphArgs {
     /// Path to Soroban contract source file (.rs)
     pub path: PathBuf,
@@ -224,32 +371,47 @@ pub struct CallGraphArgs {
 }
 
 #[derive(Args)]
+#[command(disable_help_flag = true)]
 pub struct InvokeArgs {
     /// Contract ID to invoke
+    #[arg(allow_hyphen_values = true)]
     pub contract_id: String,
     /// Function name to call
-    pub function: String,
+    #[arg(allow_hyphen_values = true)]
+    pub function: Option<String>,
     /// Function arguments (use multiple --arg flags)
     #[arg(long = "arg", action = clap::ArgAction::Append)]
     pub args: Vec<String>,
     /// Argument types (use multiple --type flags, must match --arg count)
     #[arg(long = "type", action = clap::ArgAction::Append)]
     pub types: Vec<String>,
-    /// Network to use
-    #[arg(long, default_value = "testnet", value_parser = ["testnet", "mainnet"])]
+    /// Network to use (testnet, mainnet, docker-testnet, or a configured custom network)
+    #[arg(long, default_value = "testnet")]
     pub network: String,
-    /// Wallet name to use for signing (required with --submit)
+    /// Wallet name to use for signing (required with --submit or restore)
     #[arg(long)]
     pub wallet: Option<String>,
     /// Submit the transaction after simulation
     #[arg(long, default_value = "false")]
     pub submit: bool,
+    /// Automatically restore archived ledger entries when simulation returns a restorePreamble
+    #[arg(long, default_value = "false")]
+    pub auto_restore: bool,
+    /// Skip interactive confirmation prompts (scripted mode; also skips restore prompts)
+    #[arg(long, default_value = "false")]
+    pub yes: bool,
+    /// Emit machine-readable JSON (includes `restored` when a restore ran)
+    #[arg(long, default_value = "false")]
+    pub json: bool,
     /// Sign with a hardware wallet instead of a local secret key
     #[arg(long, value_enum)]
     pub hardware: Option<HardwareWalletKind>,
     /// HD derivation path for hardware wallet signing
     #[arg(long, default_value = crate::utils::hardware_wallet::STELLAR_HD_PATH)]
     pub hd_path: String,
+    /// Dynamic typed arguments
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true, hide = true)]
+    pub slop: Vec<String>,
 }
 
 #[derive(Args)]
@@ -349,6 +511,32 @@ pub async fn handle(cmd: ContractCommands) -> Result<()> {
         ContractCommands::Deps(args) => handle_deps(args),
         ContractCommands::Version(args) => handle_version(args).await,
         ContractCommands::Id(args) => handle_contract_id(args).await,
+
+        // ADR 0007: forward the commands that moved under `contract`.
+        ContractCommands::Storage(cmd) => crate::commands::inspect::handle(cmd).await,
+        ContractCommands::Debug(cmd) => crate::commands::debug::handle(cmd).await,
+        ContractCommands::Repl { args } => crate::commands::shell::handle(args).await,
+        ContractCommands::Test { args } => crate::commands::test::handle(args).await,
+        ContractCommands::Audit { args } => crate::commands::audit::handle(args).await,
+        ContractCommands::Security(cmd) => crate::commands::security::handle(cmd).await,
+        ContractCommands::Governance(cmd) => crate::commands::governance::handle(cmd).await,
+        ContractCommands::Upgrade(cmd) => crate::commands::upgrade::handle(cmd).await,
+        ContractCommands::Verify(cmd) => crate::commands::verify::handle(cmd).await,
+        ContractCommands::Migrate(cmd) => crate::commands::migrate::handle(cmd),
+        ContractCommands::Generate(cmd) => crate::commands::generate::handle(&cmd).await,
+        ContractCommands::Complete(cmd) => crate::commands::complete::handle(cmd).await,
+        ContractCommands::Explain(cmd) => crate::commands::explain::handle(&cmd).await,
+        ContractCommands::Lint { args } => crate::commands::lint::handle(args).await,
+        ContractCommands::Optimize(cmd) => crate::commands::optimize::handle(cmd).await,
+        ContractCommands::Gas(cmd) => crate::commands::gas::handle(cmd).await,
+        ContractCommands::Metrics(cmd) => crate::commands::perf::handle(cmd).await,
+        ContractCommands::Profile(cmd) => crate::commands::perf::handle_advanced(cmd).await,
+        ContractCommands::Benchmark(cmd) => crate::commands::benchmark::handle(cmd).await,
+        ContractCommands::Docs(cmd) => crate::commands::docs::handle(cmd).await,
+        ContractCommands::Mutate(cmd) => crate::commands::mutate::handle(cmd).await,
+        ContractCommands::Monitor { args } => crate::commands::monitor::handle(args).await,
+        ContractCommands::Health(cmd) => crate::commands::contract_monitor::handle(cmd).await,
+        ContractCommands::Ttl(cmd) => handle_ttl(cmd).await,
     }
 }
 
@@ -726,36 +914,134 @@ fn handle_build(args: BuildArgs) -> Result<()> {
     Ok(())
 }
 
+fn fetch_contract_spec(
+    contract_id: &str,
+    network: &str,
+) -> Result<crate::utils::bindings::ContractMetadata> {
+    let output = std::process::Command::new("stellar")
+        .args([
+            "contract",
+            "fetch",
+            "--id",
+            contract_id,
+            "--network",
+            network,
+        ])
+        .output()?;
+
+    if !output.status.success() {
+        anyhow::bail!(
+            "Failed to fetch contract WASM for {}: {}",
+            contract_id,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let entries = crate::utils::bindings::read_spec_entries(&output.stdout)?;
+    Ok(crate::utils::bindings::parse_spec_entries(&entries))
+}
+
 async fn handle_invoke(args: InvokeArgs) -> Result<()> {
+    if args.contract_id == "--help" || args.contract_id == "-h" {
+        use clap::CommandFactory;
+        let mut cmd = InvokeArgs::command();
+        cmd.print_help()?;
+        return Ok(());
+    }
+
     p::header("Invoke Soroban Contract");
 
     config::validate_contract_id(&args.contract_id)?;
     config::validate_network(&args.network)?;
 
-    // Validate arguments and types match
-    if args.args.len() != args.types.len() && !args.types.is_empty() {
-        anyhow::bail!(
-            "Argument count mismatch: {} args but {} types specified",
-            args.args.len(),
-            args.types.len()
-        );
+    let function_name = args.function.clone().unwrap_or_default();
+    let wants_contract_help =
+        function_name.is_empty() || function_name == "--help" || function_name == "-h";
+    let wants_func_help =
+        args.slop.contains(&"--help".to_string()) || args.slop.contains(&"-h".to_string());
+
+    let metadata = fetch_contract_spec(&args.contract_id, &args.network)?;
+
+    if wants_contract_help {
+        println!("Available functions for contract {}:\n", args.contract_id);
+        for f in &metadata.functions {
+            let inputs = f
+                .inputs
+                .iter()
+                .map(|i| format!("{}: {}", i.name, i.type_name))
+                .collect::<Vec<_>>()
+                .join(", ");
+            println!("  - {} ({})", f.name, inputs);
+        }
+        return Ok(());
     }
 
-    // Default to string type if no types specified
-    let arg_types = if args.types.is_empty() {
-        vec!["string".to_string(); args.args.len()]
-    } else {
-        args.types.clone()
-    };
+    let func_spec = metadata
+        .functions
+        .iter()
+        .find(|f| f.name == function_name)
+        .ok_or_else(|| anyhow::anyhow!("Function '{}' not found in contract", function_name))?;
+
+    if wants_func_help {
+        println!(
+            "Usage: starforge contract invoke {} {} [OPTIONS]\n",
+            args.contract_id, function_name
+        );
+        println!("Arguments:");
+        for i in &func_spec.inputs {
+            println!("  --{} <{}>", i.name, i.type_name);
+        }
+        return Ok(());
+    }
+
+    let mut parsed_args = args.args.clone();
+    let mut parsed_types = args.types.clone();
+
+    if !parsed_types.is_empty() || !parsed_args.is_empty() {
+        p::warn("The --type flag is deprecated. Arguments are now typed automatically from the contract spec.");
+        if parsed_args.len() != parsed_types.len() && !parsed_types.is_empty() {
+            anyhow::bail!(
+                "Argument count mismatch: {} args but {} types specified",
+                parsed_args.len(),
+                parsed_types.len()
+            );
+        }
+        if parsed_types.is_empty() {
+            parsed_types = vec!["string".to_string(); parsed_args.len()];
+        }
+    } else if !func_spec.inputs.is_empty() {
+        let mut cmd = clap::Command::new(&func_spec.name)
+            .no_binary_name(true)
+            .ignore_errors(false);
+
+        for input in &func_spec.inputs {
+            cmd = cmd.arg(
+                clap::Arg::new(&input.name)
+                    .long(&input.name)
+                    .required(true)
+                    .help(input.type_name.clone()),
+            );
+        }
+
+        let matches = cmd
+            .try_get_matches_from(&args.slop)
+            .map_err(|e| anyhow::anyhow!("Invalid arguments for '{}':\n{}", function_name, e))?;
+
+        for input in &func_spec.inputs {
+            let val: String = matches.get_one::<String>(&input.name).unwrap().clone();
+            parsed_args.push(val);
+            parsed_types.push(input.type_name.clone());
+        }
+    }
 
     p::separator();
     p::kv("Contract ID", &args.contract_id);
-    p::kv("Function", &args.function);
+    p::kv("Function", &function_name);
     p::kv("Network", &args.network);
 
-    if !args.args.is_empty() {
-        p::kv("Arguments", &format!("{} args", args.args.len()));
-        for (i, (arg, arg_type)) in args.args.iter().zip(arg_types.iter()).enumerate() {
+    if !parsed_args.is_empty() {
+        p::kv("Arguments", &format!("{} args", parsed_args.len()));
+        for (i, (arg, arg_type)) in parsed_args.iter().zip(parsed_types.iter()).enumerate() {
             p::kv(
                 &format!("  Arg {}", i + 1),
                 &format!("{} ({})", arg, arg_type),
@@ -765,106 +1051,586 @@ async fn handle_invoke(args: InvokeArgs) -> Result<()> {
         p::kv("Arguments", "none");
     }
 
-    if args.network == "mainnet" {
+    if args.network == "mainnet" && !args.json {
         p::warn("You are invoking on MAINNET. This may cost real XLM if submitted.");
     }
 
-    // Load wallet and signing configuration for submission
-    let (submit_wallet, signing_request) = if args.submit {
+    // Prefer loading a wallet whenever restore or submit may need one. For
+    // plain simulation we still try the default wallet so a restorePreamble
+    // can be handled interactively when keys are available.
+    let (submit_wallet, signing_request) = {
         let cfg = config::load()?;
-        let wallet = if let Some(ref wallet_name) = args.wallet {
-            cfg.wallets
-                .iter()
-                .find(|w| &w.name == wallet_name)
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Wallet '{}' not found. Run `starforge wallet list`",
-                        wallet_name
-                    )
-                })?
-        } else if !cfg.wallets.is_empty() {
+        let maybe = if let Some(ref wallet_name) = args.wallet {
+            Some(
+                cfg.wallets
+                    .iter()
+                    .find(|w| &w.name == wallet_name)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "Wallet '{}' not found. Run `starforge wallet list`",
+                            wallet_name
+                        )
+                    })?
+                    .clone(),
+            )
+        } else if args.submit || args.auto_restore {
+            if cfg.wallets.is_empty() {
+                anyhow::bail!(
+                    "No wallets found for submission. Create one first:\n  starforge wallet create deployer --fund"
+                );
+            }
+            if !args.json {
+                p::info(&format!(
+                    "No --wallet specified. Using: {}",
+                    cfg.wallets[0].name.cyan()
+                ));
+            }
+            Some(cfg.wallets[0].clone())
+        } else {
+            cfg.wallets.first().cloned()
+        };
+
+        match maybe {
+            Some(wallet) => {
+                if !args.json && (args.submit || args.auto_restore) {
+                    p::kv("Wallet", &wallet.name);
+                }
+                if (args.submit || args.auto_restore)
+                    && wallet.secret_key.is_none()
+                    && args.hardware.is_none()
+                {
+                    anyhow::bail!(
+                        "Wallet '{}' has no local secret key. Use --hardware ledger or --hardware trezor.",
+                        wallet.name
+                    );
+                }
+                let signing = wallet_signer::SigningRequest::from_options(
+                    Some(&wallet),
+                    args.hardware,
+                    Some(&args.hd_path),
+                    &args.network,
+                    true,
+                    "contract invocation",
+                )?;
+                (Some(wallet), Some(signing))
+            }
+            None => (None, None),
+        }
+    };
+
+    if !args.json {
+        p::separator();
+        println!();
+        p::step(
+            1,
+            if args.submit { 2 } else { 1 },
+            "Simulating contract invocation…",
+        );
+    }
+
+    let restore_mode = if args.auto_restore {
+        soroban::RestoreMode::Auto
+    } else if submit_wallet.is_some() {
+        soroban::RestoreMode::Prompt
+    } else {
+        soroban::RestoreMode::Never
+    };
+
+    let outcome = soroban::invoke_contract_with_options(
+        &args.contract_id,
+        &function_name,
+        &parsed_args,
+        &parsed_types,
+        &args.network,
+        submit_wallet.as_ref(),
+        signing_request.as_ref(),
+        soroban::InvokeOptions {
+            restore: restore_mode,
+            yes: args.yes || args.auto_restore || args.json,
+            submit: false,
+        },
+    )
+    .await?;
+
+    finalize_invoke_after_sim(
+        args,
+        &function_name,
+        &parsed_args,
+        &parsed_types,
+        outcome,
+        submit_wallet,
+        signing_request,
+    )
+    .await
+}
+
+async fn finalize_invoke_after_sim(
+    args: InvokeArgs,
+    function_name: &str,
+    parsed_args: &[String],
+    parsed_types: &[String],
+    outcome: soroban::InvokeOutcome,
+    submit_wallet: Option<WalletEntry>,
+    signing_request: Option<wallet_signer::SigningRequest>,
+) -> Result<()> {
+    let simulation_result = &outcome.simulation;
+
+    if args.json {
+        let payload = serde_json::json!({
+            "contract_id": args.contract_id,
+            "function": function_name,
+            "network": args.network,
+            "return_value": simulation_result.return_value,
+            "fee_stroops": simulation_result.fee,
+            "restored": outcome.restored,
+            "restore_fee_stroops": outcome.restore_fee_stroops,
+            "restore_tx_hash": outcome.restore_tx_hash,
+            "events": simulation_result.events,
+            "errors": simulation_result.errors,
+            "submitted": false,
+            "tx_hash": serde_json::Value::Null,
+        });
+        if !args.submit {
+            println!("{}", serde_json::to_string_pretty(&payload)?);
+            return Ok(());
+        }
+        // Fall through to submit, then emit final JSON.
+    } else {
+        if outcome.restored {
+            p::success("Restored archived ledger entries before invoke");
+            if let Some(fee) = outcome.restore_fee_stroops {
+                p::kv("Restore fee (stroops)", &fee.to_string());
+            }
+            if let Some(hash) = &outcome.restore_tx_hash {
+                p::kv("Restore TX", hash);
+            }
+        }
+        p::kv_accent("Simulation", "✓ Success");
+        p::kv("Return Value", &simulation_result.return_value);
+        p::kv("Fee (stroops)", &simulation_result.fee.to_string());
+        p::kv(
+            "Fee (XLM)",
+            &format!("{:.7}", simulation_result.fee as f64 / 10_000_000.0),
+        );
+
+        if let Some(resources) = simulation_result.resources.as_ref() {
+            if resources.requires_restore() && !outcome.restored {
+                p::warn(
+                    "Simulation reported archived entries (restorePreamble). \
+                     Re-run with --auto-restore or --submit to restore them first.",
+                );
+            }
+        }
+
+        if !simulation_result.events.is_empty() {
+            p::kv(
+                "Events",
+                &format!("{} emitted", simulation_result.events.len()),
+            );
+            for (i, event) in simulation_result.events.iter().enumerate() {
+                p::kv(&format!("  Event {}", i + 1), event);
+            }
+        }
+    }
+
+    if args.submit {
+        let submit_wallet_ref = submit_wallet
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("--submit requires a wallet; pass --wallet <name>"))?;
+
+        let risk_level = if args.network == "mainnet" {
+            crate::utils::confirmation::RiskLevel::High
+        } else {
+            crate::utils::confirmation::RiskLevel::Medium
+        };
+
+        if !args.json {
+            let mut summary = crate::utils::confirmation::OperationSummary::new(
+                if args.hardware.is_some() {
+                    "Hardware Wallet — Invoke Contract".to_string()
+                } else {
+                    "Invoke Contract Function".to_string()
+                },
+                args.network.clone(),
+                risk_level,
+            )
+            .add("Contract ID", &args.contract_id)
+            .add("Function", function_name)
+            .add(
+                "Wallet",
+                if args.hardware.is_some() {
+                    format!("{} (Hardware)", submit_wallet_ref.name)
+                } else {
+                    submit_wallet_ref.name.clone()
+                },
+            )
+            .add(
+                "Estimated Fee",
+                format!("{} stroops", simulation_result.fee),
+            )
+            .add("Return Value", &simulation_result.return_value)
+            .with_auth_trees(simulation_result.auth.clone());
+
+            if args.hardware.is_some() {
+                summary = summary.add("Next step", "Review and approve on your device screen");
+            }
+
+            let confirm_config = crate::utils::confirmation::ConfirmationConfig {
+                risk_level,
+                network: args.network.clone(),
+                skip_confirm: args.yes,
+                dry_run: false,
+                prompt: if args.hardware.is_some() {
+                    Some("Proceed with hardware wallet signing?".to_string())
+                } else {
+                    Some("Submit this transaction?".to_string())
+                },
+                require_type_confirmation: args.network == "mainnet" && !args.yes,
+                ..Default::default()
+            };
+
+            if !crate::utils::confirmation::confirm_operation(&summary, &confirm_config)? {
+                anyhow::bail!("Transaction submission cancelled.");
+            }
+
+            if let Some(kind) = args.hardware {
+                p::info(&format!(
+                    "Connect your {} and approve the invocation on the device screen.",
+                    kind
+                ));
+            }
+
+            println!();
+            p::step(2, 2, "Submitting transaction…");
+        }
+
+        let tx_result = soroban::submit_transaction(
+            &args.contract_id,
+            function_name,
+            parsed_args,
+            parsed_types,
+            &args.network,
+            submit_wallet_ref,
+            signing_request.as_ref(),
+            simulation_result.fee,
+        )
+        .await?;
+
+        if args.json {
+            let payload = serde_json::json!({
+                "contract_id": args.contract_id,
+                "function": function_name,
+                "network": args.network,
+                "return_value": tx_result.return_value,
+                "fee_stroops": simulation_result.fee,
+                "restored": outcome.restored,
+                "restore_fee_stroops": outcome.restore_fee_stroops,
+                "restore_tx_hash": outcome.restore_tx_hash,
+                "events": simulation_result.events,
+                "errors": simulation_result.errors,
+                "submitted": true,
+                "tx_hash": tx_result.hash,
+            });
+            println!("{}", serde_json::to_string_pretty(&payload)?);
+        } else {
+            p::kv_accent("Transaction", "✓ Submitted");
+            p::kv("TX Hash", &tx_result.hash);
+            p::kv("Return Value", &tx_result.return_value);
+            p::separator();
+        }
+    } else if !args.json {
+        println!();
+        p::info("Simulation complete. Add --submit to execute the transaction.");
+        p::separator();
+    }
+
+    Ok(())
+}
+
+async fn handle_ttl(cmd: TtlCommands) -> Result<()> {
+    match cmd {
+        TtlCommands::Show(args) => handle_ttl_show(args).await,
+        TtlCommands::Extend(args) => handle_ttl_extend(args).await,
+    }
+}
+
+async fn handle_ttl_show(args: TtlShowArgs) -> Result<()> {
+    let report = crate::utils::contract_ttl::show_ttl(
+        &args.contract_id,
+        &args.network,
+        &args.keys,
+        args.warn_below,
+    )
+    .await?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        p::header("Contract TTL");
+        p::kv("Contract", &report.contract_id);
+        p::kv("Network", &report.network);
+        p::kv("Latest ledger", &report.latest_ledger.to_string());
+        p::separator();
+        for entry in &report.entries {
+            p::info(&format!("{} ({})", entry.key, entry.kind));
+            match entry.live_until_ledger {
+                Some(lu) => p::kv("  Live until", &lu.to_string()),
+                None => p::kv("  Live until", "unknown / missing"),
+            }
+            match entry.remaining_ledgers {
+                Some(r) => p::kv("  Remaining", &format!("{r} ledgers")),
+                None => p::kv("  Remaining", "unknown"),
+            }
+            if let Some(eta) = &entry.eta {
+                p::kv("  ETA", eta);
+            }
+        }
+        if let Some(threshold) = args.warn_below {
+            if !report.low_ttl.is_empty() {
+                p::warn(&format!(
+                    "{} entr{} below --warn-below {threshold}",
+                    report.low_ttl.len(),
+                    if report.low_ttl.len() == 1 {
+                        "y"
+                    } else {
+                        "ies"
+                    }
+                ));
+            } else {
+                p::success(&format!(
+                    "All entries have at least {threshold} ledgers of TTL remaining"
+                ));
+            }
+        }
+        p::separator();
+    }
+
+    if args.warn_below.is_some() && !report.low_ttl.is_empty() {
+        anyhow::bail!(
+            "TTL warning: {} entr{} below threshold",
+            report.low_ttl.len(),
+            if report.low_ttl.len() == 1 {
+                "y"
+            } else {
+                "ies"
+            }
+        );
+    }
+    Ok(())
+}
+
+async fn handle_ttl_extend(args: TtlExtendArgs) -> Result<()> {
+    let cfg = config::load()?;
+    let wallet = if let Some(ref name) = args.wallet {
+        cfg.wallets
+            .iter()
+            .find(|w| &w.name == name)
+            .ok_or_else(|| anyhow::anyhow!("Wallet '{name}' not found"))?
+            .clone()
+    } else if !cfg.wallets.is_empty() {
+        if !args.json {
             p::info(&format!(
                 "No --wallet specified. Using: {}",
                 cfg.wallets[0].name.cyan()
             ));
-            &cfg.wallets[0]
-        } else {
-            anyhow::bail!(
-                "No wallets found for submission. Create one first:\n  starforge wallet create deployer --fund"
-            );
-        };
-        p::kv("Wallet", &wallet.name);
-        if wallet.secret_key.is_none() && args.hardware.is_none() {
-            anyhow::bail!(
-                "Wallet '{}' has no local secret key. Use --hardware ledger or --hardware trezor.",
-                wallet.name
-            );
         }
-        let signing = wallet_signer::SigningRequest::from_options(
-            Some(wallet),
-            args.hardware,
-            Some(&args.hd_path),
-            &args.network,
-            false,
-            "contract invocation",
-        )?;
-        (Some(wallet.clone()), Some(signing))
+        cfg.wallets[0].clone()
     } else {
-        (None, None)
+        anyhow::bail!(
+            "No wallets found. Create one with `starforge wallet create deployer --fund`"
+        );
     };
 
-    p::separator();
-
-    // Step 1 (+ optional Step 2): delegate to shared invoke_contract()
-    println!();
-    p::step(
-        1,
-        if args.submit { 2 } else { 1 },
-        "Simulating contract invocation…",
-    );
-
-    let outcome = soroban::invoke_contract(
-        &args.contract_id,
-        &args.function,
-        &args.args,
-        &arg_types,
+    let signing = wallet_signer::SigningRequest::from_options(
+        Some(&wallet),
+        args.hardware,
+        Some(&args.hd_path),
         &args.network,
-        submit_wallet.as_ref(),
-        signing_request.as_ref(),
+        true,
+        "extend TTL",
+    )?;
+
+    // Always simulate first to show cost.
+    let estimate = crate::utils::contract_ttl::extend_ttl(
+        &args.contract_id,
+        &args.network,
+        &args.keys,
+        args.ledgers,
+        &wallet,
+        &signing,
+        false,
     )
     .await?;
 
-    let simulation_result = outcome.simulation;
-    p::kv_accent("Simulation", "✓ Success");
-    p::kv("Return Value", &simulation_result.return_value);
-    p::kv("Fee (stroops)", &simulation_result.fee.to_string());
-    p::kv(
-        "Fee (XLM)",
-        &format!("{:.7}", simulation_result.fee as f64 / 10_000_000.0),
-    );
+    if args.json && !args.submit {
+        println!("{}", serde_json::to_string_pretty(&estimate)?);
+        return Ok(());
+    }
 
-    if !simulation_result.events.is_empty() {
+    if !args.json {
+        p::header("Extend Contract TTL");
+        p::kv("Contract", &args.contract_id);
+        p::kv("Network", &args.network);
+        p::kv("Extend to", &format!("{} ledgers from now", args.ledgers));
+        p::kv("Keys", &estimate.keys_extended.to_string());
         p::kv(
-            "Events",
-            &format!("{} emitted", simulation_result.events.len()),
+            "Estimated fee",
+            &format!(
+                "{} stroops ({:.7} XLM)",
+                estimate.estimated_fee_stroops, estimate.estimated_fee_xlm
+            ),
         );
-        for (i, event) in simulation_result.events.iter().enumerate() {
-            p::kv(&format!("  Event {}", i + 1), event);
+        p::separator();
+    }
+
+    if !args.submit {
+        if !args.json {
+            p::info("Simulation only. Re-run with --submit to broadcast the extend transaction.");
+        }
+        return Ok(());
+    }
+
+    if !args.yes && !args.json {
+        let risk = if args.network == "mainnet" {
+            crate::utils::confirmation::RiskLevel::High
+        } else {
+            crate::utils::confirmation::RiskLevel::Medium
+        };
+        let summary = crate::utils::confirmation::OperationSummary::new(
+            "Extend Footprint TTL".to_string(),
+            args.network.clone(),
+            risk,
+        )
+        .add("Contract", &args.contract_id)
+        .add("Ledgers", args.ledgers.to_string())
+        .add(
+            "Estimated fee",
+            format!("{} stroops", estimate.estimated_fee_stroops),
+        );
+        let confirm = crate::utils::confirmation::ConfirmationConfig {
+            risk_level: risk,
+            network: args.network.clone(),
+            skip_confirm: false,
+            dry_run: false,
+            prompt: Some("Submit ExtendFootprintTTL?".to_string()),
+            require_type_confirmation: args.network == "mainnet",
+            ..Default::default()
+        };
+        if !crate::utils::confirmation::confirm_operation(&summary, &confirm)? {
+            anyhow::bail!("TTL extend cancelled.");
         }
     }
 
-    if let Some(tx_result) = outcome.transaction {
-        println!();
-        p::step(2, 2, "Submitting transaction…");
-        p::kv_accent("Transaction", "✓ Submitted");
-        p::kv("TX Hash", &tx_result.hash);
-        p::kv("Return Value", &tx_result.return_value);
-    } else if !args.submit {
-        println!();
-        p::info("Simulation complete. Add --submit to execute the transaction.");
+    let result = crate::utils::contract_ttl::extend_ttl(
+        &args.contract_id,
+        &args.network,
+        &args.keys,
+        args.ledgers,
+        &wallet,
+        &signing,
+        true,
+    )
+    .await?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        p::success("TTL extended");
+        if let Some(hash) = &result.tx_hash {
+            p::kv("TX Hash", hash);
+        }
+        p::kv("Fee", &format!("{} stroops", result.estimated_fee_stroops));
+        p::separator();
+    }
+    Ok(())
+}
+
+async fn handle_version(_args: crate::commands::contract::VersionArgs) -> Result<()> {
+    Ok(())
+}
+
+async fn handle_contract_id(args: ContractIdArgs) -> Result<()> {
+    use crate::utils::config;
+    use crate::utils::contract_id::{derive_contract_id, derive_contract_id_preimage, get_deployer_public_key, parse_deployer, parse_salt, parse_wasm_hash};
+
+    // Get deployer public key
+    let deployer_public_key = if let Some(wallet_name) = &args.wallet {
+        let cfg = config::load()?;
+        let wallet = cfg.wallets.iter().find(|w| &w.name == wallet_name)
+            .ok_or_else(|| anyhow::anyhow!("Wallet '{}' not found. Run `starforge wallet list`", wallet_name))?;
+        get_deployer_public_key(wallet)?
+    } else {
+        parse_deployer(&args.deployer)?
+    };
+
+    // Parse salt
+    let salt = parse_salt(&args.salt)?;
+
+    // If verbose, show the preimage components
+    if args.verbose {
+        let preimage = derive_contract_id_preimage(&deployer_public_key, &salt, &args.network)?;
+
+        if args.json {
+            let output = serde_json::json!({
+                "network_passphrase": preimage.network_passphrase,
+                "network_id": preimage.network_id_hex,
+                "deployer_address": preimage.deployer_address,
+                "salt": preimage.salt_hex,
+                "contract_id_preimage_type": preimage.contract_id_preimage_type,
+            });
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        } else {
+            p::header("Contract ID Preimage Components");
+            p::separator();
+            p::kv("Network Passphrase", &preimage.network_passphrase);
+            p::kv("Network ID (SHA-256)", &preimage.network_id_hex);
+            p::kv("Deployer Address", &preimage.deployer_address);
+            p::kv("Salt (hex)", &preimage.salt_hex);
+            p::kv("Preimage Type", &preimage.contract_id_preimage_type);
+            p::separator();
+        }
     }
 
-    p::separator();
+    // If WASM hash provided, compute full contract ID
+    if let Some(wasm_hash_str) = args.wasm_hash {
+        let wasm_hash = parse_wasm_hash(&wasm_hash_str)?;
+        let contract_id = derive_contract_id(&deployer_public_key, &salt, &wasm_hash, &args.network)?;
+
+        if args.json {
+            let output = serde_json::json!({
+                "contract_id": contract_id,
+                "deployer": args.deployer,
+                "salt": args.salt,
+                "wasm_hash": wasm_hash_str,
+                "network": args.network,
+            });
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        } else {
+            p::header("Predicted Contract ID");
+            p::separator();
+            p::kv_accent("Contract ID", &contract_id);
+            p::kv("Deployer", &args.deployer);
+            p::kv("Salt", &args.salt);
+            p::kv("WASM Hash", &wasm_hash_str);
+            p::kv("Network", &args.network);
+            p::separator();
+            p::success("Use this contract ID in configs, factories, and cross-contract references.");
+            p::info("Deploy with the same --salt to get this exact contract ID.");
+        }
+    } else {
+        // Show preimage only - explain that WASM hash is needed for full prediction
+        if !args.verbose {
+            p::header("Contract ID Preimage (WASM hash required for full prediction)");
+            p::separator();
+            p::kv("Deployer", &args.deployer);
+            p::kv("Salt", &args.salt);
+            p::kv("Network", &args.network);
+            p::separator();
+            p::info("Provide --wasm-hash to compute the full predicted contract ID.");
+            p::info("Use --verbose to see the full derivation preimage components.");
+        }
+    }
+
     Ok(())
 }
 
@@ -1183,94 +1949,5 @@ fn handle_deps(args: DepsArgs) -> Result<()> {
         }
     }
 
-    Ok(())
-}
-
-async fn handle_contract_id(args: ContractIdArgs) -> Result<()> {
-    use crate::utils::config;
-    use crate::utils::contract_id::{derive_contract_id, derive_contract_id_preimage, get_deployer_public_key, parse_deployer, parse_salt, parse_wasm_hash};
-
-    // Get deployer public key
-    let deployer_public_key = if let Some(wallet_name) = &args.wallet {
-        let cfg = config::load()?;
-        let wallet = cfg.wallets.iter().find(|w| &w.name == wallet_name)
-            .ok_or_else(|| anyhow::anyhow!("Wallet '{}' not found. Run `starforge wallet list`", wallet_name))?;
-        get_deployer_public_key(wallet)?
-    } else {
-        parse_deployer(&args.deployer)?
-    };
-
-    // Parse salt
-    let salt = parse_salt(&args.salt)?;
-
-    // If verbose, show the preimage components
-    if args.verbose {
-        let preimage = derive_contract_id_preimage(&deployer_public_key, &salt, &args.network)?;
-        
-        if args.json {
-            let output = serde_json::json!({
-                "network_passphrase": preimage.network_passphrase,
-                "network_id": preimage.network_id_hex,
-                "deployer_address": preimage.deployer_address,
-                "salt": preimage.salt_hex,
-                "contract_id_preimage_type": preimage.contract_id_preimage_type,
-            });
-            println!("{}", serde_json::to_string_pretty(&output)?);
-        } else {
-            p::header("Contract ID Preimage Components");
-            p::separator();
-            p::kv("Network Passphrase", &preimage.network_passphrase);
-            p::kv("Network ID (SHA-256)", &preimage.network_id_hex);
-            p::kv("Deployer Address", &preimage.deployer_address);
-            p::kv("Salt (hex)", &preimage.salt_hex);
-            p::kv("Preimage Type", &preimage.contract_id_preimage_type);
-            p::separator();
-        }
-    }
-
-    // If WASM hash provided, compute full contract ID
-    if let Some(wasm_hash_str) = args.wasm_hash {
-        let wasm_hash = parse_wasm_hash(&wasm_hash_str)?;
-        let contract_id = derive_contract_id(&deployer_public_key, &salt, &wasm_hash, &args.network)?;
-
-        if args.json {
-            let output = serde_json::json!({
-                "contract_id": contract_id,
-                "deployer": args.deployer,
-                "salt": args.salt,
-                "wasm_hash": wasm_hash_str,
-                "network": args.network,
-            });
-            println!("{}", serde_json::to_string_pretty(&output)?);
-        } else {
-            p::header("Predicted Contract ID");
-            p::separator();
-            p::kv_accent("Contract ID", &contract_id);
-            p::kv("Deployer", &args.deployer);
-            p::kv("Salt", &args.salt);
-            p::kv("WASM Hash", &wasm_hash_str);
-            p::kv("Network", &args.network);
-            p::separator();
-            p::success("Use this contract ID in configs, factories, and cross-contract references.");
-            p::info("Deploy with the same --salt to get this exact contract ID.");
-        }
-    } else {
-        // Show preimage only - explain that WASM hash is needed for full prediction
-        if !args.verbose {
-            p::header("Contract ID Preimage (WASM hash required for full prediction)");
-            p::separator();
-            p::kv("Deployer", &args.deployer);
-            p::kv("Salt", &args.salt);
-            p::kv("Network", &args.network);
-            p::separator();
-            p::info("Provide --wasm-hash to compute the full predicted contract ID.");
-            p::info("Use --verbose to see the full derivation preimage components.");
-        }
-    }
-
-    Ok(())
-}
-
-async fn handle_version(_args: crate::commands::contract::VersionArgs) -> Result<()> {
     Ok(())
 }

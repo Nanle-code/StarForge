@@ -9,7 +9,7 @@ fn isolated_home() -> tempfile::TempDir {
 fn starforge(home: &std::path::Path) -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_starforge"));
     cmd.arg("-q");
-    cmd.env("HOME", home);
+    cmd.env("STARFORGE_HOME", home);
     cmd.env("USERPROFILE", home);
     // HOME / USERPROFILE alone do not isolate the CLI on Windows, where
     // `dirs::home_dir()` resolves through SHGetKnownFolderPath(FOLDERID_Profile)
@@ -190,8 +190,28 @@ fn invalid_network_switch_json_returns_error_envelope() {
     let parsed: serde_json::Value = serde_json::from_str(&stderr).expect("error JSON output");
     assert_eq!(parsed["version"], 1);
     assert_eq!(parsed["ok"], false);
-    assert!(parsed["error"]["code"].is_string());
+    assert_eq!(parsed["error"]["code"], "SF0003");
     assert!(parsed["error"]["message"].is_string());
+    assert!(parsed["error"]["cause"].is_string());
+    assert!(parsed["error"]["fix"].is_string());
+    assert!(parsed["error"]["docs"].is_string());
+    assert_eq!(parsed["error"]["exit_code"], 3);
+    assert_eq!(output.status.code(), Some(3));
+}
+
+#[test]
+fn explain_error_prints_cause_fix_and_docs_link() {
+    let home = isolated_home();
+    let output = starforge(home.path())
+        .args(["--quiet", "explain-error", "SF1203"])
+        .output()
+        .expect("spawn explain-error");
+    assert_success(&output, "starforge explain-error SF1203");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Code: SF1203"));
+    assert!(stdout.contains("Cause: The deployment transaction"));
+    assert!(stdout.contains("Fix: Review the transaction"));
+    assert!(stdout.contains("ERRORS.md#sf1203"));
 }
 
 #[test]

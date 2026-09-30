@@ -931,6 +931,7 @@ mod tests {
             provenance: None,
             security_review: None,
             changelog: None,
+            ..Default::default()
         }
     }
 

@@ -205,6 +205,10 @@ fn valid_config() -> impl Strategy<Value = Config> {
                         funded,
                         rotation_history,
                         kdf_options: None,
+                        derivation_index: None,
+                        derivation_path: None,
+                        mnemonic_wallet: None,
+                        usage_policy: Default::default(),
                     });
                 }
 
@@ -257,6 +261,10 @@ fn overlay_for(base: &Config) -> impl Strategy<Value = ConfigOverlay> {
                     funded: false,
                     rotation_history: Vec::new(),
                     kdf_options: None,
+                    derivation_index: None,
+                    derivation_path: None,
+                    mnemonic_wallet: None,
+                    usage_policy: Default::default(),
                 });
             }
             ConfigOverlay {
@@ -450,6 +458,10 @@ proptest! {
             funded: false,
             rotation_history: Vec::new(),
             kdf_options: None,
+            derivation_index: None,
+            derivation_path: None,
+            mnemonic_wallet: None,
+            usage_policy: Default::default(),
         });
         prop_assert!(config::validate_config(&broken).is_err());
     }
@@ -482,6 +494,10 @@ proptest! {
             funded: false,
             rotation_history: Vec::new(),
             kdf_options: None,
+            derivation_index: None,
+            derivation_path: None,
+            mnemonic_wallet: None,
+            usage_policy: Default::default(),
         });
         prop_assert!(config::validate_config(&broken).is_err());
     }

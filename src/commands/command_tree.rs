@@ -96,10 +96,11 @@ const COMMANDS: &[CmdEntry] = &[
     },
     CmdEntry {
         name: "contract",
-        about: "Contract operations (invoke, inspect, etc.)",
+        about: "Contract operations (invoke, inspect, ttl, etc.)",
         subs: &[
             ("invoke", "Invoke a deployed contract function"),
             ("inspect", "Inspect a compiled contract .wasm file"),
+            ("ttl", "Inspect and extend ledger-entry TTLs"),
         ],
     },
     CmdEntry {

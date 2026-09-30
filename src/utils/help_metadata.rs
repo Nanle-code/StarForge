@@ -12,7 +12,7 @@
 //!
 //!   * [`WORKFLOWS`] — multi-command sequences for common end-to-end jobs
 //!     (first contract deployments, gas debugging, security audit, …). The
-//!     `starforge help --workflow` command lists these and the user can
+//!     `starforge ai help --workflow` command lists these and the user can
 //!     filter by command name.
 //!
 //!   * [`ERROR_QUICK_FIXES`] and [`PREREQUISITES`] — tiny tables used by
@@ -62,7 +62,7 @@ pub struct CommandHelpInfo {
     /// Concrete examples a beginner can copy-paste.
     pub examples: &'static [ExampleHelp],
     /// Workflow names (see [`WORKFLOWS`]) the user can follow for this
-    /// command; they will be expanded when `starforge help <cmd> --workflow`
+    /// command; they will be expanded when `starforge ai help <cmd> --workflow`
     /// is run.
     pub workflows: &'static [&'static str],
     /// Best-practice tips the engine surfaces when relevant (security, gas,
@@ -86,25 +86,25 @@ pub const HELP_REGISTRY: &[CommandHelpInfo] = &[
         ],
         examples: &[
             ExampleHelp {
-                command: "starforge deploy --wasm target/wasm32-unknown-unknown/release/hello.wasm",
+                command: "starforge deploy run --wasm target/wasm32-unknown-unknown/release/hello.wasm",
                 description: "Deploy a freshly built contract to the active network",
             },
             ExampleHelp {
-                command: "starforge deploy --wasm ./build/c.wasm --network testnet --wallet deployer",
+                command: "starforge deploy run --wasm ./build/c.wasm --network testnet --wallet deployer",
                 description: "Target testnet with a specific deployer wallet",
             },
             ExampleHelp {
-                command: "cargo build --target wasm32-unknown-unknown --release && starforge deploy --wasm target/wasm32-unknown-unknown/release/hello.wasm",
+                command: "cargo build --target wasm32-unknown-unknown --release && starforge deploy run --wasm target/wasm32-unknown-unknown/release/hello.wasm",
                 description: "Rebuild first, then deploy the rebuilt wasm — avoids shipping a stale binary",
             },
         ],
         workflows: &["first-contract", "upgrade-existing-contract"],
         tips: &[
-            "Always run `starforge test <wasm>` before deploying to mainnet — mainnet deployments are irreversible.",
+            "Always run `starforge contract test <wasm>` before deploying to mainnet — mainnet deployments are irreversible.",
             "Use `--optimize` for production deployments to reduce WASM size and gas cost.",
             "Capture the contract ID printed on success — you'll need it for `contract invoke` and `inspect`.",
         ],
-        related: &["contract", "wallet", "network", "test", "deployments"],
+        related: &["contract", "wallet", "network", "contract test", "deploy history"],
     },
     CommandHelpInfo {
         name: "wallet",
@@ -130,7 +130,7 @@ pub const HELP_REGISTRY: &[CommandHelpInfo] = &[
             "Use `--encrypt` if your machine is shared, otherwise the secret key is stored in plaintext.",
             "Funded testnet wallets can be re-funded any time via `wallet fund <name>`.",
         ],
-        related: &["network", "deploy", "audit"],
+        related: &["network", "deploy run", "contract audit"],
     },
     CommandHelpInfo {
         name: "contract",
@@ -158,7 +158,7 @@ pub const HELP_REGISTRY: &[CommandHelpInfo] = &[
             "If you get a type mismatch, regenerate bindings: `starforge contract generate-bindings`.",
             "For write calls, the signing wallet must match the `require_auth` check in the contract.",
         ],
-        related: &["deploy", "wallet", "debug", "inspect", "audit"],
+        related: &["deploy run", "wallet", "contract debug", "contract storage", "contract audit"],
     },
     CommandHelpInfo {
         name: "network",
@@ -182,9 +182,9 @@ pub const HELP_REGISTRY: &[CommandHelpInfo] = &[
         tips: &[
             "Switch to testnet when experimenting — Friendbot is free there but unavailable on mainnet.",
             "Built-in networks (testnet, mainnet, docker-testnet) cannot be removed.",
-            "`docker-testnet` points at a local container; `starforge node start` brings it up.",
+            "`docker-testnet` points at a local container; `starforge network node start` brings it up.",
         ],
-        related: &["node", "deploy", "wallet"],
+        related: &["network node", "deploy run", "wallet"],
     },
     CommandHelpInfo {
         name: "test",
@@ -194,15 +194,15 @@ pub const HELP_REGISTRY: &[CommandHelpInfo] = &[
             FlagHelp { flag: "--name <filter>", purpose: "Run only tests whose name matches" },
         ],
         examples: &[
-            ExampleHelp { command: "starforge test --wasm target/wasm32-unknown-unknown/release/hello.wasm",
+            ExampleHelp { command: "starforge contract test --wasm target/wasm32-unknown-unknown/release/hello.wasm",
                 description: "Run all unit tests embedded in the WASM" },
         ],
         workflows: &["first-contract"],
         tips: &[
-            "Run `cargo test` in the contract crate before invoking `starforge test` for fast feedback.",
+            "Run `cargo test` in the contract crate before invoking `starforge contract test` for fast feedback.",
             "Use `--name` to scope a run to a single failing test while debugging.",
         ],
-        related: &["contract", "audit", "gas"],
+        related: &["contract", "contract audit", "contract gas"],
     },
     CommandHelpInfo {
         name: "gas",
@@ -214,7 +214,7 @@ pub const HELP_REGISTRY: &[CommandHelpInfo] = &[
             FlagHelp { flag: "--report", purpose: "Produce a human-readable gas usage report" },
         ],
         examples: &[
-            ExampleHelp { command: "starforge gas estimate --wasm app.wasm --function transfer",
+            ExampleHelp { command: "starforge contract gas estimate --wasm app.wasm --function transfer",
                 description: "Estimate the gas cost of a single call" },
         ],
         workflows: &["gas-debugging"],
@@ -223,7 +223,7 @@ pub const HELP_REGISTRY: &[CommandHelpInfo] = &[
             "`require_auth` adds a fixed cost; batch operations behind one auth call save gas.",
             "Persistent storage must have its TTL extended periodically; forgotten TTL is a common gas cliff.",
         ],
-        related: &["contract", "audit", "test"],
+        related: &["contract", "contract audit", "contract test"],
     },
     CommandHelpInfo {
         name: "audit",
@@ -233,7 +233,7 @@ pub const HELP_REGISTRY: &[CommandHelpInfo] = &[
             FlagHelp { flag: "--deep", purpose: "Run additional deep checks (slower, more findings)" },
         ],
         examples: &[
-            ExampleHelp { command: "starforge audit ./hello",
+            ExampleHelp { command: "starforge contract audit ./hello",
                 description: "Audit the contract source directory" },
         ],
         workflows: &["security-review"],
@@ -241,7 +241,7 @@ pub const HELP_REGISTRY: &[CommandHelpInfo] = &[
             "Run audits before every mainnet deploy — even a small change can introduce regressions.",
             "Pair `audit` with `ai-audit` for an LLM-assisted explanation of findings.",
         ],
-        related: &["ai-audit", "deploy", "test"],
+        related: &["ai security-audit", "deploy run", "contract test"],
     },
     CommandHelpInfo {
         name: "ai-debug",
@@ -251,15 +251,15 @@ pub const HELP_REGISTRY: &[CommandHelpInfo] = &[
             FlagHelp { flag: "--explain <category>", purpose: "Explain a known error category in detail" },
         ],
         examples: &[
-            ExampleHelp { command: "starforge ai-debug analyse \"require_auth failed for address\"",
+            ExampleHelp { command: "starforge ai debug analyse \"require_auth failed for address\"",
                 description: "Identify why an auth check failed" },
         ],
         workflows: &["troubleshoot-error"],
         tips: &[
             "Quote the error message so the analyser sees the exact text — backticks and special characters matter.",
-            "Pair with `starforge debug start` to reproduce the failing call interactively.",
+            "Pair with `starforge contract debug start` to reproduce the failing call interactively.",
         ],
-        related: &["debug", "audit", "contract"],
+        related: &["contract debug", "contract audit", "contract"],
     },
     CommandHelpInfo {
         name: "tutorial",
@@ -271,15 +271,15 @@ pub const HELP_REGISTRY: &[CommandHelpInfo] = &[
             FlagHelp { flag: "--status", purpose: "Show overall tutorial progress" },
         ],
         examples: &[
-            ExampleHelp { command: "starforge tutorial start hello-world",
+            ExampleHelp { command: "starforge tool tutorial start hello-world",
                 description: "Walk through your first end-to-end flow" },
         ],
         workflows: &["first-contract"],
         tips: &[
-            "Run `starforge tutorial list` to see every available tutorial — they're the fastest way to learn.",
-            "`starforge tutorial status` shows where you paused; `next` resumes.",
+            "Run `starforge tool tutorial list` to see every available tutorial — they're the fastest way to learn.",
+            "`starforge tool tutorial status` shows where you paused; `next` resumes.",
         ],
-        related: &["new", "deploy", "wallet"],
+        related: &["project new", "deploy run", "wallet"],
     },
     CommandHelpInfo {
         name: "template",
@@ -298,7 +298,7 @@ pub const HELP_REGISTRY: &[CommandHelpInfo] = &[
             "Skim `info <slug>` before installing to see the trust badges and license.",
             "Always review the README of an installed template before building on top of it.",
         ],
-        related: &["new", "registry", "audit"],
+        related: &["project new", "template registry", "contract audit"],
     },
 ];
 
@@ -323,12 +323,12 @@ pub const WORKFLOWS: &[Workflow] = &[
         description: "Build, fund, deploy, and invoke your first Soroban contract end-to-end",
         approx_duration: "5–10 minutes",
         steps: &[
-            "starforge tutorial start hello-world          # optional guided intro",
-            "starforge wallet create deployer --fund       # create + fund a testnet wallet",
-            "starforge network show                        # confirm active network is testnet",
-            "starforge new contract hello                  # scaffold a contract (or use your own)",
-            "cd hello && stellar contract build            # build the WASM",
-            "starforge deploy --wasm target/wasm32-unknown-unknown/release/hello.wasm --wallet deployer",
+            "starforge tool tutorial start hello-world    # optional guided intro",
+            "starforge wallet create deployer --fund      # create + fund a testnet wallet",
+            "starforge network show                       # confirm active network is testnet",
+            "starforge project new contract hello         # scaffold a contract (or use your own)",
+            "cd hello && stellar contract build           # build the WASM",
+            "starforge deploy run --wasm target/wasm32-unknown-unknown/release/hello.wasm --wallet deployer",
             "starforge contract invoke --id <printed-id> --function hello --args '[]'",
         ],
     },
@@ -337,11 +337,11 @@ pub const WORKFLOWS: &[Workflow] = &[
         description: "Profile and reduce the gas cost of a specific contract invocation",
         approx_duration: "10–20 minutes",
         steps: &[
-            "starforge gas estimate --wasm app.wasm --function <fn> --args '[...]'   # baseline",
-            "starforge gas report --wasm app.wasm                                   # full breakdown",
-            "starforge audit --deep <path>                                          # look for TTL/auth issues",
+            "starforge contract gas estimate --wasm app.wasm --function <fn> --args '[...]'   # baseline",
+            "starforge contract gas report --wasm app.wasm                                   # full breakdown",
+            "starforge contract audit --deep <path>                                          # look for TTL/auth issues",
             "# Edit contract to reduce storage ops, then rebuild",
-            "stellar contract build && starforge gas estimate --wasm <new>.wasm --function <fn> --args '[...]'",
+            "stellar contract build && starforge contract gas estimate --wasm <new>.wasm --function <fn> --args '[...]'",
         ],
     },
     Workflow {
@@ -349,11 +349,11 @@ pub const WORKFLOWS: &[Workflow] = &[
         description: "Run static and AI-assisted security checks before a mainnet deployment",
         approx_duration: "5–15 minutes",
         steps: &[
-            "starforge test <path>              # all unit tests must pass first",
-            "starforge audit <path>             # static analysis (fast, local)",
-            "starforge ai-audit <path>          # LLM-assisted deeper review",
-            "starforge ai-debug analyse \"<if applicable>\"  # triage any leftover findings",
-            "starforge deploy --optimize --wasm <path> --network mainnet",
+            "starforge contract test <path>            # all unit tests must pass first",
+            "starforge contract audit <path>           # static analysis (fast, local)",
+            "starforge ai security-audit <path>        # LLM-assisted deeper review",
+            "starforge ai debug analyse \"<if applicable>\" # triage any leftover findings",
+            "starforge deploy run --optimize --wasm <path> --network mainnet",
         ],
     },
     Workflow {
@@ -361,11 +361,11 @@ pub const WORKFLOWS: &[Workflow] = &[
         description: "Track down an error from a failed command and form a fix plan",
         approx_duration: "5 minutes",
         steps: &[
-            "starforge help --why                       # explain your last error",
-            "starforge ai-debug analyse \"<error>\"      # pattern-match the message",
-            "starforge debug start --wasm <path>        # step through the failure",
-            "starforge audit <path>                     # look for static issues",
-            "# Apply the fix suggested in the ai-debug report and retry",
+            "starforge ai help --why                      # explain your last error",
+            "starforge ai debug analyse \"<error>\"       # pattern-match the message",
+            "starforge contract debug start --wasm <path> # step through the failure",
+            "starforge contract audit <path>              # look for static issues",
+            "# Apply the fix suggested in the `ai debug` report and retry",
         ],
     },
     Workflow {
@@ -373,12 +373,12 @@ pub const WORKFLOWS: &[Workflow] = &[
         description: "Propose, approve, and execute a contract upgrade end-to-end",
         approx_duration: "20–40 minutes",
         steps: &[
-            "starforge audit <new.wasm>                           # sanity check the new build",
-            "starforge upgrade propose --id <id> --new-wasm <new.wasm>",
-            "starforge upgrade approve --id <id> --wallet <name>  # collect approvals",
-            "starforge upgrade execute --id <id> --wallet <name>",
-            "starforge deployments list                             # confirm the change",
-            "starforge upgrade rollback --id <id> --to <prev-hash>  # if anything went wrong",
+            "starforge contract audit <new.wasm>              # sanity check the new build",
+            "starforge contract upgrade propose --id <id> --new-wasm <new.wasm>",
+            "starforge contract upgrade approve --id <id> --wallet <name> # collect approvals",
+            "starforge contract upgrade execute --id <id> --wallet <name>",
+            "starforge deploy history list                    # confirm the change",
+            "starforge contract upgrade rollback --id <id> --to <prev-hash> # if anything went wrong",
         ],
     },
 ];
@@ -428,7 +428,7 @@ pub const PREREQUISITES: &[PrerequisiteSet] = &[
             Prerequisite {
                 pattern: "deploy",
                 warning: "If you're invoking a contract, it usually needs to be deployed first.",
-                remedy: "starforge deploy --wasm <path>",
+                remedy: "starforge deploy run --wasm <path>",
             },
         ],
     },
@@ -438,7 +438,7 @@ pub const PREREQUISITES: &[PrerequisiteSet] = &[
             Prerequisite {
                 pattern: "tutorial list",
                 warning: "If `tutorial list` is empty, no tutorials are installed; grab one from the registry first.",
-                remedy: "starforge tutorial list",
+                remedy: "starforge tool tutorial list",
             },
         ],
     },
@@ -493,19 +493,19 @@ pub const ERROR_QUICK_FIXES: &[ErrorQuickFix] = &[
         keywords: &["panic", "panicked", "called `result::unwrap`", "called `option::unwrap`"],
         category: "panic",
         action: "Contract panicked (commonly from `.unwrap()` or an assertion). Replace with explicit error handling.",
-        follow_up: "starforge debug start --wasm <path>",
+        follow_up: "starforge contract debug start --wasm <path>",
     },
     ErrorQuickFix {
         keywords: &["invalid wasm", "wasm"],
         category: "wasm",
         action: "WASM binary is invalid or stale. Rebuild with `stellar contract build`.",
-        follow_up: "starforge deploy --wasm <rebuilt-path>",
+        follow_up: "starforge deploy run --wasm <rebuilt-path>",
     },
     ErrorQuickFix {
         keywords: &["contract not found", "ledger entry not found", "does not exist"],
         category: "network-contract",
         action: "Contract ID not found on the active network. Verify you're on the right network.",
-        follow_up: "starforge network show && starforge deployments list",
+        follow_up: "starforge network show && starforge deploy history list",
     },
     ErrorQuickFix {
         keywords: &["missing key", "key not found", "no entry", "missing storage"],

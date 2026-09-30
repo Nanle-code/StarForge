@@ -202,7 +202,7 @@ impl PluginManager {
         #[cfg(not(feature = "unsafe-native-plugins"))]
         {
             let _ = path_ref;
-            Err(PluginLoadError::PermissionDenied {
+            return Err(PluginLoadError::PermissionDenied {
                 path: path_display,
                 capabilities:
                     "native plugin loading is disabled; enable the unsafe-native-plugins feature"

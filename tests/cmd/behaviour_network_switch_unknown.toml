@@ -1,0 +1,3 @@
+# Golden CLI case: network switch to an unknown network
+description = "network switch to an unknown network"
+args = ["network", "switch", "does-not-exist-xyz"]

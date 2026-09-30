@@ -1,0 +1,167 @@
+name: Template validation
+
+on:
+  pull_request:
+    paths:
+      - "templates/**"
+      - "src/utils/templates.rs"
+      - "src/commands/new.rs"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/discover-templates.py"
+      - ".github/workflows/templates.yml"
+  push:
+    branches: [master]
+    paths:
+      - "templates/**"
+      - "src/utils/templates.rs"
+      - "src/commands/new.rs"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/discover-templates.py"
+      - ".github/workflows/templates.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    name: Discover templates
+    runs-on: ubuntu-24.04
+    outputs:
+      templates: ${{ steps.list.outputs.templates }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        name: Build template matrix from repository sources
+        run: echo "templates=$(python3 scripts/discover-templates.py)" >> "$GITHUB_OUTPUT"
+
+  build-cli:
+    name: Build StarForge CLI
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build CLI
+        run: cargo build --locked --release --bin starforge
+      - uses: actions/upload-artifact@v4
+        with:
+          name: starforge-cli
+          path: target/release/starforge
+          if-no-files-found: error
+          retention-days: 1
+
+  validate:
+    name: Validate ${{ matrix.template }}
+    needs: [discover, build-cli]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        template: ${{ fromJSON(needs.discover.outputs.templates) }}
+    env:
+      CARGO_TERM_COLOR: always
+      STARFORGE_NON_INTERACTIVE: "1"
+      CARGO_TARGET_DIR: ${{ github.workspace }}/project/target
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+      - uses: actions/download-artifact@v4
+        with:
+          name: starforge-cli
+          path: .ci-bin
+      - name: Scaffold project
+        env:
+          TEMPLATE_NAME: ${{ matrix.template }}
+        run: |
+          chmod +x .ci-bin/starforge
+          .ci-bin/starforge --non-interactive --quiet new contract project --template "$TEMPLATE_NAME"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: scaffold-${{ matrix.template }}
+          workspaces: project -> project/target
+      - name: Run template tests
+        working-directory: project
+        run: cargo test
+      - name: Build template for WASM
+        working-directory: project
+        run: cargo build --target wasm32-unknown-unknown --release
+      - name: Record WASM size
+        id: wasm-size
+        working-directory: project
+        env:
+          TEMPLATE_NAME: ${{ matrix.template }}
+        run: |
+          python3 - <<'PY'
+          import glob, json, os
+          files = sorted(glob.glob('target/wasm32-unknown-unknown/release/*.wasm'))
+          if not files:
+              raise SystemExit('No WASM files found in release target directory')
+          with open(f"../wasm-size-{os.environ['TEMPLATE_NAME']}.json", 'w', encoding='utf-8') as out:
+              json.dump([{'template': os.environ['TEMPLATE_NAME'], 'file': path, 'bytes': os.path.getsize(path)} for path in files], out)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:
+              summary.write('| Template | WASM file | Size (KB) |\n|---|---|---:|\n')
+              for path in files:
+                  size = os.path.getsize(path)
+                  summary.write(f"| {os.environ['TEMPLATE_NAME']} | `{path}` | {size / 1024:.2f} |\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wasm-size-${{ matrix.template }}
+          path: wasm-size-${{ matrix.template }}.json
+          if-no-files-found: error
+          retention-days: 7
+
+  report:
+    name: Template WASM size report
+    if: always()
+    needs: [discover, validate]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wasm-size-*
+          path: wasm-sizes
+          merge-multiple: true
+        continue-on-error: true
+      - name: Aggregate WASM sizes
+        run: |
+          mkdir -p wasm-sizes
+          python3 - <<'PY'
+          import glob, json, os
+          rows = []
+          for path in glob.glob('wasm-sizes/*.json'):
+              with open(path, encoding='utf-8') as source:
+                  rows.extend(json.load(source))
+          rows.sort(key=lambda row: (row['template'], row['file']))
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:
+              summary.write('## Template WASM sizes\n\n| Template | WASM file | Size (KB) |\n|---|---|---:|\n')
+              for row in rows:
+                  summary.write(f"| {row['template']} | `{row['file']}` | {row['bytes'] / 1024:.2f} |\n")
+              if not rows:
+                  summary.write('\nNo WASM size artifacts were produced.\n')
+          PY
+
+  templates-ok:
+    name: templates-ok
+    if: always()
+    needs: [discover, build-cli, validate, report]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require discovery, CLI build, all template builds, and report
+        env:
+          DISCOVER_RESULT: ${{ needs.discover.result }}
+          CLI_RESULT: ${{ needs.build-cli.result }}
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+          REPORT_RESULT: ${{ needs.report.result }}
+        run: |
+          test "$DISCOVER_RESULT" = success
+          test "$CLI_RESULT" = success
+          test "$VALIDATE_RESULT" = success
+          test "$REPORT_RESULT" = success

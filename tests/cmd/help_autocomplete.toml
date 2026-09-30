@@ -1,0 +1,3 @@
+# Golden CLI case: starforge autocomplete --help
+description = "starforge autocomplete --help"
+args = ["autocomplete", "--help"]

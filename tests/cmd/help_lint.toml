@@ -1,0 +1,3 @@
+# Golden CLI case: starforge lint --help
+description = "starforge lint --help"
+args = ["lint", "--help"]

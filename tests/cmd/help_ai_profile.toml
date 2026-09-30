@@ -1,0 +1,3 @@
+# Golden CLI case: starforge ai-profile --help
+description = "starforge ai-profile --help"
+args = ["ai-profile", "--help"]

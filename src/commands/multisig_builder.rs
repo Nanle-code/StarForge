@@ -83,6 +83,12 @@ pub enum MultisigCommands {
         input: PathBuf,
         /// Output proposal file path
         output: Option<PathBuf>,
+        /// Expected network for the offline payload
+        #[arg(long)]
+        network: Option<String>,
+        /// Expected SHA-256 payload hash
+        #[arg(long)]
+        hash: Option<String>,
     },
     /// Send signature request notifications
     Notify {
@@ -144,7 +150,13 @@ pub async fn handle(cmd: MultisigCommands) -> Result<()> {
             network,
             timelock_delay,
             execution_window,
-        } => create_proposal(threshold, &signers, &network, timelock_delay, execution_window),
+        } => create_proposal(
+            threshold,
+            &signers,
+            &network,
+            timelock_delay,
+            execution_window,
+        ),
         MultisigCommands::AddSigner { proposal, signer } => add_signer(&proposal, &signer),
         MultisigCommands::Sign { proposal, signer } => sign_proposal(&proposal, &signer),
         MultisigCommands::View { proposal } => view_proposal(&proposal),
@@ -152,7 +164,12 @@ pub async fn handle(cmd: MultisigCommands) -> Result<()> {
         MultisigCommands::IsReady { proposal } => is_ready(&proposal),
         MultisigCommands::Submit { proposal, network } => submit_proposal(&proposal, &network),
         MultisigCommands::Export { proposal, output } => export_proposal(&proposal, output),
-        MultisigCommands::Import { input, output } => import_proposal(&input, output),
+        MultisigCommands::Import {
+            input,
+            output,
+            network,
+            hash,
+        } => import_proposal(&input, output, network.as_deref(), hash.as_deref()),
         MultisigCommands::Notify {
             proposal,
             channel,
@@ -379,11 +396,12 @@ fn sign_proposal(proposal_path: &std::path::Path, wallet: &str) -> Result<()> {
 
     p::info(&format!("Signing proposal with wallet '{}'", wallet));
 
-    let signature = multisig::generate_signature(&proposal.id, wallet)?;
+    proposal.validate_payload(None, None)?;
+    let signature = multisig::generate_proposal_signature(wallet, &proposal)?;
     if !multisig::validate_signature_format(&signature) {
         anyhow::bail!("Generated signature failed format validation");
     }
-    if !multisig::verify_signature(&proposal.id, wallet, &signature) {
+    if !multisig::verify_proposal_signature(&proposal, wallet, &signature) {
         anyhow::bail!("Signature self-verification failed");
     }
 
@@ -427,10 +445,19 @@ fn print_proposal_summary(proposal: &multisig::Proposal) {
                 multisig::TimelockExecutionStatus::CollectingSignatures { signed, required } => {
                     format!("Collecting signatures ({}/{})", signed, required)
                 }
-                multisig::TimelockExecutionStatus::Locked { unlock_at, remaining_seconds } => {
-                    format!("LOCKED (unlocks at {}, {}s remaining)", unlock_at, remaining_seconds)
+                multisig::TimelockExecutionStatus::Locked {
+                    unlock_at,
+                    remaining_seconds,
+                } => {
+                    format!(
+                        "LOCKED (unlocks at {}, {}s remaining)",
+                        unlock_at, remaining_seconds
+                    )
                 }
-                multisig::TimelockExecutionStatus::ReadyToExecute { expires_at, remaining_window_seconds } => {
+                multisig::TimelockExecutionStatus::ReadyToExecute {
+                    expires_at,
+                    remaining_window_seconds,
+                } => {
                     if let Some(rem) = remaining_window_seconds {
                         format!("READY TO EXECUTE (window expires in {}s)", rem)
                     } else {
@@ -483,7 +510,7 @@ fn view_proposal(proposal_path: &std::path::Path) -> Result<()> {
     println!();
     println!("{}", colored::Colorize::cyan("═══ SIGNATURES ═══"));
     for sig in &proposal.signatures {
-        let verified = multisig::verify_signature(&proposal.id, &sig.signer, &sig.signature);
+        let verified = multisig::verify_proposal_signature(&proposal, &sig.signer, &sig.signature);
         let marker = if verified {
             colored::Colorize::green("✓")
         } else {
@@ -577,7 +604,10 @@ fn submit_proposal(proposal_path: &std::path::Path, network: &str) -> Result<()>
 }
 
 fn export_proposal(proposal_path: &std::path::Path, output: Option<PathBuf>) -> Result<()> {
-    let proposal = load_proposal(proposal_path)?;
+    let mut proposal = load_proposal(proposal_path)?;
+    proposal.validate_payload(None, None)?;
+    proposal.payload_hash = Some(proposal.payload_hash());
+    proposal.signatures.clear();
 
     let output_file = output.unwrap_or_else(|| {
         PathBuf::from(format!(
@@ -593,8 +623,15 @@ fn export_proposal(proposal_path: &std::path::Path, output: Option<PathBuf>) -> 
     Ok(())
 }
 
-fn import_proposal(input_path: &std::path::Path, output: Option<PathBuf>) -> Result<()> {
-    let proposal = load_proposal(input_path)?;
+fn import_proposal(
+    input_path: &std::path::Path,
+    output: Option<PathBuf>,
+    expected_network: Option<&str>,
+    expected_hash: Option<&str>,
+) -> Result<()> {
+    let mut proposal = load_proposal(input_path)?;
+    proposal.validate_payload(expected_network, expected_hash)?;
+    proposal.payload_hash = Some(proposal.payload_hash());
 
     let output_file =
         output.unwrap_or_else(|| PathBuf::from(format!("proposal_{}.json", uuid::Uuid::new_v4())));

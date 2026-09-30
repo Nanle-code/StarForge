@@ -1,0 +1,3 @@
+# Golden CLI case: wallet remove for a wallet that does not exist
+description = "wallet remove for a wallet that does not exist"
+args = ["wallet", "remove", "golden-missing-wallet"]

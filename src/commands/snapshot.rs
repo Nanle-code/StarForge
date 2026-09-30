@@ -68,8 +68,7 @@ fn create_snapshot(args: CreateSnapshotArgs) -> Result<()> {
         .latest_ledger()
         .context("Failed to fetch latest ledger")?;
 
-    let contract = Contract::from_string(&args.contract)
-        .context("Invalid Soroban contract ID")?;
+    let contract = Contract::from_string(&args.contract).context("Invalid Soroban contract ID")?;
 
     let contract_hash = contract.0;
     let contract_address = ScAddress::Contract(Hash(contract_hash));
@@ -85,15 +84,12 @@ fn create_snapshot(args: CreateSnapshotArgs) -> Result<()> {
 
     let instance_entries = client.get_ledger_entries(&[&instance_key_xdr])?;
 
-    let instance_entry = instance_entries
-        .into_iter()
-        .next()
-        .with_context(|| {
-            format!(
-                "Contract '{}' has no instance entry at ledger {}",
-                args.contract, ledger
-            )
-        })?;
+    let instance_entry = instance_entries.into_iter().next().with_context(|| {
+        format!(
+            "Contract '{}' has no instance entry at ledger {}",
+            args.contract, ledger
+        )
+    })?;
 
     let mut entries = vec![SnapshotEntry {
         kind: "instance".to_string(),
@@ -108,11 +104,8 @@ fn create_snapshot(args: CreateSnapshotArgs) -> Result<()> {
         .decode(&instance_entry.value)
         .context("Failed to decode contract instance XDR")?;
 
-    let ledger_entry = LedgerEntryData::from_xdr(
-        &instance_xdr,
-        stellar_xdr::curr::Limits::none(),
-    )
-    .context("Failed to decode contract instance ledger entry")?;
+    let ledger_entry = LedgerEntryData::from_xdr(&instance_xdr, stellar_xdr::curr::Limits::none())
+        .context("Failed to decode contract instance ledger entry")?;
 
     let wasm_hash = match ledger_entry {
         LedgerEntryData::ContractData(entry) => match entry.val {
@@ -133,17 +126,12 @@ fn create_snapshot(args: CreateSnapshotArgs) -> Result<()> {
             }
         },
         value => {
-            anyhow::bail!(
-                "Expected contract data ledger entry, got: {:?}",
-                value
-            );
+            anyhow::bail!("Expected contract data ledger entry, got: {:?}", value);
         }
     };
 
     // Fetch the actual WASM ledger entry using the hash from the instance.
-    let code_key = LedgerKey::ContractCode(LedgerKeyContractCode {
-        hash: wasm_hash,
-    });
+    let code_key = LedgerKey::ContractCode(LedgerKeyContractCode { hash: wasm_hash });
 
     let code_key_xdr = encode_ledger_key(&code_key)?;
     let code_entries = client.get_ledger_entries(&[&code_key_xdr])?;

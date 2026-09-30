@@ -6,9 +6,9 @@ starforge \- ⚡ Stellar & Soroban developer productivity CLI
 .SH SYNOPSIS
 \fBstarforge\fR [\fB\-h\fR|\fB\-\-help\fR] [\fB\-V\fR|\fB\-\-version\fR] <\fIsubcommands\fR>
 .SH DESCRIPTION
-Top\-level command model used to render the cheat sheet from clap metadata.
+Stellar & Soroban developer productivity CLI.
 .PP
-This enumerates every *top\-level* subcommand so the generated `docs/COMMAND_CHEATSHEET.md` is derived from actual clap metadata rather than a hand\-written list (preventing doc drift). Per\-subcommand detail lives in [`MAJOR_SUBCOMMANDS`]; keep the two in sync when commands change.
+StarForge wraps the Stellar CLI with wallet management, contract testing and audits, deployment lifecycle management, AI\-assisted development, and community contract templates. Commands are grouped by noun: wallet, contract, deploy, network, template, plugin, ai, config, project, tool. See docs/CLI_COMMAND_TREE.md for the full tree.
 .SH OPTIONS
 .TP
 \fB\-h\fR, \fB\-\-help\fR
@@ -18,235 +18,52 @@ Print help (see a summary with \*(Aq\-h\*(Aq)
 Print version
 .SH SUBCOMMANDS
 .TP
-starforge\-ai\-debug(1)
-AI\-powered contract debugging assistant (error analysis, bug identification, fix suggestions)
-.TP
-starforge\-ai\-navigate(1)
-AI\-driven definitions, references, code graphs, dependencies, and contextual search
-.TP
-starforge\-ai\-quality\-gate(1)
-Configurable code quality, security, performance, coverage, docs, and license gates
-.TP
-starforge\-ai(1)
-Local LLM assistant for Soroban contracts (audit, explain, test, optimise, profile)
-.TP
-starforge\-ai\-profile(1)
-AI\-driven performance profiling commands
-.TP
-starforge\-ai\-ide(1)
-AI\-powered IDE integration commands
-.TP
-starforge\-ai\-test\-maintain(1)
-AI\-driven test maintenance commands
-.TP
-starforge\-ai\-deployment\-test(1)
-AI\-driven deployment testing commands
-.TP
 starforge\-wallet(1)
-Manage test wallets (create, list, fund, show, remove)
-.TP
-starforge\-nl(1)
-Natural language command interface
-.TP
-starforge\-new(1)
-Generate Soroban project boilerplate
+Manage test wallets (create, list, fund, sign), transactions, and devices
 .TP
 starforge\-contract(1)
-Contract operations (invoke, inspect, etc.)
-.TP
-starforge\-generate(1)
-Generate smart contracts from natural language prompts
-.TP
-starforge\-complete(1)
-Smart contract completion assistant
-.TP
-starforge\-debug(1)
-Debug Soroban contracts with breakpoints, stepping, and inspection
-.TP
-starforge\-inspect(1)
-Deep contract storage inspection (state, key, storage)
+Contract operations (invoke, build, test, audit, upgrade, inspect, monitor, ttl)
 .TP
 starforge\-deploy(1)
-Deploy a compiled Soroban contract (.wasm)
-.TP
-starforge\-deployments(1)
-Deployment history, rollback, verification, and dashboard
-.TP
-starforge\-info(1)
-Show starforge config and environment info
-.TP
-starforge\-prompts(1)
-Manage AI prompt templates and versioning
-.TP
-starforge\-explain(1)
-Analyze and explain smart contract code using AI
-.TP
-starforge\-config(1)
-Manage starforge configuration (telemetry, network)
-.TP
-starforge\-telemetry(1)
-Manage telemetry settings directly
-.TP
-starforge\-tx(1)
-Fetch a transaction for the account
-.TP
-starforge\-sep10(1)
-SEP\-10 web authentication for Stellar anchors
+Deploy a compiled Soroban contract and manage the deployment lifecycle
 .TP
 starforge\-network(1)
-View or switch the active network (testnet/mainnet)
+View or switch the active network, run a local node, simulate, snapshot
 .TP
-starforge\-node(1)
-Local Soroban devnet (Docker quickstart)
-.TP
-starforge\-completions(1)
-Generate shell completions for bash, zsh, and fish
-.TP
-starforge\-shell(1)
-Interactive REPL for local Soroban contract testing
-.TP
-starforge\-monitor(1)
-Live monitoring (contract events or wallet threshold)
-.TP
-starforge\-tutorial(1)
-Interactive CLI tutorials
-.TP
-starforge\-benchmark(1)
-Performance benchmarking utilities and industry\-standard comparisons
-.TP
-starforge\-test(1)
-Contract testing utilities for Soroban wasm
-.TP
-starforge\-gas(1)
-Gas analysis and optimization helpers
-.TP
-starforge\-cost(1)
-AI\-assisted deployment cost management: budgets, forecasting, cross\-network comparison, and reporting
+starforge\-template(1)
+Manage community contract templates, versions, and the registry
 .TP
 starforge\-plugin(1)
 Manage third\-party plugins
 .TP
-starforge\-mutate(1)
-AI mutation testing for Soroban contracts
+starforge\-ai(1)
+AI\-assisted development: local assistant, audits, tests, search, planning
 .TP
-starforge\-privacy(1)
-Privacy protection, anonymization, consent, and reporting
+starforge\-config(1)
+Manage starforge configuration, telemetry, feature flags, and privacy
 .TP
 starforge\-project(1)
-AI\-driven project management for task tracking, sprints, resources, risks, and timelines
+Project scaffolding and AI\-driven project management
 .TP
-starforge\-template(1)
-Manage community contract templates from the marketplace
+starforge\-tool(1)
+Developer\-environment utilities: tutorials, natural language, PR checks
 .TP
-starforge\-registry(1)
-Interact with the remote template registry
+starforge\-asset(1)
+Classic Stellar assets: SAC contract id lookup and wrap/deploy
 .TP
-starforge\-multisig(1)
-Manage multi\-signature transactions
+starforge\-completions(1)
+Generate shell completions for bash, zsh, fish, and powershell
 .TP
-starforge\-upgrade(1)
-Contract upgrade management (propose, approve, execute, rollback)
+starforge\-man(1)
+Generate or install man pages
 .TP
-starforge\-governance(1)
-Contract upgrade governance (proposals, voting, timelock, audit)
+starforge\-account(1)
+On\-chain account lifecycle with sponsored reserves (CAP\-33)
 .TP
-starforge\-orchestrate(1)
-Multi\-contract deployment orchestration
+starforge\-dev(1)
+Watch contract sources and rebuild/redeploy on save
 .TP
-starforge\-pipeline(1)
-Visual pipeline builder for contract deployment workflows
-.TP
-starforge\-security(1)
-Security hardening, validation, and monitoring
-.TP
-starforge\-audit(1)
-Run a comprehensive security audit on a Soroban contract
-.TP
-starforge\-ai\-audit(1)
-AI\-powered security audit for Soroban contracts using Claude
-.TP
-starforge\-ai\-test(1)
-AI\-driven testing assistance (generate, optimize, analyze, maintain tests)
-.TP
-starforge\-ai\-property\-test(1)
-AI property\-based testing (discover properties, generate tests, validate invariants)
-.TP
-starforge\-ai\-feedback(1)
-AI feedback and learning system (record feedback, track quality, learn preferences)
-.TP
-starforge\-ai\-search(1)
-AI code search and discovery (search code, find patterns, similar code)
-.TP
-starforge\-ai\-recommend(1)
-AI best practice recommendations (analyze contracts, scan projects, improvement plans)
-.TP
-starforge\-ai\-route(1)
-Intelligent AI model selection and routing based on task complexity and preferences
-.TP
-starforge\-ai\-plan(1)
-AI project planning assistant — requirements, architecture, timeline, risks
-.TP
-starforge\-ai\-accessibility(1)
-AI accessibility features — screen reader, voice commands, text simplification
-.TP
-starforge\-ai\-contract\-suggest(1)
-AI contract function suggestions (context\-aware suggestions based on contract type)
-.TP
-starforge\-ai\-doc\-qa(1)
-AI documentation Q&A (answer questions about StarForge, Stellar, and Soroban docs with citations)
-.TP
-starforge\-schedule(1)
-Schedule deployments for future execution with approval workflows
-.TP
-starforge\-simulate(1)
-Local network simulation and testing environment
-.TP
-starforge\-backup(1)
-Backup and disaster recovery for contract state and code
-.TP
-starforge\-lint(1)
-Static analysis and linting for Soroban contracts
-.TP
-starforge\-diagnostics(1)
-Run connectivity diagnostics for attached Ledger/Trezor devices
-.TP
-starforge\-template\-vcs(1)
-Template version control (versioning, branching, changelog)
-.TP
-starforge\-perf(1)
-Contract performance monitoring and metrics dashboard
-.TP
-starforge\-advanced\-perf(1)
-Advanced contract performance analysis and profiling tools
-.TP
-starforge\-docs(1)
-Contract documentation portal (generate, view, search)
-.TP
-starforge\-analytics(1)
-Contract deployment analytics, dashboards, and reporting
-.TP
-starforge\-approval(1)
-Approval workflow for contract deployments (multi\-level approvals, audit, compliance)
-.TP
-starforge\-migrate(1)
-Contract storage migration tools (transform, validate, rollback)
-.TP
-starforge\-collab(1)
-AI\-driven collaboration tools: code review, conflict resolution, knowledge sharing, contribution tracking
-.TP
-starforge\-verify(1)
-Run formal verification on a contract
-.TP
-starforge\-ai\-telemetry(1)
-AI usage telemetry and analytics: calls, tokens, latency, cost, opt\-out
-.TP
-starforge\-optimize(1)
-Analyse and optimize compiled WASM / Rust contract source for gas and size
-.TP
-starforge\-ai\-security\-training(1)
-AI\-driven security training: lessons, exercises, progress tracking
-.TP
-starforge\-contract\-monitor(1)
-Contract health monitoring, performance tracking, security events, alerting, and dashboard
+starforge\-alias(1)
+Manage per\-network contract and account aliases
 .SH VERSION
 v0.1.0

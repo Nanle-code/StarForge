@@ -1,0 +1,19 @@
+[package]
+name = "starforge-wasm-inspect-plugin"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+description = "StarForge plugin that inspects compiled Soroban contract WASM (plugin authoring cookbook)"
+license = "MIT"
+publish = false
+
+[lib]
+name = "starforge_wasm_inspect"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+starforge = { path = "../../.." }
+
+[dev-dependencies]
+# Used by the capability tests to check manifest capability names.
+starforge-plugin-sdk = { path = "../../../crates/starforge-plugin-sdk" }

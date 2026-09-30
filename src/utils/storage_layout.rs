@@ -129,7 +129,7 @@ impl StorageLayoutIntrospector {
     pub fn introspect_source_code(source: &str, default_name: Option<&str>) -> StorageLayout {
         let contract_name = Self::extract_contract_name(source)
             .unwrap_or_else(|| default_name.unwrap_or("Contract").to_string());
-        
+
         let variants = Self::extract_datakey_variants(source);
         let mut keys = Self::extract_storage_calls(source, &variants);
 
@@ -164,8 +164,9 @@ impl StorageLayoutIntrospector {
 
     /// Read and introspect a file (Rust source or JSON layout).
     pub fn introspect_file(path: &Path) -> Result<StorageLayout> {
-        let content = fs::read_to_string(path)
-            .with_context(|| format!("Failed to read contract layout file at {}", path.display()))?;
+        let content = fs::read_to_string(path).with_context(|| {
+            format!("Failed to read contract layout file at {}", path.display())
+        })?;
 
         if path.extension().and_then(|s| s.to_str()) == Some("json") {
             if let Ok(layout) = serde_json::from_str::<StorageLayout>(&content) {
@@ -186,10 +187,16 @@ impl StorageLayoutIntrospector {
         new_layout: &StorageLayout,
     ) -> MigrationHazardReport {
         let mut hazards = Vec::new();
-        let old_keys: HashMap<String, &StorageKeyDefinition> =
-            old_layout.keys.iter().map(|k| (k.name.clone(), k)).collect();
-        let new_keys: HashMap<String, &StorageKeyDefinition> =
-            new_layout.keys.iter().map(|k| (k.name.clone(), k)).collect();
+        let old_keys: HashMap<String, &StorageKeyDefinition> = old_layout
+            .keys
+            .iter()
+            .map(|k| (k.name.clone(), k))
+            .collect();
+        let new_keys: HashMap<String, &StorageKeyDefinition> = new_layout
+            .keys
+            .iter()
+            .map(|k| (k.name.clone(), k))
+            .collect();
 
         // 1. Check for removed keys
         for (name, old_key) in &old_keys {
@@ -295,7 +302,12 @@ impl StorageLayoutIntrospector {
 
         let breaking_count = hazards
             .iter()
-            .filter(|h| matches!(h.severity, HazardSeverity::Breaking | HazardSeverity::HighRisk))
+            .filter(|h| {
+                matches!(
+                    h.severity,
+                    HazardSeverity::Breaking | HazardSeverity::HighRisk
+                )
+            })
             .count();
         let warning_count = hazards
             .iter()
@@ -369,8 +381,11 @@ impl StorageLayoutIntrospector {
 
     fn extract_datakey_variants(source: &str) -> Vec<DataKeyEnumVariant> {
         let mut variants = Vec::new();
-        let enum_re = Regex::new(r"(?s)(?:pub\s+)?enum\s+(?:DataKey|StorageKey)\s*\{([^}]+)\}").ok();
-        let Some(enum_re) = enum_re else { return variants };
+        let enum_re =
+            Regex::new(r"(?s)(?:pub\s+)?enum\s+(?:DataKey|StorageKey)\s*\{([^}]+)\}").ok();
+        let Some(enum_re) = enum_re else {
+            return variants;
+        };
 
         if let Some(caps) = enum_re.captures(source) {
             let body = &caps[1];
@@ -393,7 +408,8 @@ impl StorageLayoutIntrospector {
                                     .collect()
                             })
                             .unwrap_or_default();
-                        let discriminant = vcaps.get(3).and_then(|m| m.as_str().parse::<u32>().ok());
+                        let discriminant =
+                            vcaps.get(3).and_then(|m| m.as_str().parse::<u32>().ok());
                         variants.push(DataKeyEnumVariant {
                             name,
                             fields,
@@ -453,7 +469,8 @@ impl StorageLayoutIntrospector {
         let lower = name.to_lowercase();
         if lower.contains("admin") || lower.contains("owner") || lower.contains("holder") {
             "Address".to_string()
-        } else if lower.contains("balance") || lower.contains("amount") || lower.contains("supply") {
+        } else if lower.contains("balance") || lower.contains("amount") || lower.contains("supply")
+        {
             "i128".to_string()
         } else if lower.contains("count") || lower.contains("nonce") || lower.contains("seq") {
             "u32".to_string()
@@ -533,13 +550,22 @@ impl TokenContract {
         assert!(report.breaking_count >= 1);
 
         // Should detect removed key (Nonce)
-        assert!(report.hazards.iter().any(|h| h.kind == HazardKind::RemovedKey && h.key == "Nonce"));
+        assert!(report
+            .hazards
+            .iter()
+            .any(|h| h.kind == HazardKind::RemovedKey && h.key == "Nonce"));
 
         // Should detect tier shift (Admin from instance to persistent)
-        assert!(report.hazards.iter().any(|h| h.kind == HazardKind::StorageTierMismatch && h.key == "Admin"));
+        assert!(report
+            .hazards
+            .iter()
+            .any(|h| h.kind == HazardKind::StorageTierMismatch && h.key == "Admin"));
 
         // Should detect new key (Config)
-        assert!(report.hazards.iter().any(|h| h.kind == HazardKind::UninitializedNewKey && h.key == "Config"));
+        assert!(report
+            .hazards
+            .iter()
+            .any(|h| h.kind == HazardKind::UninitializedNewKey && h.key == "Config"));
 
         // Generated starter migration rules should contain the changes
         let rules_str = serde_json::to_string(&report.starter_migration_rules).unwrap();

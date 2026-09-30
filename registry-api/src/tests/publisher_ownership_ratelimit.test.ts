@@ -60,6 +60,9 @@ describe("Publisher Authentication, Rate Limiting & Ownership History", () => {
           version: "1.0.0",
           description: "Stellar smart contract escrow template",
           author: "Publisher A",
+          license: "MIT",
+          authors: ["Publisher A"],
+          attribution: "Copyright (c) 2026 Publisher A",
           tags: ["escrow", "soroban"],
           content: Buffer.from("dummy-wasm-content").toString("base64"),
         });
@@ -119,6 +122,9 @@ describe("Publisher Authentication, Rate Limiting & Ownership History", () => {
           version: "1.1.0",
           description: "Updated escrow template by publisher B",
           author: "Publisher B",
+          license: "MIT",
+          authors: ["Publisher B"],
+          attribution: "Copyright (c) 2026 Publisher B",
           content: Buffer.from("v1.1.0-content").toString("base64"),
         });
 
@@ -150,6 +156,9 @@ describe("Publisher Authentication, Rate Limiting & Ownership History", () => {
           version: "1.0.0",
           description: "Shared escrow template",
           author: "Stellar Tools",
+          license: "MIT",
+          authors: ["Stellar Tools"],
+          attribution: "Copyright (c) 2026 Stellar Tools",
           content: Buffer.from("org-template").toString("base64"),
         });
 
@@ -171,6 +180,9 @@ describe("Publisher Authentication, Rate Limiting & Ownership History", () => {
             version: "1.0.0",
             description: "Test template",
             author: "Publisher A",
+            license: "MIT",
+            authors: ["Publisher A"],
+            attribution: "Copyright (c) 2026 Publisher A",
             content: Buffer.from("test").toString("base64"),
           });
         expect(res.status).toBe(201);
@@ -187,6 +199,9 @@ describe("Publisher Authentication, Rate Limiting & Ownership History", () => {
           version: "1.0.0",
           description: "Over limit",
           author: "Publisher A",
+          license: "MIT",
+          authors: ["Publisher A"],
+          attribution: "Copyright (c) 2026 Publisher A",
           content: Buffer.from("test").toString("base64"),
         });
 
@@ -238,6 +253,9 @@ describe("Publisher Authentication, Rate Limiting & Ownership History", () => {
           version: "1.0.0",
           description: "Published by User A",
           author: "Publisher A",
+          license: "MIT",
+          authors: ["Publisher A"],
+          attribution: "Copyright (c) 2026 Publisher A",
           content: Buffer.from("content-a").toString("base64"),
         });
 
@@ -250,6 +268,9 @@ describe("Publisher Authentication, Rate Limiting & Ownership History", () => {
           version: "1.0.1",
           description: "Attempted by User B",
           author: "Publisher B",
+          license: "MIT",
+          authors: ["Publisher B"],
+          attribution: "Copyright (c) 2026 Publisher B",
           content: Buffer.from("content-b").toString("base64"),
         });
 
@@ -280,6 +301,9 @@ describe("Publisher Authentication, Rate Limiting & Ownership History", () => {
           version: "1.0.0",
           description: "Template",
           author: "Publisher A",
+          license: "MIT",
+          authors: ["Publisher A"],
+          attribution: "Copyright (c) 2026 Publisher A",
           content: Buffer.from("test").toString("base64"),
         });
 
@@ -302,6 +326,9 @@ describe("Publisher Authentication, Rate Limiting & Ownership History", () => {
           version: "1.0.0",
           description: "Template",
           author: "Publisher A",
+          license: "MIT",
+          authors: ["Publisher A"],
+          attribution: "Copyright (c) 2026 Publisher A",
           content: Buffer.from("test").toString("base64"),
         });
 
@@ -323,6 +350,9 @@ describe("Publisher Authentication, Rate Limiting & Ownership History", () => {
           version: "1.0.0",
           description: "Initial release",
           author: "Publisher A",
+          license: "MIT",
+          authors: ["Publisher A"],
+          attribution: "Copyright (c) 2026 Publisher A",
           content: Buffer.from("test").toString("base64"),
         });
 
@@ -334,6 +364,9 @@ describe("Publisher Authentication, Rate Limiting & Ownership History", () => {
           version: "1.0.0",
           description: "Duplicate release",
           author: "Publisher A",
+          license: "MIT",
+          authors: ["Publisher A"],
+          attribution: "Copyright (c) 2026 Publisher A",
           content: Buffer.from("test-dup").toString("base64"),
         });
 

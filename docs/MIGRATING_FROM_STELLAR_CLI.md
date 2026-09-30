@@ -178,7 +178,8 @@ writing. Check `starforge <command> --help` for anything that has changed.
   `stellar cache` have no StarForge equivalent. (`starforge tx` covers
   payments, batches, history and fee stats.)
 - **State maintenance.** `stellar contract extend`, `restore`, `fetch`, `id`,
-  `alias` and `asset deploy` (Stellar Asset Contracts) have no equivalent.
+  `alias` has a StarForge equivalent (`starforge alias`). Stellar Asset Contracts
+  use `starforge asset contract-id` / `starforge asset wrap`.
 - **Default identity.** There's no `keys use`: pass `--wallet` explicitly.
 - **More binding languages.** stellar-cli also generates Java, Flutter, Swift
   and PHP clients.

@@ -9,6 +9,12 @@ use std::path::Path;
     name = "starforge",
     version = "0.1.0",
     about = "⚡ Stellar & Soroban developer productivity CLI",
+    long_about = "Stellar & Soroban developer productivity CLI.\n\n\
+                  StarForge wraps the Stellar CLI with wallet management, contract \
+                  testing and audits, deployment lifecycle management, AI-assisted \
+                  development, and community contract templates. Commands are grouped \
+                  by noun: wallet, contract, deploy, network, template, plugin, ai, \
+                  config, project, tool. See docs/CLI_COMMAND_TREE.md for the full tree.",
     disable_help_subcommand = true
 )]
 struct Cli {
@@ -16,226 +22,65 @@ struct Cli {
     command: Commands,
 }
 
-/// Top-level command model used to render the cheat sheet from clap metadata.
+/// Top-level command model, mirrored from `src/main.rs` (ADR 0007).
 ///
-/// This enumerates every *top-level* subcommand so the generated
-/// `docs/COMMAND_CHEATSHEET.md` is derived from actual clap metadata rather than
-/// a hand-written list (preventing doc drift). Per-subcommand detail lives in
-/// [`MAJOR_SUBCOMMANDS`]; keep the two in sync when commands change.
+/// Only the names and `about` text matter here: this copy drives the generated
+/// `docs/COMMAND_CHEATSHEET.md`, the shell completions, and the man pages, so
+/// they cannot drift from a hand-written list. Per-subcommand detail lives in
+/// [`MAJOR_SUBCOMMANDS`]; keep the two in sync when commands change. The
+/// top-level budget asserted in `main` below is the regression guard for the
+/// 20-command limit from issue #936.
 #[derive(Subcommand)]
 enum Commands {
-    #[command(
-        about = "AI-powered contract debugging assistant (error analysis, bug identification, fix suggestions)"
-    )]
-    AiDebug,
-    #[command(
-        about = "AI-driven definitions, references, code graphs, dependencies, and contextual search"
-    )]
-    AiNavigate,
-    #[command(
-        about = "Configurable code quality, security, performance, coverage, docs, and license gates"
-    )]
-    AiQualityGate,
-    #[command(
-        about = "Local LLM assistant for Soroban contracts (audit, explain, test, optimise, profile)"
-    )]
-    Ai,
-    #[command(about = "AI-driven performance profiling commands")]
-    AiProfile,
-    #[command(about = "AI-powered IDE integration commands")]
-    AiIde,
-    #[command(about = "AI-driven test maintenance commands")]
-    AiTestMaintain,
-    #[command(about = "AI-driven deployment testing commands")]
-    AiDeploymentTest,
-    #[command(about = "Manage test wallets (create, list, fund, show, remove)")]
+    // Mirrors the noun-verb tree from `src/main.rs` (ADR 0007). Only names and
+    // `about` text are needed here: this copy drives the generated cheat sheet,
+    // the shell completions, and the man pages. The top-level budget check in
+    // `main()` below keeps it honest about the command count.
+    #[command(about = "Manage test wallets (create, list, fund, sign), transactions, and devices")]
     Wallet,
-    #[command(about = "Natural language command interface")]
-    Nl,
-    #[command(about = "Generate Soroban project boilerplate")]
-    New,
-    #[command(about = "Contract operations (invoke, inspect, etc.)")]
+    #[command(
+        about = "Contract operations (invoke, build, test, audit, upgrade, inspect, monitor, ttl)"
+    )]
     Contract,
-    #[command(about = "Generate smart contracts from natural language prompts")]
-    Generate,
-    #[command(about = "Smart contract completion assistant")]
-    Complete,
-    #[command(external_subcommand)]
-    External(Vec<String>),
-    #[command(about = "Debug Soroban contracts with breakpoints, stepping, and inspection")]
-    Debug,
-    #[command(about = "Deep contract storage inspection (state, key, storage)")]
-    Inspect,
-    #[command(about = "Deploy a compiled Soroban contract (.wasm)")]
+    #[command(about = "Deploy a compiled Soroban contract and manage the deployment lifecycle")]
     Deploy,
-    #[command(about = "Deployment history, rollback, verification, and dashboard")]
-    Deployments,
-    #[command(about = "Show starforge config and environment info")]
-    Info,
-    #[command(about = "Manage AI prompt templates and versioning")]
-    Prompts,
-    #[command(about = "Analyze and explain smart contract code using AI")]
-    Explain,
-    #[command(about = "Manage starforge configuration (telemetry, network)")]
-    Config,
-    #[command(about = "Manage telemetry settings directly")]
-    Telemetry,
-    #[command(about = "Fetch a transaction for the account")]
-    Tx,
-    #[command(about = "SEP-10 web authentication for Stellar anchors")]
-    Sep10,
-    #[command(about = "View or switch the active network (testnet/mainnet)")]
+    #[command(about = "View or switch the active network, run a local node, simulate, snapshot")]
     Network,
-    #[command(about = "Local Soroban devnet (Docker quickstart)")]
-    Node,
-    #[command(about = "Generate shell completions for bash, zsh, and fish")]
+    #[command(about = "Manage community contract templates, versions, and the registry")]
+    Template,
+    #[command(about = "Manage third-party plugins")]
+    Plugin,
+    #[command(about = "AI-assisted development: local assistant, audits, tests, search, planning")]
+    Ai,
+    #[command(about = "Manage starforge configuration, telemetry, feature flags, and privacy")]
+    Config,
+    #[command(about = "Project scaffolding and AI-driven project management")]
+    Project,
+    #[command(about = "Developer-environment utilities: tutorials, natural language, PR checks")]
+    Tool,
+    #[command(about = "Classic Stellar assets: SAC contract id lookup and wrap/deploy")]
+    Asset,
+    #[command(about = "Generate shell completions for bash, zsh, fish, and powershell")]
     Completions,
+    #[command(about = "Generate or install man pages")]
+    Man,
+    #[command(about = "On-chain account lifecycle with sponsored reserves (CAP-33)")]
+    Account,
+    #[command(about = "Watch contract sources and rebuild/redeploy on save")]
+    Dev,
+    #[command(about = "Manage per-network contract and account aliases")]
+    Alias,
     #[command(
         about = "Smart autocomplete — suggest and record commands",
         hide = true
     )]
     Autocomplete,
-    #[command(about = "Interactive REPL for local Soroban contract testing")]
-    Shell,
-    #[command(about = "Live monitoring (contract events or wallet threshold)")]
-    Monitor,
-    #[command(about = "Interactive CLI tutorials")]
-    Tutorial,
-    #[command(about = "Performance benchmarking utilities and industry-standard comparisons")]
-    Benchmark,
-    #[command(about = "Contract testing utilities for Soroban wasm")]
-    Test,
-    #[command(about = "Gas analysis and optimization helpers")]
-    Gas,
-    #[command(
-        about = "AI-assisted deployment cost management: budgets, forecasting, cross-network comparison, and reporting"
-    )]
-    Cost,
-    #[command(about = "Manage third-party plugins")]
-    Plugin,
-    #[command(about = "AI mutation testing for Soroban contracts")]
-    Mutate,
-    #[command(about = "Privacy protection, anonymization, consent, and reporting")]
-    Privacy,
-    #[command(
-        about = "AI-driven project management for task tracking, sprints, resources, risks, and timelines"
-    )]
-    Project,
-    #[command(about = "Manage community contract templates from the marketplace")]
-    Template,
-    #[command(about = "Interact with the remote template registry")]
-    Registry,
-    #[command(about = "Manage multi-signature transactions")]
-    Multisig,
-    #[command(about = "Contract upgrade management (propose, approve, execute, rollback)")]
-    Upgrade,
-    #[command(about = "Contract upgrade governance (proposals, voting, timelock, audit)")]
-    Governance,
-    #[command(about = "Multi-contract deployment orchestration")]
-    Orchestrate,
-    #[command(about = "Visual pipeline builder for contract deployment workflows")]
-    Pipeline,
-    #[command(about = "Security hardening, validation, and monitoring")]
-    Security,
-    #[command(about = "Run a comprehensive security audit on a Soroban contract")]
-    Audit,
-    #[command(about = "AI-powered security audit for Soroban contracts using Claude")]
-    AiAudit,
-    #[command(
-        about = "AI-driven testing assistance (generate, optimize, analyze, maintain tests)"
-    )]
-    AiTest,
-    #[command(
-        about = "AI property-based testing (discover properties, generate tests, validate invariants)"
-    )]
-    AiPropertyTest,
-    #[command(
-        about = "AI feedback and learning system (record feedback, track quality, learn preferences)"
-    )]
-    AiFeedback,
-    #[command(about = "AI code search and discovery (search code, find patterns, similar code)")]
-    AiSearch,
-    #[command(
-        about = "AI best practice recommendations (analyze contracts, scan projects, improvement plans)"
-    )]
-    AiRecommend,
-    #[command(
-        about = "Intelligent AI model selection and routing based on task complexity and preferences"
-    )]
-    AiRoute,
-    #[command(
-        about = "AI project planning assistant — requirements, architecture, timeline, risks"
-    )]
-    AiPlan,
-    #[command(
-        about = "AI accessibility features — screen reader, voice commands, text simplification"
-    )]
-    AiAccessibility,
-    #[command(
-        about = "AI contract function suggestions (context-aware suggestions based on contract type)"
-    )]
-    AiContractSuggest,
-    #[command(
-        about = "AI documentation Q&A (answer questions about StarForge, Stellar, and Soroban docs with citations)"
-    )]
-    AiDocQa,
-    #[command(about = "Schedule deployments for future execution with approval workflows")]
-    Schedule,
-    #[command(about = "Local network simulation and testing environment")]
-    Simulate,
-    #[command(about = "Backup and disaster recovery for contract state and code")]
-    Backup,
-    #[command(about = "Static analysis and linting for Soroban contracts")]
-    Lint,
-    #[command(about = "Generate or install man pages", hide = true)]
-    Man,
-    #[command(about = "Run connectivity diagnostics for attached Ledger/Trezor devices")]
-    Diagnostics,
-    #[command(about = "Template version control (versioning, branching, changelog)")]
-    TemplateVcs,
-    #[command(about = "Contract performance monitoring and metrics dashboard")]
-    Perf,
-    #[command(about = "Advanced contract performance analysis and profiling tools")]
-    AdvancedPerf,
-    #[command(about = "Contract documentation portal (generate, view, search)")]
-    Docs,
-    #[command(about = "Contract deployment analytics, dashboards, and reporting")]
-    Analytics,
-    #[command(
-        about = "Approval workflow for contract deployments (multi-level approvals, audit, compliance)"
-    )]
-    Approval,
-    #[command(
-        about = "Manage feature flags for AI features (rollouts, A/B tests, rollback)",
-        hide = true
-    )]
-    FeatureFlags,
-    #[command(about = "Contract storage migration tools (transform, validate, rollback)")]
-    Migrate,
-    #[command(
-        about = "AI-driven collaboration tools: code review, conflict resolution, knowledge sharing, contribution tracking"
-    )]
-    Collab,
-    #[command(about = "Run formal verification on a contract")]
-    Verify,
-    #[command(
-        about = "AI Contextual Help: command, workflow, error, and best-practice guidance",
-        hide = true
-    )]
-    Help,
-    #[command(about = "AI usage telemetry and analytics: calls, tokens, latency, cost, opt-out")]
-    AiTelemetry,
-    #[command(
-        about = "Analyse and optimize compiled WASM / Rust contract source for gas and size"
-    )]
-    Optimize,
-    #[command(about = "AI-driven security training: lessons, exercises, progress tracking")]
-    AiSecurityTraining,
-    #[command(
-        about = "Contract health monitoring, performance tracking, security events, alerting, and dashboard"
-    )]
-    ContractMonitor,
 }
+
+/// The acceptance criterion from issue #936: top-level `--help` shows at most
+/// this many commands. Keeping it here means a future top-level addition fails
+/// the build instead of quietly regressing discoverability.
+const MAX_TOP_LEVEL_COMMANDS: usize = 20;
 
 /// Internal / developer-only top-level commands that are excluded from the
 /// generated cheat sheet. Hidden commands (`#[command(hide)]`) are excluded
@@ -245,7 +90,7 @@ enum Commands {
 /// Keep this list consistent: it is the single source of truth for "what does
 /// not appear in the cheat sheet" and is also applied when the man-page names
 /// are filtered below.
-const INTERNAL_COMMANDS: &[&str] = &["external", "autocomplete", "man", "feature-flags", "help"];
+const INTERNAL_COMMANDS: &[&str] = &["external", "autocomplete", "man"];
 
 /// Named subcommand detail for the "major subcommands" section of the cheat
 /// sheet. The top-level command list is derived from clap metadata; this table
@@ -255,6 +100,19 @@ const INTERNAL_COMMANDS: &[&str] = &["external", "autocomplete", "man", "feature
 /// The renderer asserts that every parent listed here is a real top-level
 /// command, so a rename/removal fails the build instead of silently drifting.
 const MAJOR_SUBCOMMANDS: &[(&str, &[(&str, &str)])] = &[
+    (
+        "account",
+        &[
+            (
+                "create --sponsor <WALLET> --to <G...>",
+                "Create an account with sponsored reserves (CAP-33, --fee-payer, --yes)",
+            ),
+            (
+                "end-sponsorship --wallet <WALLET>",
+                "Release a sponsor's reserve (--fee-payer, --yes)",
+            ),
+        ],
+    ),
     (
         "wallet",
         &[
@@ -272,7 +130,10 @@ const MAJOR_SUBCOMMANDS: &[(&str, &[(&str, &str)])] = &[
             ("export <NAME>", "Export backup JSON"),
             ("import", "Import from file or --mnemonic"),
             ("sign", "Sign a payload with a saved wallet"),
-            ("multisig", "Multisig helpers"),
+            ("multisig", "Multi-signature account management"),
+            ("tx", "Fetch a transaction for the account"),
+            ("auth", "SEP-10 web authentication against an anchor"),
+            ("diagnostics", "Ledger/Trezor connectivity diagnostics"),
         ],
     ),
     (
@@ -283,36 +144,79 @@ const MAJOR_SUBCOMMANDS: &[(&str, &[(&str, &str)])] = &[
                 "invoke-script",
                 "Run an ordered YAML or JSON invocation script (--dry-run)",
             ),
+            (
+                "build",
+                "Build a contract with StarForge provenance metadata",
+            ),
             ("inspect", "Inspect a deployed Soroban contract instance"),
             ("upload", "Upload a WASM binary to the Stellar network"),
             (
                 "generate-bindings <WASM>",
                 "Generate typed client bindings (--lang rust|ts|python|go)",
             ),
+            ("storage <state\\|key\\|storage>", "Deep storage inspection"),
+            ("debug", "Breakpoints, stepping, and inspection"),
+            ("repl", "Interactive REPL for local contract testing"),
             (
-                "call-graph",
-                "Visualize cross-contract call graph from Soroban source",
+                "test --wasm <FILE>",
+                "Run contract tests (--coverage, --fixture, --report)",
             ),
-            ("deps", "Manage contract dependencies"),
+            ("audit", "Run a comprehensive security audit"),
+            ("security", "Hardening, validation, monitoring, incidents"),
+            ("governance", "Upgrade proposals, voting, timelock, audit"),
+            ("upgrade", "Propose, approve, execute, roll back an upgrade"),
+            ("verify", "Run formal verification"),
             (
-                "version",
-                "Track contract versions, resolve conflicts, migrations",
+                "migrate",
+                "Storage migrations (transform, validate, rollback)",
+            ),
+            ("generate", "Generate contracts from natural language"),
+            ("explain", "Explain contract code with AI"),
+            ("lint", "Static analysis and linting"),
+            ("optimize", "WASM/source optimisation for gas and size"),
+            ("gas", "Gas analysis, diffs, estimates, alerts"),
+            (
+                "metrics",
+                "Performance metrics, dashboards, regression baselines",
+            ),
+            ("profile", "Advanced performance analysis and profiling"),
+            ("benchmark", "Performance benchmarks and comparisons"),
+            ("docs", "Contract documentation portal"),
+            ("mutate", "AI mutation testing"),
+            (
+                "monitor",
+                "Live contract event or wallet-threshold monitoring",
+            ),
+            ("health", "Contract health monitoring and alerting"),
+            (
+                "ttl show|extend",
+                "Inspect and extend ledger-entry TTLs (--warn-below, --ledgers)",
             ),
         ],
     ),
     (
         "deploy",
-        &[(
-            "deploy --wasm <FILE>",
-            "Prepare a Soroban deployment (--simulate, --execute)",
-        )],
-    ),
-    (
-        "inspect",
-        &[(
-            "inspect storage",
-            "Deep storage inspection (state, key, storage)",
-        )],
+        &[
+            (
+                "run --wasm <FILE>",
+                "Prepare a Soroban deployment (--simulate, --execute)",
+            ),
+            (
+                "history",
+                "Deployment history, rollback, verification, dashboard",
+            ),
+            ("env", "Manage dev/staging/production environments"),
+            ("schedule", "Schedule deployments with approval workflows"),
+            ("orchestrate", "Multi-contract deployment orchestration"),
+            (
+                "pipeline",
+                "Visual pipeline builder for deployment workflows",
+            ),
+            ("approval", "Multi-level deployment approvals"),
+            ("cost", "Budgets, forecasting, and cross-network comparison"),
+            ("analytics", "Deployment analytics and reporting"),
+            ("backup", "Backup and disaster recovery"),
+        ],
     ),
     (
         "network",
@@ -324,16 +228,17 @@ const MAJOR_SUBCOMMANDS: &[(&str, &[(&str, &str)])] = &[
             ),
             ("add", "Add a custom network endpoint"),
             ("test", "Test connectivity to a network"),
+            ("node", "Local Soroban devnet (Docker quickstart)"),
+            ("simulate", "Local network simulation and testing"),
+            ("snapshot", "Deterministic live-ledger snapshots"),
         ],
     ),
     (
         "sep10",
-        &[
-            (
-                "auth <--domain <HOME_DOMAIN>> <--wallet <NAME>>",
-                "Validate, sign, and exchange a SEP-10 challenge for a session JWT",
-            ),
-        ],
+        &[(
+            "auth <--domain <HOME_DOMAIN>> <--wallet <NAME>>",
+            "Validate, sign, and exchange a SEP-10 challenge for a session JWT",
+        )],
     ),
     (
         "config",
@@ -352,339 +257,235 @@ const MAJOR_SUBCOMMANDS: &[(&str, &[(&str, &str)])] = &[
                 "Validate configuration and check network connectivity",
             ),
             ("db", "SQLite database management"),
+            ("info", "Show config and environment info"),
+            ("telemetry", "Telemetry settings and opt-out"),
+            ("flags", "AI feature flags, rollouts, rollback"),
+            ("privacy", "Anonymization, consent, and reporting"),
         ],
     ),
     (
-        "template",
+        "project",
         &[
-            ("list", "List marketplace templates"),
-            ("search <QUERY>", "Search templates"),
-            ("show <ID>", "Template details"),
-            ("init <ID> <DIR>", "Scaffold from template"),
-            ("publish", "Publish template metadata"),
-            ("remove <ID>", "Remove local template entry"),
+            ("new", "Generate Soroban project boilerplate"),
+            ("task", "Create, assign, track, and complete tasks"),
+            ("progress", "Visualize task progress"),
+            ("sprint", "Sprint planning and burndown"),
+            ("collab", "Code review, conflict resolution, knowledge base"),
         ],
     ),
     (
-        "plugin",
+        "tool",
         &[
-            ("install", "Install a third-party plugin"),
-            ("list", "List installed plugins"),
-            ("run", "Run a plugin command"),
+            ("tutorial", "Interactive, step-by-step CLI tutorials"),
+            ("nl <INPUT>", "Natural language command interface"),
+            ("pr", "Check PR readiness (CI green, no conflicts)"),
+            ("bug-report", "Prefilled environment bug report"),
         ],
-    ),
-    (
-        "test",
-        &[(
-            "test --wasm <FILE>",
-            "Run Soroban contract tests (--coverage, --fixture, --report)",
-        )],
-    ),
-    (
-        "gas",
-        &[
-            ("analyse <WASM>", "Heuristic gas/cpu report"),
-            ("optimize", "Lightweight WASM shrink pass"),
-            ("diff <OLD> <NEW>", "Compare estimated costs"),
-        ],
-    ),
-    (
-        "optimize",
-        &[
-            ("analyse <WASM>", "WASM performance issues + score"),
-            (
-                "size --wasm <FILE>",
-                "Section breakdown + size budgets (--budget, --fail-on-overage)",
-            ),
-            ("transform --src <FILE>", "Apply code transformation hints"),
-            ("bench", "Benchmark two WASM binaries"),
-            ("report", "Show the last optimization report"),
-        ],
-    ),
-    (
-        "security",
-        &[
-            (
-                "audit <PATH>",
-                "Run built-in Soroban analysis (--format, --ci, --track)",
-            ),
-            (
-                "remediation list",
-                "Review tracked audit and pentest remediation items",
-            ),
-            (
-                "best-practices analyze [PATH]",
-                "Score contracts against the best-practices library (--track, --fail-on)",
-            ),
-        ],
-    ),
-    (
-        "governance",
-        &[
-            (
-                "propose",
-                "Create upgrade proposal (--contract-id, --wasm, --threshold)",
-            ),
-            ("list", "List proposals"),
-            ("show", "Show proposal details and votes"),
-            ("vote", "Cast a vote (--for / --against)"),
-            ("reject", "Reject a proposal"),
-            ("execute", "Execute after timelock and threshold met"),
-            ("emergency", "Emergency upgrade (bypasses timelock)"),
-            ("audit", "Show governance audit trail"),
-        ],
-    ),
-    (
-        "upgrade",
-        &[
-            ("prepare", "Validate upgrade WASM"),
-            ("auto compat", "Compare old/new WASM ABI and storage layout"),
-            ("auto plan", "Generate compatibility-aware upgrade plan"),
-            ("propose", "Create governance proposal"),
-            ("list / status", "List pending proposals"),
-            ("approve", "Approve proposal"),
-            ("execute", "Execute approved upgrade"),
-            ("rollback", "Roll back contract version"),
-            ("history", "Show upgrade history"),
-        ],
-    ),
-    (
-        "multisig",
-        &[
-            ("wizard", "Interactive transaction proposal builder"),
-            (
-                "create",
-                "Create a proposal with threshold, signers, metadata",
-            ),
-            ("status <FILE>", "Show signature collection progress"),
-            (
-                "verify <FILE>",
-                "Validate signatures and threshold readiness",
-            ),
-            ("notify <FILE>", "Queue signature request notifications"),
-            ("export / import", "Share proposal JSON between signers"),
-        ],
-    ),
-    (
-        "tutorial",
-        &[
-            ("list", "List tutorials"),
-            ("start <SLUG>", "Begin a guided flow"),
-            ("next", "Mark step complete and show next milestone"),
-            ("status", "Show active tutorial and current step"),
-        ],
-    ),
-    (
-        "simulate",
-        &[(
-            "resources",
-            "Report CPU, memory, footprint, and minimum resource fee",
-        )],
-    ),
-    (
-        "cost",
-        &[(
-            "resources",
-            "Price a simulation and check against budgets (--enforce)",
-        )],
-    ),
-    (
-        "perf",
-        &[
-            (
-                "regression baseline",
-                "Record a named performance baseline (--input, --run)",
-            ),
-            (
-                "regression check",
-                "Fail on regressions vs a baseline (--fail-pct, --format markdown)",
-            ),
-            ("regression history", "Show how baseline metrics evolved"),
-        ],
-    ),
-    (
-        "advanced-perf",
-        &[
-            (
-                "profile <WASM>",
-                "Profile a compiled Soroban contract artifact",
-            ),
-            ("analyze <CONTRACT>", "Analyze recorded runtime metrics"),
-            ("compare <CONTRACT>", "Compare profiles across time windows"),
-            (
-                "generate-dashboard <CONTRACT>",
-                "Show the recorded-metrics dashboard",
-            ),
-        ],
-    ),
-    (
-        "docs",
-        &[
-            (
-                "generate <CONTRACT>",
-                "Generate documentation (--source, --lang)",
-            ),
-            ("extract <PATH>", "Extract rustdoc comments"),
-            ("show / list / search", "Browse the local docs store"),
-            (
-                "html / api-ref / publish",
-                "HTML site and publishing helpers",
-            ),
-        ],
-    ),
-    (
-        "sep10",
-        &[(
-            "auth --domain <DOMAIN> --wallet <NAME>",
-            "Authenticate against a SEP-10 server and print the JWT (--verbose, --toml-url)",
-        )],
     ),
 ];
 
+/// Man page names, following the noun-verb tree (ADR 0007).
+///
+/// Each entry becomes `man/starforge-<name>.1`. Nested verbs use their dashed
+/// path (`contract test` -> `starforge-contract-test.1`).
 const SUBCOMMAND_INFO: &[(&str, &str)] = &[
-    ("ai-debug", "AI-powered contract debugging assistant"),
-    ("ai-navigate", "AI-driven code navigation and search"),
-    ("ai-quality-gate", "Configurable code quality gates"),
-    ("ai", "Local LLM assistant for Soroban contracts"),
     (
         "wallet",
-        "Manage test wallets (create, list, fund, show, remove)",
+        "Manage test wallets, transactions, and hardware devices",
     ),
-    ("nl", "Natural language command interface"),
-    ("new", "Generate Soroban project boilerplate"),
-    ("contract", "Contract operations (invoke, inspect, etc.)"),
+    ("wallet tx", "Fetch a transaction for the account"),
     (
-        "generate",
-        "Generate smart contracts from natural language prompts",
+        "wallet auth",
+        "SEP-10 web authentication for Stellar anchors",
     ),
-    ("complete", "Smart contract completion assistant"),
+    ("wallet multisig", "Manage multi-signature transactions"),
     (
-        "debug",
-        "Debug Soroban contracts with breakpoints, stepping, and inspection",
+        "wallet diagnostics",
+        "Connectivity diagnostics for Ledger/Trezor devices",
     ),
     (
-        "inspect",
+        "contract",
+        "Invoke, build, inspect, and manage a Soroban contract",
+    ),
+    (
+        "contract storage",
         "Deep contract storage inspection (state, key, storage)",
     ),
-    ("deploy", "Deploy a compiled Soroban contract (.wasm)"),
     (
-        "deployments",
-        "Deployment history, rollback, verification, and dashboard",
-    ),
-    ("info", "Show starforge config and environment info"),
-    ("prompts", "Manage AI prompt templates and versioning"),
-    (
-        "explain",
-        "Analyze and explain smart contract code using AI",
+        "contract debug",
+        "Debug Soroban contracts with breakpoints and stepping",
     ),
     (
-        "config",
-        "Manage starforge configuration (telemetry, network)",
-    ),
-    ("telemetry", "Manage telemetry settings directly"),
-    ("tx", "Fetch transaction for the account"),
-    (
-        "sep10",
-        "SEP-10 web authentication (anchor auth testing)",
-    ),
-    (
-        "network",
-        "View or switch the active network (testnet/mainnet)",
-    ),
-    ("node", "Local Soroban devnet (Docker quickstart)"),
-    (
-        "completions",
-        "Generate shell completions for bash, zsh, and fish",
-    ),
-    (
-        "autocomplete",
-        "Smart autocomplete — suggest and record commands",
-    ),
-    (
-        "shell",
+        "contract repl",
         "Interactive REPL for local Soroban contract testing",
     ),
     (
-        "monitor",
-        "Live monitoring (contract events or wallet threshold)",
+        "contract test",
+        "Contract testing utilities for Soroban wasm",
     ),
-    ("tutorial", "Interactive CLI tutorials"),
-    ("benchmark", "Performance benchmarking utilities"),
-    ("test", "Contract testing utilities for Soroban wasm"),
-    ("gas", "Gas analysis and optimization helpers"),
-    ("cost", "AI-assisted deployment cost management"),
-    ("plugin", "Manage third-party plugins"),
     (
-        "privacy",
-        "Privacy protection, anonymization, consent, and reporting",
-    ),
-    ("project", "AI-driven project management"),
-    (
-        "template",
-        "Manage community contract templates from the marketplace",
-    ),
-    ("registry", "Interact with the remote template registry"),
-    ("multisig", "Manage multi-signature transactions"),
-    ("upgrade", "Contract upgrade management"),
-    ("governance", "Contract upgrade governance"),
-    ("orchestrate", "Multi-contract deployment orchestration"),
-    (
-        "pipeline",
-        "Visual pipeline builder for contract deployment workflows",
-    ),
-    ("security", "Security hardening, validation, and monitoring"),
-    (
-        "audit",
+        "contract audit",
         "Run a comprehensive security audit on a Soroban contract",
     ),
-    ("ai-audit", "AI-powered security audit"),
-    ("ai-test", "AI-driven testing assistance"),
-    ("ai-property-test", "AI property-based testing"),
-    ("ai-feedback", "AI feedback and learning system"),
-    ("ai-search", "AI code search and discovery"),
-    ("ai-recommend", "AI best practice recommendations"),
-    ("ai-route", "Intelligent AI model selection and routing"),
-    ("ai-plan", "AI project planning assistant"),
-    ("ai-accessibility", "AI accessibility features"),
-    ("ai-contract-suggest", "AI contract function suggestions"),
-    ("ai-doc-qa", "AI documentation Q&A"),
-    ("schedule", "Schedule deployments for future execution"),
     (
-        "simulate",
-        "Local network simulation and testing environment",
+        "contract security",
+        "Security hardening, validation, and monitoring",
     ),
-    ("backup", "Backup and disaster recovery"),
-    ("lint", "Static analysis and linting for Soroban contracts"),
+    ("contract governance", "Contract upgrade governance"),
+    ("contract upgrade", "Contract upgrade management"),
+    ("contract verify", "Run formal verification on a contract"),
+    ("contract migrate", "Contract storage migration tools"),
     (
-        "diagnostics",
-        "Run connectivity diagnostics for Ledger/Trezor devices",
+        "contract generate",
+        "Generate smart contracts from natural language prompts",
     ),
-    ("template-vcs", "Template version control"),
+    ("contract complete", "Smart contract completion assistant"),
     (
-        "perf",
+        "contract explain",
+        "Analyze and explain smart contract code using AI",
+    ),
+    (
+        "contract lint",
+        "Static analysis and linting for Soroban contracts",
+    ),
+    (
+        "contract optimize",
+        "Analyse and optimize compiled WASM and contract source",
+    ),
+    ("contract gas", "Gas analysis and optimization helpers"),
+    (
+        "contract metrics",
         "Contract performance monitoring and metrics dashboard",
     ),
-    ("advanced-perf", "Advanced contract performance analysis"),
-    ("docs", "Contract documentation portal"),
-    ("analytics", "Contract deployment analytics and reporting"),
-    ("approval", "Approval workflow for contract deployments"),
-    ("feature-flags", "Manage feature flags for AI features"),
-    ("migrate", "Contract storage migration tools"),
-    ("collab", "AI-driven collaboration tools"),
-    ("verify", "Run formal verification on a contract"),
-    ("help", "AI contextual help"),
-    ("ai-telemetry", "AI usage telemetry and analytics"),
     (
-        "optimize",
-        "Analyse and optimize compiled WASM / Rust contract source",
+        "contract profile",
+        "Advanced contract performance analysis and profiling",
     ),
-    ("ai-security-training", "AI-driven security training"),
+    ("contract benchmark", "Performance benchmarking utilities"),
+    ("contract docs", "Contract documentation portal"),
     (
-        "contract-monitor",
-        "Contract health monitoring and alerting",
+        "contract mutate",
+        "AI mutation testing for Soroban contracts",
+    ),
+    (
+        "contract monitor",
+        "Live monitoring (contract events or wallet threshold)",
+    ),
+    ("contract health", "Contract health monitoring and alerting"),
+    (
+        "deploy",
+        "Deploy a compiled Soroban contract and manage the lifecycle",
+    ),
+    ("deploy run", "Deploy a compiled Soroban contract (.wasm)"),
+    (
+        "deploy history",
+        "Deployment history, rollback, verification, dashboard",
+    ),
+    (
+        "deploy env",
+        "Manage deployment environments (dev/staging/production)",
+    ),
+    ("telemetry", "Manage telemetry settings directly"),
+    ("tx", "Fetch transaction for the account"),
+    ("sep10", "SEP-10 web authentication (anchor auth testing)"),
+    (
+        "deploy orchestrate",
+        "Multi-contract deployment orchestration",
+    ),
+    (
+        "deploy pipeline",
+        "Visual pipeline builder for deployment workflows",
+    ),
+    (
+        "deploy approval",
+        "Approval workflow for contract deployments",
+    ),
+    ("deploy cost", "AI-assisted deployment cost management"),
+    (
+        "deploy analytics",
+        "Contract deployment analytics and reporting",
+    ),
+    (
+        "deploy backup",
+        "Backup and disaster recovery for contract state",
+    ),
+    ("network", "View or switch the active network"),
+    ("network node", "Local Soroban devnet (Docker quickstart)"),
+    (
+        "network simulate",
+        "Local network simulation and testing environment",
+    ),
+    (
+        "network snapshot",
+        "Deterministic live-ledger snapshots for local tests",
+    ),
+    ("template", "Manage community contract templates"),
+    ("template vcs", "Template version control"),
+    (
+        "template registry",
+        "Interact with the remote template registry",
+    ),
+    ("plugin", "Manage third-party plugins"),
+    (
+        "ai",
+        "AI-assisted development: assistant, audits, tests, search",
+    ),
+    ("ai local", "Local LLM assistant powered by Ollama"),
+    ("ai debug", "AI-powered contract debugging assistant"),
+    ("ai navigate", "AI-driven code navigation and search"),
+    ("ai gate", "Configurable code quality gates"),
+    ("ai profiling", "AI-driven performance profiling"),
+    ("ai ide", "AI-powered IDE integration"),
+    ("ai tests", "AI-driven testing assistance"),
+    ("ai test-maintain", "AI-driven test maintenance"),
+    ("ai deploy-test", "AI-driven deployment testing"),
+    ("ai property-test", "AI property-based testing"),
+    ("ai feedback", "AI feedback and learning system"),
+    ("ai search", "AI code search and discovery"),
+    ("ai recommend", "AI best practice recommendations"),
+    ("ai route", "Intelligent AI model selection and routing"),
+    ("ai plan", "AI project planning assistant"),
+    ("ai accessibility", "AI accessibility features"),
+    ("ai suggest", "AI contract function suggestions"),
+    ("ai docs", "AI documentation Q&A"),
+    ("ai telemetry", "AI usage telemetry and analytics"),
+    ("ai training", "AI-driven security training"),
+    ("ai security-audit", "AI-powered security audit"),
+    ("ai prompts", "Manage AI prompt templates and versioning"),
+    ("ai help", "AI contextual help"),
+    (
+        "config",
+        "Manage starforge configuration, telemetry, flags, privacy",
+    ),
+    ("config info", "Show starforge config and environment info"),
+    ("config telemetry", "Manage telemetry settings directly"),
+    ("config flags", "Manage feature flags for AI features"),
+    (
+        "config privacy",
+        "Privacy protection, anonymization, consent, reporting",
+    ),
+    (
+        "project",
+        "Project scaffolding and AI-driven project management",
+    ),
+    ("project new", "Generate Soroban project boilerplate"),
+    ("project collab", "AI-driven collaboration tools"),
+    ("tool", "Developer-environment utilities"),
+    ("tool tutorial", "Interactive CLI tutorials"),
+    ("tool nl", "Natural language command interface"),
+    (
+        "tool pr",
+        "Check PR readiness (CI status and merge conflicts)",
+    ),
+    (
+        "tool bug-report",
+        "Collect environment diagnostics and a prefilled bug report",
+    ),
+    (
+        "completions",
+        "Generate shell completions for bash, zsh, fish, powershell",
     ),
     ("man", "Generate or install man pages"),
-    ("sep10", "SEP-10 web authentication for Stellar anchors"),
 ];
 
 /// Render `docs/COMMAND_CHEATSHEET.md` from the clap `Command` tree so the
@@ -767,6 +568,23 @@ fn main() {
 
     let mut cmd = Cli::command();
 
+    // Issue #936: the top-level surface is a budget, not a suggestion. Fail the
+    // build if a future command is added without folding it into a noun.
+    let visible: Vec<String> = cmd
+        .get_subcommands()
+        .filter(|c| !c.is_hide_set())
+        .map(|c| c.get_name().to_string())
+        .collect();
+    assert!(
+        visible.len() <= MAX_TOP_LEVEL_COMMANDS,
+        "top-level `starforge --help` shows {} commands ({}), budget is {}. \
+         Fold the new command under an existing noun (ADR 0007) instead of \
+         adding a top-level one.",
+        visible.len(),
+        visible.join(", "),
+        MAX_TOP_LEVEL_COMMANDS
+    );
+
     let project_root = env::var("CARGO_MANIFEST_DIR").unwrap();
 
     // ── Shell completions ─────────────────────────────────────────────────
@@ -805,7 +623,8 @@ fn main() {
         if is_internal_name(name) {
             continue;
         }
-        let full_name = format!("starforge-{}", name);
+        // CLI path (`contract test`) -> page file name (`starforge-contract-test.1`).
+        let full_name = format!("starforge-{}", name.replace(' ', "-"));
         let full_name_static: &'static str = Box::leak(full_name.into_boxed_str());
         let sub_cmd = clap::Command::new(full_name_static)
             .about(about)

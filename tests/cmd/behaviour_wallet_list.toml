@@ -1,0 +1,3 @@
+# Golden CLI case: wallet list on an empty isolated wallet store
+description = "wallet list on an empty isolated wallet store"
+args = ["wallet", "list"]

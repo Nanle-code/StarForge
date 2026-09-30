@@ -98,6 +98,17 @@ pub enum TemplateVcsCommands {
         /// To version
         to: String,
     },
+    /// Generate a read-only upgrade checklist for a scaffolded project
+    Upgrade {
+        /// Path to the scaffolded project
+        path: PathBuf,
+        /// Target template version (semver)
+        #[arg(long)]
+        to: String,
+        /// Include optional manual patch suggestions
+        #[arg(long)]
+        patch_hints: bool,
+    },
     /// Rollback to a specific version
     Rollback {
         /// Path to the template directory
@@ -137,6 +148,11 @@ pub async fn handle(cmd: TemplateVcsCommands) -> Result<()> {
         }
         TemplateVcsCommands::Suggest { path } => suggest(path).await,
         TemplateVcsCommands::Migrate { path, from, to } => migrate(path, from, to).await,
+        TemplateVcsCommands::Upgrade {
+            path,
+            to,
+            patch_hints,
+        } => upgrade(path, to, patch_hints),
         TemplateVcsCommands::Rollback { path, version } => rollback(path, version).await,
     }
 }
@@ -375,6 +391,43 @@ async fn migrate(path: PathBuf, from: String, to: String) -> Result<()> {
             println!("  - {}", warning);
         }
     }
+    Ok(())
+}
+
+fn upgrade(path: PathBuf, to: String, patch_hints: bool) -> Result<()> {
+    p::header("Template Upgrade Guide");
+    let Some(plan) = template_vcs::plan_project_upgrade(&path, &to, patch_hints)? else {
+        p::warn(
+            "No .starforge-template.json metadata found; the source template version is unknown.",
+        );
+        p::info("Add {\"template\": \"<name>\", \"version\": \"<semver>\"} metadata and rerun this command.");
+        return Ok(());
+    };
+
+    p::kv("Template", &plan.template);
+    p::kv("From version", &plan.from_version);
+    p::kv("To version", &plan.to_version);
+    println!("\nMajor version transitions:");
+    if plan.major_steps.is_empty() {
+        println!("  No major-version transitions.");
+    } else {
+        for step in &plan.major_steps {
+            println!("  - {}", step);
+        }
+    }
+
+    println!("\nMigration checklist:");
+    for (index, item) in plan.checklist.iter().enumerate() {
+        println!("  {}. {}", index + 1, item);
+    }
+
+    if !plan.patch_hints.is_empty() {
+        println!("\nOptional patch suggestions:");
+        for hint in &plan.patch_hints {
+            println!("  - {}", hint);
+        }
+    }
+    p::warn("No project files were changed. Review and apply any edits yourself.");
     Ok(())
 }
 

@@ -149,6 +149,9 @@ pub async fn handle(args: InvokeArgs) -> Result<()> {
             }
         }
 
+        // Add auth trees
+        summary = summary.with_auth_trees(outcome.simulation.auth.clone());
+
         let confirm_config = confirmation::ConfirmationConfig {
             risk_level,
             network: network.clone(),

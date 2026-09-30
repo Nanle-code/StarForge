@@ -8,7 +8,7 @@ A centralized remote template registry API that allows global template sharing, 
 - ✓ Template download and installation from remote
 - ✓ User authentication with JWT tokens
 - ✓ Publisher authentication and strict template name ownership enforcement
-- ✓ Rate-limited publish and mutation operations
+- ✓ Rate-limited publish, mutation and search operations with fair-use headers
 - ✓ Auditable template ownership history log and ownership transfer capabilities
 - ✓ Organization namespaces (`@org/template`) with owner, admin, and maintainer roles
 - ✓ Two-party ownership transfers requiring confirmation by the receiving party
@@ -36,16 +36,26 @@ Starts Registry API + MongoDB
 
 ## Rate Limiting & Security
 
-All template mutation operations (`POST /api/templates/publish`, `POST /api/templates/:name/transfer-ownership`) are rate-limited per publisher/IP.
+Publish and search endpoints are rate limited with a per-client token bucket.
+Authenticated callers are limited per user and anonymous callers per IP
+address (the connection's peer address; `X-Forwarded-For` is not trusted).
 
-- **Environment Configuration:**
-  - `PUBLISH_RATE_LIMIT_WINDOW_MS`: Rate limit window in milliseconds (default: `60000` ms / 1 minute).
-  - `PUBLISH_RATE_LIMIT_MAX`: Maximum mutation requests allowed per window (default: `10`).
-- **Response Headers:**
-  - `X-RateLimit-Limit`: Maximum allowable requests per window.
-  - `X-RateLimit-Remaining`: Remaining allowable requests in the current window.
-  - `X-RateLimit-Reset`: UTC epoch timestamp in seconds when the rate limit window resets.
-  - `Retry-After`: Seconds to wait before retrying when HTTP `429 Too Many Requests` is returned.
+| Policy | Endpoints | Default limit |
+|---|---|---|
+| `publish` | `POST /api/templates/publish`, `POST /api/templates/:name/transfer-ownership`, `POST /api/templates/:name/transfer-ownership/confirm` | 10 per minute per user |
+| `search` | `POST /api/templates/search`, `GET /api/templates/search/suggestions` | 60 per minute per user, 30 per minute per IP when anonymous |
+
+- **Environment Configuration:** `PUBLISH_RATE_LIMIT_MAX`,
+  `PUBLISH_RATE_LIMIT_WINDOW_MS`, `SEARCH_RATE_LIMIT_MAX`,
+  `SEARCH_RATE_LIMIT_ANON_MAX`, `SEARCH_RATE_LIMIT_WINDOW_MS`.
+- **Response Headers:** `RateLimit-Limit`, `RateLimit-Remaining`,
+  `RateLimit-Reset` (seconds until the quota is fully restored) and
+  `RateLimit-Policy` on every limited response; `Retry-After` (seconds until
+  the next request is accepted) on `429 Too Many Requests`. The legacy
+  `X-RateLimit-*` headers are still sent (`X-RateLimit-Reset` is a Unix time).
+
+See [RATE_LIMITING.md](./RATE_LIMITING.md) for how clients are identified, the
+header semantics, deployment caveats, and how clients should back off.
 
 ### Ownership Enforcement & Migration Notes
 
@@ -68,7 +78,7 @@ and as an asset on each GitHub release at
 
 ### Templates
 
-- `POST /api/templates/search` - Search registry
+- `POST /api/templates/search` - Search registry (rate-limited)
 - `GET /api/templates/:name/ownership-history` - Query template ownership audit history
 - `POST /api/templates/:name/transfer-ownership` - Transfer template ownership (auth required, rate-limited)
 - `POST /api/templates/:name/transfer-ownership/confirm` - Confirm a pending ownership transfer

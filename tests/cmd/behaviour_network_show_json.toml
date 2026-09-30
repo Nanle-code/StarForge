@@ -1,0 +1,3 @@
+# Golden CLI case: network show with the JSON envelope
+description = "network show with the JSON envelope"
+args = ["--json", "network", "show"]

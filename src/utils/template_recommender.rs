@@ -527,6 +527,7 @@ mod tests {
             provenance: None,
             security_review: None,
             changelog: Some(vec![]),
+            ..Default::default()
         }
     }
 

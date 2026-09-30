@@ -1,0 +1,3 @@
+# Golden CLI case: starforge bug-report --help
+description = "starforge bug-report --help"
+args = ["bug-report", "--help"]
