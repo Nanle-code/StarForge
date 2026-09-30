@@ -4,7 +4,9 @@ StarForge now provides a Wasmtime host for portable plugins. The host loads
 WebAssembly into an isolated store, applies a fuel budget and epoch deadline,
 and exposes no ambient imports by default. A plugin that imports WASI filesystem
 or networking functions therefore fails during instantiation unless a future
-capability-specific WIT host interface is explicitly granted.
+capability-specific WIT host interface is explicitly granted. This behaviour is
+verified in CI by the capability test harness described in
+[Testing Capability Enforcement](capabilities.md#5-testing-capability-enforcement).
 
 The stable interface is documented in [`wit/starforge-plugin.wit`](../../wit/starforge-plugin.wit).
 SDK authors should target that contract rather than the Rust ABI used by the

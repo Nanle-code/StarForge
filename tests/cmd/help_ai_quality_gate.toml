@@ -1,0 +1,3 @@
+# Golden CLI case: starforge ai-quality-gate --help
+description = "starforge ai-quality-gate --help"
+args = ["ai-quality-gate", "--help"]

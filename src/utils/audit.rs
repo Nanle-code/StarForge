@@ -46,7 +46,8 @@ pub(crate) fn audit_dir() -> Result<PathBuf> {
 /// process-wide profile. In normal use the env var matches the real home, so
 /// the resolved path is identical to `dirs::home_dir()`.
 fn home_dir() -> Result<PathBuf> {
-    if let Some(home) = std::env::var_os("USERPROFILE")
+    if let Some(home) = std::env::var_os("STARFORGE_HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
         .or_else(|| std::env::var_os("HOME"))
         .filter(|v| !v.is_empty())
     {

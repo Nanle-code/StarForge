@@ -513,8 +513,48 @@ Failed to fetch template 'uniswap-v2' from git:https://github.com/...
   • The partial download was rolled back automatically.
 ```
 
+## Offline Template Cache & Verification
+
+To support disconnected and air-gapped environments, StarForge caches fetched contract templates locally. Subsequent scaffolds can run completely offline using verified warm caches.
+
+### Warm Cache Scaffolding
+
+When scaffolding contracts via `starforge new contract <name> --template <template>`:
+- If a valid cache entry exists, StarForge verifies its package SHA-256 digest and cryptographic provenance against recorded cache metadata before copying it.
+- If network access is unavailable, StarForge transparently falls back to warm cache entries.
+- If cache contents have been tampered with or corrupted, StarForge refuses to use the compromised cache and terminates with an actionable error.
+
+### Signature & Provenance Verification on Cache Update
+
+When refreshing or updating cached templates:
+- Fetches are staged in an isolated temporary directory within the cache volume.
+- Package digests and Sigstore/cryptographic provenance signatures are verified *prior* to touching or replacing any existing cache entries.
+- Cache directory replacements are executed atomically. If verification or network requests fail during a periodic update, existing warm cache entries remain protected and untampered.
+
+### Cache Management Commands
+
+StarForge provides CLI commands to inspect and manage local template cache entries:
+
+```bash norun
+# List all locally cached templates with size, version, and integrity status
+starforge template cache list
+
+# Output cache listing in JSON format (e.g. for automation or scripts)
+starforge template cache list --json
+
+# Clear a specific cached template
+starforge template cache clear --name uniswap-v2
+
+# Clear all cached templates (prompts for confirmation)
+starforge template cache clear --all
+
+# Clear all cached templates without confirmation prompt
+starforge template cache clear --all --force
+```
+
 ## Support
 
 For issues or questions:
 - GitHub Issues: https://github.com/Nanle-code/StarForge/issues
 - Documentation: https://github.com/Nanle-code/StarForge/blob/master/README.md
+

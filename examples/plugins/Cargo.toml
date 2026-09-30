@@ -1,0 +1,8 @@
+# Example plugins for the plugin authoring cookbook (docs/plugins/cookbook.md).
+#
+# This is a standalone workspace, separate from the StarForge CLI package at
+# the repository root, so building the CLI never builds the examples. CI
+# builds and tests every member in the "Plugin Cookbook Examples" job.
+[workspace]
+members = ["hello-plugin", "wasm-inspect-plugin"]
+resolver = "2"

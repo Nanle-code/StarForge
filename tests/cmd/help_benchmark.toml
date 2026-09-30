@@ -1,0 +1,3 @@
+# Golden CLI case: starforge benchmark --help
+description = "starforge benchmark --help"
+args = ["benchmark", "--help"]

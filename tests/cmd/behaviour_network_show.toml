@@ -1,0 +1,3 @@
+# Golden CLI case: network show on the isolated default config
+description = "network show on the isolated default config"
+args = ["network", "show"]

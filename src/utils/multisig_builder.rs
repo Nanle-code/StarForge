@@ -27,7 +27,10 @@ pub enum TimelockExecutionStatus {
     /// Proposal is still collecting signatures
     CollectingSignatures { signed: u32, required: u32 },
     /// Required signatures collected, but locked under mandatory delay
-    Locked { unlock_at: String, remaining_seconds: i64 },
+    Locked {
+        unlock_at: String,
+        remaining_seconds: i64,
+    },
     /// Timelock delay has elapsed; proposal is currently executable
     ReadyToExecute {
         expires_at: Option<String>,
@@ -49,6 +52,10 @@ pub struct Proposal {
     pub metadata: ProposalMetadata,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transaction_xdr: Option<String>,
+    /// SHA-256 digest binding the proposal identity, network, and transaction.
+    /// Older proposal files omit this field and are upgraded on import.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timelock: Option<TimelockPolicy>,
     #[serde(default)]
@@ -119,7 +126,7 @@ pub struct TemplateDefinition {
 
 impl Proposal {
     pub fn new(threshold: u32, signers: Vec<String>, network: String) -> Self {
-        Proposal {
+        let mut proposal = Proposal {
             id: Uuid::new_v4().to_string(),
             threshold,
             signers,
@@ -136,13 +143,56 @@ impl Proposal {
                 template: None,
             },
             transaction_xdr: None,
+            payload_hash: None,
             timelock: None,
             events: vec![ProposalEvent {
                 event_type: "created".to_string(),
                 message: "Proposal created".to_string(),
                 at: Utc::now().to_rfc3339(),
             }],
+        };
+        proposal.payload_hash = Some(proposal.payload_hash());
+        proposal
+    }
+
+    /// Return the stable digest that offline cosigners must agree on.
+    pub fn payload_hash(&self) -> String {
+        let transaction = self.transaction_xdr.as_deref().unwrap_or("");
+        hash_message(&format!("{}\n{}\n{}", self.id, self.network, transaction))
+            .expect("hashing an in-memory payload cannot fail")
+    }
+
+    /// Reject a payload whose network or digest does not match the proposal.
+    pub fn validate_payload(
+        &self,
+        expected_network: Option<&str>,
+        expected_hash: Option<&str>,
+    ) -> Result<()> {
+        if let Some(network) = expected_network {
+            if self.network != network {
+                bail!(
+                    "Offline payload network mismatch: expected '{}', got '{}'",
+                    network,
+                    self.network
+                );
+            }
         }
+        let calculated = self.payload_hash();
+        if let Some(stored) = &self.payload_hash {
+            if stored != &calculated {
+                bail!("Offline payload hash mismatch: proposal may have been modified");
+            }
+        }
+        if let Some(expected) = expected_hash {
+            if calculated != expected {
+                bail!(
+                    "Offline payload hash mismatch: expected '{}', got '{}'",
+                    expected,
+                    calculated
+                );
+            }
+        }
+        Ok(())
     }
 
     pub fn add_signature(&mut self, signer: String, signature: String) {
@@ -201,10 +251,15 @@ impl Proposal {
     }
 
     /// Attach or configure a timelock policy on this proposal.
-    pub fn with_timelock(mut self, min_delay_seconds: u64, execution_window_seconds: Option<u64>) -> Self {
+    pub fn with_timelock(
+        mut self,
+        min_delay_seconds: u64,
+        execution_window_seconds: Option<u64>,
+    ) -> Self {
         let now = Utc::now();
         let unlock_at = now + chrono::Duration::seconds(min_delay_seconds as i64);
-        let expires_at = execution_window_seconds.map(|w| unlock_at + chrono::Duration::seconds(w as i64));
+        let expires_at =
+            execution_window_seconds.map(|w| unlock_at + chrono::Duration::seconds(w as i64));
         self.timelock = Some(TimelockPolicy {
             min_delay_seconds,
             execution_window_seconds,
@@ -286,7 +341,10 @@ impl Proposal {
         }
         if let Some(status) = self.timelock_status() {
             match status {
-                TimelockExecutionStatus::Locked { unlock_at, remaining_seconds } => {
+                TimelockExecutionStatus::Locked {
+                    unlock_at,
+                    remaining_seconds,
+                } => {
                     anyhow::bail!(
                         "Proposal is timelocked until {}. Remaining delay: {}s",
                         unlock_at,
@@ -294,7 +352,10 @@ impl Proposal {
                     );
                 }
                 TimelockExecutionStatus::Expired { expired_at } => {
-                    anyhow::bail!("Proposal timelock execution window expired at {}", expired_at);
+                    anyhow::bail!(
+                        "Proposal timelock execution window expired at {}",
+                        expired_at
+                    );
                 }
                 TimelockExecutionStatus::CollectingSignatures { .. } => {
                     anyhow::bail!("Proposal signatures incomplete");
@@ -305,7 +366,6 @@ impl Proposal {
             Ok(())
         }
     }
-
 }
 
 // ── Proposal validation (#691) ────────────────────────────────────────────────
@@ -463,6 +523,7 @@ pub fn validate_signature_format(signature: &str) -> bool {
 }
 
 pub fn validate_for_signing(proposal: &Proposal, wallet: &str) -> Result<()> {
+    proposal.validate_payload(None, None)?;
     if proposal.is_expired() {
         bail!("Proposal has expired");
     }
@@ -479,6 +540,7 @@ pub fn validate_for_signing(proposal: &Proposal, wallet: &str) -> Result<()> {
 }
 
 pub fn validate_for_submit(proposal: &Proposal) -> Result<()> {
+    proposal.validate_payload(None, None)?;
     if proposal.is_expired() {
         bail!("Proposal has expired");
     }
@@ -497,7 +559,7 @@ pub fn validate_for_submit(proposal: &Proposal) -> Result<()> {
         if !proposal.signers.contains(&sig.signer) {
             bail!("Unknown signer '{}' in signature list", sig.signer);
         }
-        if !verify_signature(&proposal.id, &sig.signer, &sig.signature) {
+        if !verify_proposal_signature(proposal, &sig.signer, &sig.signature) {
             bail!("Signature verification failed for signer '{}'", sig.signer);
         }
     }
@@ -603,7 +665,13 @@ pub fn common_templates() -> Vec<MultisigTemplate> {
 
 /// Signature `signer` is expected to submit for `proposal`.
 pub fn generate_proposal_signature(signer: &str, proposal: &Proposal) -> Result<String> {
-    generate_signature(&proposal.id, signer)
+    generate_signature(&proposal.payload_hash(), signer)
+}
+
+pub fn verify_proposal_signature(proposal: &Proposal, signer: &str, signature: &str) -> bool {
+    generate_proposal_signature(signer, proposal)
+        .map(|expected| expected == signature)
+        .unwrap_or(false)
 }
 
 /// Collection progress for `proposal`, measured against its threshold.
@@ -659,7 +727,7 @@ pub fn validate_signatures(proposal: &Proposal) -> SignatureValidationReport {
             continue;
         }
         if proposal.signers.contains(&sig.signer)
-            && verify_signature(&proposal.id, &sig.signer, &sig.signature)
+            && verify_proposal_signature(proposal, &sig.signer, &sig.signature)
         {
             valid_signatures += 1;
             verified.insert(sig.signer.as_str());
@@ -851,11 +919,11 @@ mod tests {
     #[test]
     fn test_signature_generation_and_verification() {
         let proposal = Proposal::new(2, vec!["alice".into()], "testnet".into());
-        let sig = generate_signature(&proposal.id, "alice").unwrap();
+        let sig = generate_proposal_signature("alice", &proposal).unwrap();
 
         assert!(validate_signature_format(&sig));
-        assert!(verify_signature(&proposal.id, "alice", &sig));
-        assert!(!verify_signature(&proposal.id, "bob", &sig));
+        assert!(verify_proposal_signature(&proposal, "alice", &sig));
+        assert!(!verify_proposal_signature(&proposal, "bob", &sig));
     }
 
     #[test]
@@ -864,11 +932,11 @@ mod tests {
         let mut proposal = Proposal::new(2, signers, "testnet".to_string());
         assert!(validate_for_submit(&proposal).is_err());
 
-        let sig = generate_signature(&proposal.id, "alice").unwrap();
+        let sig = generate_proposal_signature("alice", &proposal).unwrap();
         proposal.add_signature("alice".to_string(), sig);
         assert!(validate_for_submit(&proposal).is_err());
 
-        let sig = generate_signature(&proposal.id, "bob").unwrap();
+        let sig = generate_proposal_signature("bob", &proposal).unwrap();
         proposal.add_signature("bob".to_string(), sig);
         assert!(validate_for_submit(&proposal).is_ok());
     }

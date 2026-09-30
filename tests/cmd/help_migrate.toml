@@ -1,0 +1,3 @@
+# Golden CLI case: starforge migrate --help
+description = "starforge migrate --help"
+args = ["migrate", "--help"]

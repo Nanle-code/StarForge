@@ -16,6 +16,12 @@ as described in [STABILITY.md](./STABILITY.md).
 
 ### Added
 
+- Deployment annotations (#750) — `starforge deploy` accepts optional
+  `--note` and `--changelog` flags that persist with the deployment history
+  record. `starforge deployments history` shows a Note column, and the new
+  `starforge deployments annotations` subcommand lists annotations (or shows
+  one for `--id`), including JSON output with structured `note` and
+  `changelog` fields.
 - `starforge bug-report` command — collects version, OS, active network,
   config path, and Stellar CLI presence into a prefilled GitHub issue
   template (`--output <file>` writes to disk) (#975).
@@ -23,6 +29,16 @@ as described in [STABILITY.md](./STABILITY.md).
   semver rules, deprecation process, and 1.0 scope (#973).
 - `CHANGELOG.md` — this file; establishes Keep-a-Changelog discipline
   going forward (#973).
+
+### Changed
+
+- Generated projects and bundled templates now target Soroban SDK `22.0.0`
+  (previously `21.0.0`), matching the version StarForge itself builds against.
+  The version lives in the new `SOROBAN_SDK_VERSION` and `STELLAR_XDR_VERSION`
+  constants in `src/utils/templates.rs`, and `starforge new contract`, the
+  example templates, and `templates/test-helpers` all read from that single
+  source — no hard-coded SDK version strings remain in the generators (#910).
+- Documented the SDK upgrade cadence in `docs/TEMPLATE_CONTRIBUTING.md` (#910).
 
 ---
 

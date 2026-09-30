@@ -216,9 +216,7 @@ mod tests {
 
     #[test]
     fn runner_basic_execution() {
-        let _home_guard = crate::utils::lock_home_env();
         let home = TempDir::new().unwrap();
-        std::env::set_var("HOME", home.path());
 
         let dir = TempDir::new().unwrap();
         let wasm = dir.path().join("test.wasm");
@@ -240,9 +238,7 @@ mod tests {
 
     #[test]
     fn runner_parallel_execution() {
-        let _home_guard = crate::utils::lock_home_env();
         let home = TempDir::new().unwrap();
-        std::env::set_var("HOME", home.path());
 
         let dir = TempDir::new().unwrap();
         let wasm = dir.path().join("p.wasm");

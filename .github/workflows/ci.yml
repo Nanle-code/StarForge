@@ -22,6 +22,14 @@ env:
   CARGO_INCREMENTAL: 0
 
 jobs:
+  root-allowlist:
+    name: Root File Allowlist
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check intentional root files
+        run: bash scripts/check-root-allowlist.sh
+
   canonical-urls:
     name: Canonical Repository URLs
     runs-on: ubuntu-24.04
@@ -39,17 +47,20 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt
-      # NON-BLOCKING on purpose: master is not rustfmt-clean yet (a handful of
-      # files under src/commands, src/utils and tests/ still need
-      # `cargo fmt --all`). Reformatting them in one sweep would conflict with
-      # every open branch, so drift is surfaced as a warning annotation for now.
-      # Once `cargo fmt --all --check` passes on master, replace this step with
-      # a plain `cargo fmt --all --check` so the job becomes a hard gate.
       - name: Check formatting
-        run: |
-          if ! cargo fmt --all --check; then
-            echo "::warning title=rustfmt::Code is not rustfmt-clean. Run 'cargo fmt --all' locally. This check is currently non-blocking."
-          fi
+        run: cargo fmt --all --check
+
+  actionlint:
+    name: Actionlint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install actionlint
+        uses: taiki-e/install-action@v2
+        with:
+          tool: actionlint
+      - name: Lint all workflow files
+        run: actionlint -color
 
   msrv:
     name: MSRV (Rust 1.80)
@@ -90,6 +101,22 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libudev-dev
       - name: Run secure defaults audit
         run: cargo test --test secure_defaults_audit --locked
+
+  plugin-capabilities:
+    name: Plugin Capability Enforcement
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+      # Malicious fixtures must be denied filesystem/network access and benign
+      # fixtures with declared capabilities must succeed. See
+      # docs/plugins/capabilities.md#5-testing-capability-enforcement.
+      - name: Run plugin capability integration tests
+        run: cargo test --test plugin_capability_integration --locked
 
   doctests:
     name: Documentation Tests
@@ -142,6 +169,26 @@ jobs:
         run: cargo build --locked
       - name: Fail when cheat sheet is stale
         run: git diff --exit-code -- docs/COMMAND_CHEATSHEET.md
+
+  # Builds and tests the example plugins from docs/plugins/cookbook.md so the
+  # cookbook cannot drift from the plugin API. They live in their own
+  # workspace under examples/plugins and depend on this crate by path.
+  plugin-examples:
+    name: Plugin Cookbook Examples
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+      - name: Pin example dependencies to the CLI's lockfile
+        run: cp Cargo.lock examples/plugins/Cargo.lock
+      - name: Build example plugins
+        run: cargo build --manifest-path examples/plugins/Cargo.toml --workspace
+      - name: Test example plugins
+        run: cargo test --manifest-path examples/plugins/Cargo.toml --workspace
 
   hardware-wallet:
     name: Hardware Wallet (optional backends)

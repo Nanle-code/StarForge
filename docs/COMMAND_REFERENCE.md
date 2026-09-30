@@ -2,6 +2,13 @@
 
 Browse every top-level command and its most important flags. For wallet, template, and transaction details see also [API_REFERENCE.md](../API_REFERENCE.md).
 
+Commands are grouped by noun (`starforge contract test`, `starforge wallet
+auth`, `starforge tool tutorial`). The old flat spellings still work for one
+minor release and print a deprecation warning; see
+[CLI_COMMAND_TREE.md](CLI_COMMAND_TREE.md) for the full migration table and
+[adr/0007-noun-verb-command-tree.md](adr/0007-noun-verb-command-tree.md) for
+the rationale.
+
 ## Global options
 
 | Flag | Description |
@@ -17,7 +24,7 @@ Browse every top-level command and its most important flags. For wallet, templat
 
 ```bash norun
 # Environment check
-starforge info
+starforge config info
 
 # Wallet + network
 starforge wallet create deployer --fund
@@ -25,11 +32,11 @@ starforge network show
 
 # Templates + deploy
 starforge template list
-starforge deploy --wasm ./contract.wasm --wallet deployer --simulate
+starforge deploy run --wasm ./contract.wasm --wallet deployer --simulate
 
 # Guided tutorial
-starforge tutorial start hello-world
-starforge tutorial next
+starforge tool tutorial start hello-world
+starforge tool tutorial next
 ```
 
 ---
@@ -57,7 +64,7 @@ limits enforced on untrusted backup files.
 
 ---
 
-## `multisig`
+## `wallet multisig`
 
 | Subcommand | Purpose |
 |------------|---------|
@@ -70,17 +77,17 @@ limits enforced on untrusted backup files.
 | `templates` / `from-template` | Use common scenarios like escrow, company treasury, DAO, vault, and payment |
 
 ```bash norun
-starforge multisig wizard
-starforge multisig create --threshold 2 --signers alice,bob,carol \
+starforge wallet multisig wizard
+starforge wallet multisig create --threshold 2 --signers alice,bob,carol \
   --title "Treasury payment" --transaction-xdr <XDR>
-starforge multisig status proposal.json
-starforge multisig verify proposal.json
-starforge multisig notify proposal.json --message "Please sign the treasury payment"
+starforge wallet multisig status proposal.json
+starforge wallet multisig verify proposal.json
+starforge wallet multisig notify proposal.json --message "Please sign the treasury payment"
 ```
 
 ---
 
-## `new`
+## `project new`
 
 | Subcommand | Purpose |
 |------------|---------|
@@ -89,19 +96,34 @@ starforge multisig notify proposal.json --message "Please sign the treasury paym
 
 ---
 
-## `contract` / `inspect` / `deploy`
+## `contract` / `deploy`
 
 | Command | Purpose |
 |---------|---------|
-| `contract invoke` | Invoke contract function (`--simulate`) |
+| `contract invoke` | Invoke contract function (`--submit`, `--auto-restore`, `--json`) |
 | `contract invoke-script` | Run an ordered YAML or JSON invocation script (`--dry-run`) |
+| `contract ttl show` | List instance/code/persistent TTL (live-until + ETA; `--warn-below`) |
+| `contract ttl extend` | Build/submit `ExtendFootprintTTL` (`--ledgers N`, cost estimate first) |
 | `contract build` | Build a Soroban contract with build provenance metadata |
 | `contract inspect` | Inspect deployed contract or local WASM metadata |
 | `contract generate-bindings <WASM_FILE>` | Generate Rust or TypeScript wrappers (`--lang rust\|ts`) |
 | `inspect storage` | Deep storage inspection |
 | `deploy --wasm <FILE>` | Prepare Soroban deployment |
 
-**`deploy` flags:** `--network`, `--wallet`, `--optimize`, `--simulate`, `--yes`, `--execute`, `--policy`, `--checklist`
+**Invoke restore:** when simulation returns a `restorePreamble`, StarForge can
+prompt (or `--auto-restore`) to submit a `RestoreFootprintOp`, then re-simulate.
+`--json` reports `"restored": true` when a restore ran. See
+[guides/INVOKE.md](guides/INVOKE.md).
+
+**TTL monitoring:** `contract ttl show --warn-below N` exits non-zero when any
+entry has fewer than `N` ledgers remaining — suitable for cron/alert jobs.
+
+**`deploy` flags:** `--network`, `--wallet`, `--optimize`, `--simulate`, `--yes`, `--execute`, `--policy`, `--checklist`, `--skip-smoke`
+
+After a successful `--execute`, `deploy` runs the `[[smoke_tests]]` declared in
+`starforge-project.toml` against the new contract. A smoke failure exits with
+code **9** (`SMOKE_TEST_FAILURE`), which is distinct from a failed deploy.
+`--skip-smoke` opts out. See [SMOKE_TESTS.md](SMOKE_TESTS.md).
 
 Deploy policy files (`starforge-deploy-policy.toml`) gate allowed networks,
 required reviewers, and checklist items. Validate in CI with
@@ -116,10 +138,10 @@ footprint alongside the minimum resource fee and a recommended fee that
 includes a safety margin. See [SIMULATION_RESOURCES.md](SIMULATION_RESOURCES.md).
 
 ```bash norun
-starforge deploy --wasm target/wasm32v1-none/release/token.wasm \
+starforge deploy run --wasm target/wasm32v1-none/release/token.wasm \
   --wallet deployer --network testnet --simulate
 
-starforge deploy --wasm ./token.wasm --optimize --yes --execute
+starforge deploy run --wasm ./token.wasm --optimize --yes --execute
 
 starforge contract generate-bindings ./token.wasm --lang rust
 ```
@@ -172,7 +194,7 @@ starforge contract invoke-script ./ops.yaml --network testnet
 
 ---
 
-## `test`
+## `contract test`
 
 | Flag | Purpose |
 |------|---------|
@@ -193,17 +215,17 @@ starforge contract invoke-script ./ops.yaml --network testnet
 | `--testnet-dry-run` | Validate testnet configuration without probing RPC health |
 
 ```bash norun
-starforge test --wasm ./target/contract.wasm \
+starforge contract test --wasm ./target/contract.wasm \
   --fixture ./contract-tests.json --coverage --source ./src/lib.rs --report html
 
-starforge test --wasm ./target/contract.wasm --source ./src/lib.rs \
+starforge contract test --wasm ./target/contract.wasm --source ./src/lib.rs \
   --coverage --coverage-out coverage.html --coverage-format html \
   --coverage-ci --coverage-goal 85 --branch-coverage-goal 70
 
-starforge test --wasm ./target/contract.wasm --source ./src/lib.rs \
+starforge contract test --wasm ./target/contract.wasm --source ./src/lib.rs \
   --coverage-ci-workflow-out .github/workflows/starforge-coverage.yml
 
-starforge test --wasm ./target/contract.wasm \
+starforge contract test --wasm ./target/contract.wasm \
   --fixture ./contract-tests.toml --testnet --testnet-dry-run
 ```
 
@@ -212,7 +234,7 @@ Coverage analysis tracks Soroban contract functions, line spans, branch paths, u
 
 ---
 
-## `network` / `node`
+## `network`
 
 | Command | Purpose |
 |---------|---------|
@@ -220,17 +242,162 @@ Coverage analysis tracks Soroban contract functions, line spans, branch paths, u
 | `network switch <NAME>` | Set active network |
 | `network add` | Add custom Horizon/RPC/Friendbot endpoints |
 | `network test` | Connectivity probe |
-| `node start` | Start local quickstart devnet (`--port`) |
+| `network node start` | Start local quickstart devnet (`--port`) |
 
 ---
 
-## `tx`
+## `wallet tx`
 
 | Subcommand | Purpose |
 |------------|---------|
-| `tx send` | Payment (`--from`, `--to`, `--amount`, `--asset`) |
+| `tx send` | Payment (`--from`, `--to`, `--amount`, `--asset`, `--fee-payer`) |
 | `tx batch` | Batch operations from JSON (`--file`, `--from`) |
 | `tx history <PUBKEY>` | Recent transactions (`--limit`, `--cursor`, `--successful`) |
+
+---
+
+## `account` — sponsored reserves (CAP-33)
+
+Stellar accounts must hold a base reserve before they can exist. CAP-33 lets
+one account sponsor another's reserve, which is what makes **gasless onboarding**
+possible: a brand-new user can receive and use an account without ever holding
+XLM.
+
+| Subcommand | Purpose |
+|------------|---------|
+| `account create` | Create an account with a sponsor paying its reserve (`--sponsor`, `--to`, `--starting-balance`, `--fee-payer`, `--no-fee-payer`, `--yes`, `--json`) |
+| `account end-sponsorship` | Release the sponsor's reserve (`--wallet`, `--fee-payer`, `--yes`, `--json`) |
+
+`--fee-payer` is a CAP-15 fee bump: a third wallet signs the outer envelope and
+pays the network fee, so even the *sponsoring* transaction can be submitted
+without the sponsor spending anything.
+
+It is opt-in. Without it, the transaction is submitted unwrapped and the signer
+pays the fee directly, which is cheaper — a bump always charges at least twice
+the base fee. Passing the signer's own name is rejected rather than silently
+doubling the cost.
+
+### Gasless onboarding recipe
+
+Three parties, and the new user spends nothing at any step.
+
+**1. The sponsor funds its own account once.** It needs enough XLM to cover the
+reserve it is fronting plus transaction fees.
+
+```bash
+starforge wallet create sponsor --fund
+```
+
+**2. The new user generates a key locally and shares only the public key.**
+No funds are required to generate a key.
+
+```bash
+starforge wallet create alice
+starforge wallet show alice          # copy the G... address
+```
+
+**3. The sponsor creates the account and pays the reserve.** The user's address
+is passed with `--to`, the sponsor's wallet with `--sponsor`. Without a third
+wallet, the sponsor also pays the network fee:
+
+```bash
+starforge account create \
+  --sponsor sponsor \
+  --to <ALICE_G...> \
+  --starting-balance 5000000 \
+  --network testnet \
+  --yes
+```
+
+Before confirming, StarForge prints exactly who pays what:
+
+```
+Sponsor                    GSPONSOR...
+New account                GALICE...
+Base reserve (sponsored)   5000000 (0.5000000 XLM)
+Paid by new account        0 (0.0000000 XLM)
+Network fee (sponsor)      200 (0.0000200 XLM)
+Sponsor total outlay       10000200 (1.0000200 XLM)
+```
+
+Add `--fee-payer <WALLET>` only when a *different*, fee-only wallet should
+cover the network fee, so the sponsor pays just the reserve and the funded
+amount:
+
+```bash
+starforge account create \
+  --sponsor sponsor \
+  --to <ALICE_G...> \
+  --starting-balance 5000000 \
+  --network testnet \
+  --fee-payer fees \
+  --yes
+```
+
+The preview then shows both layers explicitly:
+
+```
+Who Pays What
+  Inner source            GSponsor...   (signs the reserve)
+  Fee payer               GFees...      (signs the fee bump)
+  Inner fee (not charged) 200 (0.0000200 XLM)
+  Bump fee (total)        400 (0.0000400 XLM)
+  Paid by inner source    0 (0.0000000 XLM)
+```
+
+The inner transaction's own fee is not charged at all: the fee bump covers it,
+so only the fee payer's amount is actually debited.
+
+**4. The new user transacts without ever holding XLM.** A fee wallet covers the
+fee bump, so the account only ever needs its sponsored reserve.
+
+```bash
+starforge tx send \
+  --from alice \
+  --to <RECIPIENT_G...> \
+  --amount 10 \
+  --fee-payer fees \
+  --network testnet \
+  --yes
+```
+
+**5. End the sponsorship once the account can sustain its own reserve.** The
+sponsor's reserve is returned; from then on the account pays its own base
+reserve. This step is signed by the *sponsored* account.
+
+```bash
+starforge account end-sponsorship --wallet alice --network testnet --yes
+```
+
+### How it works
+
+`account create` builds a single transaction containing two operations:
+
+1. `BeginSponsoringFutureReserves` — the sponsor opens the sponsorship.
+2. `CreateAccount` — the new account is created with `startingBalance` funded
+   and its base reserve sponsored.
+
+Both operations are committed atomically, so the account never exists in an
+unsponsored state. The sponsor signs the transaction; the new account does not
+sign, because it does not exist yet and therefore has no key in a wallet to
+sign with.
+
+Ending the sponsorship is a separate, single-operation
+`EndSponsoringFutureReserves` transaction sourced and signed by the sponsored
+account, which by then exists and can sign for itself.
+
+### Notes and limits
+
+- The fee payer must be a **local wallet**: a fee bump requires the fee
+  source's signature, so a bare `G...` address cannot authorise one.
+- `--starting-balance` is the amount sent *to* the new account and is separate
+  from the sponsored reserve. Pass `0` for an account that will be funded later.
+- Sponsoring is unlimited in count but the sponsor must stay funded: each open
+  sponsorship locks one base reserve against the sponsor's minimum balance.
+- Always end sponsorships you no longer need, or the sponsor's balance stays
+  reduced.
+- `--json` emits a stable machine-readable payload on both subcommands for
+  scripted onboarding flows.
 
 ---
 
@@ -243,7 +410,7 @@ rules, and the JSON output.
 
 | Subcommand | Purpose |
 |------------|---------|
-| `sep10 auth --domain <DOMAIN> --wallet <NAME>` | Authenticate and print the JWT (`--network`, `--toml-url`, `--json`, `--verbose`, `--output`) |
+| `wallet auth --domain <DOMAIN> --wallet <NAME>` | Authenticate and print the JWT (`--network`, `--toml-url`, `--json`, `--verbose`, `--output`) |
 
 ---
 
@@ -262,6 +429,18 @@ When downloading template archives from a remote registry, the CLI automatically
 
 ---
 
+## `template-vcs`
+
+| Subcommand | Purpose |
+|------------|---------|
+| `template-vcs upgrade <PROJECT> --to <VERSION>` | Print a read-only upgrade checklist from the project's `.starforge-template.json` version (`--patch-hints` adds manual suggestions) |
+| `template-vcs migrate <PATH> <FROM> <TO>` | Generate an AI migration guide between recorded template versions |
+
+The upgrade command never changes project files. Projects without
+`.starforge-template.json` are reported as having an unknown source version.
+
+---
+
 ## `gas`
 
 | Subcommand | Purpose |
@@ -272,7 +451,7 @@ When downloading template archives from a remote registry, the CLI automatically
 
 ---
 
-## `simulate` / `cost` — resource fees
+## `network simulate` / `deploy cost` — resource fees
 
 | Command | Purpose |
 |---------|---------|
@@ -285,10 +464,10 @@ Shared flags: `--margin <PERCENT>` (default `20`), `--inclusion-fee <STROOPS>`
 (default `100`). `simulate resources` also takes `--json`.
 
 ```bash norun
-starforge simulate resources --file simulation.json --json
-starforge simulate resources --contract CCPYZ... --function balance --network testnet
-starforge cost resources --file simulation.json --network mainnet --enforce
-starforge cost forecast-batch batch-invoke-manifest.json --network testnet --enforce
+starforge network simulate resources --file simulation.json --json
+starforge network simulate resources --contract CCPYZ... --function balance --network testnet
+starforge deploy cost resources --file simulation.json --network mainnet --enforce
+starforge deploy cost forecast-batch batch-invoke-manifest.json --network testnet --enforce
 ```
 
 Full reference: [SIMULATION_RESOURCES.md](SIMULATION_RESOURCES.md) and
@@ -296,7 +475,7 @@ Full reference: [SIMULATION_RESOURCES.md](SIMULATION_RESOURCES.md) and
 
 ---
 
-## `advanced-perf`
+## `contract profile`
 
 | Subcommand | Purpose |
 |------------|---------|
@@ -309,10 +488,10 @@ Full reference: [SIMULATION_RESOURCES.md](SIMULATION_RESOURCES.md) and
 | `advanced-perf generate-dashboard <CONTRACT>` | Show the recorded-metrics performance dashboard |
 
 ```bash norun
-starforge advanced-perf profile ./target/wasm32-unknown-unknown/release/token.wasm \
+starforge contract profile profile ./target/wasm32-unknown-unknown/release/token.wasm \
   --label token --dashboard ./target/token-profile.html
 
-starforge advanced-perf profile ./target/wasm32-unknown-unknown/release/token.wasm \
+starforge contract profile profile ./target/wasm32-unknown-unknown/release/token.wasm \
   --baseline ~/.starforge/contract_profiles/profile-abc123def456.json \
   --output ./target/token-profile.json
 ```
@@ -335,7 +514,7 @@ format, thresholds, noise handling, and CI integration.
 
 ---
 
-## `docs`
+## `contract docs`
 
 AI-assisted documentation generation for Soroban contracts (issue #499).
 
@@ -349,13 +528,13 @@ AI-assisted documentation generation for Soroban contracts (issue #499).
 | `docs html / api-ref / publish` | HTML site, API reference, and publish helpers |
 
 ```bash norun
-starforge docs generate counter --name Counter \
+starforge contract docs generate counter --name Counter \
   --source ./contracts/counter/src/lib.rs \
   --lang rust,ts,python \
   --output ./docs/counter.md
 
-starforge docs export counter
-starforge docs show counter
+starforge contract docs export counter
+starforge contract docs show counter
 ```
 
 With `--source`, StarForge extracts `///` / `//!` rustdoc comments, documents functions and types,
@@ -364,7 +543,7 @@ Set `STARFORGE_AI_API_KEY` (optional `STARFORGE_AI_BASE_URL`, `STARFORGE_AI_MODE
 
 ---
 
-## `security`
+## `contract security`
 
 | Subcommand | Purpose |
 |------------|---------|
@@ -392,7 +571,7 @@ External tools are optional. StarForge runs built-in Soroban heuristics every ti
 
 ---
 
-## `upgrade`
+## `contract upgrade`
 
 | Subcommand | Purpose |
 |------------|---------|
@@ -409,7 +588,7 @@ External tools are optional. StarForge runs built-in Soroban heuristics every ti
 
 ### Contract interface diff (`upgrade auto diff`)
 
-`starforge upgrade auto diff --old-wasm <old.wasm> --new-wasm <new.wasm>` diffs the *public
+`starforge contract upgrade auto diff --old-wasm <old.wasm> --new-wasm <new.wasm>` diffs the *public
 contract interface* (exported ABI functions, public types, and auth surface) between two
 WASM builds and classifies every change as **breaking** or **non-breaking**.
 
@@ -436,7 +615,7 @@ compatibility engine, and the markdown report produced here can be attached to
 
 ---
 
-## `governance`
+## `contract governance`
 
 Contract upgrade governance with voting, timelock, audit trail, and emergency upgrades.
 
@@ -457,7 +636,7 @@ See [GOVERNANCE.md](GOVERNANCE.md) for the full workflow.
 
 ---
 
-## `tutorial`
+## `tool tutorial`
 
 | Subcommand | Purpose |
 |------------|---------|
@@ -472,12 +651,14 @@ See [GOVERNANCE.md](GOVERNANCE.md) for the full workflow.
 
 | Command | Purpose |
 |---------|---------|
-| `info` | Version, config path, network health, Stellar CLI detection |
-| `shell` | Interactive local REPL with persistent history and tab completion |
-| `monitor` | Live event/threshold monitoring |
-| `benchmark` | CLI performance benchmarks |
-| `test` | Soroban WASM test runner |
-| `lint <PATH>` | Static Soroban source lint |
+| `config info` | Version, config path, network health, Stellar CLI detection |
+| `contract repl` | Interactive local REPL with persistent history and tab completion |
+| `contract monitor` | Live event/threshold monitoring |
+| `contract benchmark` | CLI performance benchmarks |
+| `contract test` | Soroban WASM test runner |
+| `contract lint <PATH>` | Static Soroban source lint |
+| `tool pr` | Check PR readiness (CI status and merge conflicts) |
+| `tool bug-report` | Prefilled environment bug report |
 | `plugin install/list/run` | Dynamic plugin management |
 | `completions <SHELL>` | bash/zsh/fish/powershell completions |
 | `privacy mode on/off/status` | Enable, disable, or report strict end-to-end privacy mode |
@@ -495,9 +676,9 @@ automatic network activity. It is the single kill-switch for outbound data.
 | Marketplace / template registry auto-update | Uses the local cache or bundled registry; never fetches remotely |
 
 ```bash run
-starforge privacy mode on        # enable
-starforge privacy mode off       # disable
-starforge privacy mode status    # report effective status
+starforge config privacy mode on        # enable
+starforge config privacy mode off       # disable
+starforge config privacy mode status    # report effective status
 ```
 
 Alternative ways to enable it:
@@ -544,14 +725,14 @@ Live monitoring of contracts or wallets, including Soroban event streaming, rout
 Examples:
 
 ```bash norun
-starforge monitor --contract CCPYZ... --transport websocket --dashboard
-starforge monitor --contract CCPYZ... --route swaps=swap --alert high:mint --persist
-starforge monitor --contract CCPYZ... --replay ~/.starforge/events/testnet-CCPYZ....jsonl --dashboard
-starforge monitor --contract CCPYZ... --trigger mint=./on-mint.sh --allow-triggers
-starforge monitor --contract CCPYZ... --follow \
+starforge contract monitor --contract CCPYZ... --transport websocket --dashboard
+starforge contract monitor --contract CCPYZ... --route swaps=swap --alert high:mint --persist
+starforge contract monitor --contract CCPYZ... --replay ~/.starforge/events/testnet-CCPYZ....jsonl --dashboard
+starforge contract monitor --contract CCPYZ... --trigger mint=./on-mint.sh --allow-triggers
+starforge contract monitor --contract CCPYZ... --follow \
   --alert "critical:topic~admin & !topic~init:admin action" \
   --alert-rate "high:topic~transfer:20/5:transfer burst" --notify high
-starforge monitor --contract CCPYZ... --replay events.jsonl \
+starforge contract monitor --contract CCPYZ... --replay events.jsonl \
   --from-ledger 51200 --to-ledger 51900 --alert-rate "transfer:20/5" --dashboard
 ```
 
@@ -589,6 +770,8 @@ starforge my-plugin <args>
 
 ## See also
 
+- [CLI_COMMAND_TREE.md](CLI_COMMAND_TREE.md) — noun-verb tree and the deprecated-name migration table
+- [COMMAND_CHEATSHEET.md](COMMAND_CHEATSHEET.md) — generated one-page command list
 - [API_REFERENCE.md](../API_REFERENCE.md) — detailed per-command examples and output samples
 - [DEVELOPER_GUIDE.md](../DEVELOPER_GUIDE.md) — contributing and local development
 - [SIMULATION_RESOURCES.md](SIMULATION_RESOURCES.md) — CPU, memory, footprint, and resource fees

@@ -7,6 +7,9 @@ use dialoguer::{theme::ColorfulTheme, Confirm, Input, Select};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Templates generated directly by the `new` command without a registry fetch.
+pub const BUILTIN_TEMPLATE_NAMES: &[&str] = &["hello-world", "token", "voting", "nft"];
+
 #[derive(Subcommand)]
 pub enum NewCommands {
     /// Scaffold a new Soroban smart contract project
@@ -227,10 +230,7 @@ async fn scaffold_contract(
     println!("  Template: {}\n", template.cyan());
     // Built-in templates are generated in-process below and always match this
     // binary; only registry templates carry version metadata to check.
-    let is_builtin = matches!(
-        template.as_str(),
-        "hello-world" | "token" | "voting" | "nft"
-    );
+    let is_builtin = BUILTIN_TEMPLATE_NAMES.contains(&template.as_str());
     if !is_builtin {
         // Ensure selected template is compatible with current CLI version
         let entry = templates::get_template(&template).await?;
@@ -260,6 +260,23 @@ async fn scaffold_contract(
                 p::error(&format!(
                     "Template '{}' has malformed version metadata: {}.\nContact the template author to fix the cli_version_min / cli_version_max fields.",
                     entry.name, reason
+                ));
+                return Ok(());
+            }
+            templates::CompatibilityStatus::SorobanSdkIncompatible {
+                sdk_min,
+                sdk_max,
+                found_version,
+            } => {
+                let range = match (sdk_min, sdk_max) {
+                    (Some(min), Some(max)) => format!(">= {} and <= {}", min, max),
+                    (Some(min), None) => format!(">= {}", min),
+                    (None, Some(max)) => format!("<= {}", max),
+                    (None, None) => "compatible".to_string(),
+                };
+                p::error(&format!(
+                    "Template '{}' requires Soroban SDK {} but running version is {}.\nChoose a compatible template or adjust SDK version.",
+                    entry.name, range, found_version
                 ));
                 return Ok(());
             }
@@ -391,6 +408,9 @@ fn cargo_toml(name: &str, license: &str, author: &str) -> String {
     } else {
         format!("authors = [\"{author}\"]\n")
     };
+    // Single source of truth for the generated-project SDK version — see
+    // `crate::utils::templates::SOROBAN_SDK_VERSION`.
+    let soroban_sdk = templates::SOROBAN_SDK_VERSION;
     format!(
         r#"[package]
 name = "{name}"
@@ -401,10 +421,10 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-soroban-sdk = "21.0.0"
+soroban-sdk = "{soroban_sdk}"
 
 [dev-dependencies]
-soroban-sdk = {{ version = "21.0.0", features = ["testutils"] }}
+soroban-sdk = {{ version = "{soroban_sdk}", features = ["testutils"] }}
 
 [profile.release]
 opt-level = "z"

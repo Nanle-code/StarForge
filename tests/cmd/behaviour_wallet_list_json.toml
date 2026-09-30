@@ -1,0 +1,3 @@
+# Golden CLI case: wallet list with the JSON envelope
+description = "wallet list with the JSON envelope"
+args = ["--json", "wallet", "list"]

@@ -136,12 +136,19 @@
         "responses": {
           "200": {
             "description": "Matching templates and pagination details",
+            "headers": {
+              "RateLimit-Limit": { "$ref": "#/components/headers/RateLimitLimit" },
+              "RateLimit-Remaining": { "$ref": "#/components/headers/RateLimitRemaining" },
+              "RateLimit-Reset": { "$ref": "#/components/headers/RateLimitReset" },
+              "RateLimit-Policy": { "$ref": "#/components/headers/RateLimitPolicy" }
+            },
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/TemplateSearchResponse" }
               }
             }
           },
+          "429": { "$ref": "#/components/responses/TooManyRequests" },
           "500": { "$ref": "#/components/responses/InternalError" }
         }
       }
@@ -159,12 +166,19 @@
         "responses": {
           "200": {
             "description": "Autocomplete suggestions",
+            "headers": {
+              "RateLimit-Limit": { "$ref": "#/components/headers/RateLimitLimit" },
+              "RateLimit-Remaining": { "$ref": "#/components/headers/RateLimitRemaining" },
+              "RateLimit-Reset": { "$ref": "#/components/headers/RateLimitReset" },
+              "RateLimit-Policy": { "$ref": "#/components/headers/RateLimitPolicy" }
+            },
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/SuggestionsResponse" }
               }
             }
           },
+          "429": { "$ref": "#/components/responses/TooManyRequests" },
           "500": { "$ref": "#/components/responses/InternalError" }
         }
       }
@@ -442,6 +456,12 @@
         "responses": {
           "201": {
             "description": "Template published",
+            "headers": {
+              "RateLimit-Limit": { "$ref": "#/components/headers/RateLimitLimit" },
+              "RateLimit-Remaining": { "$ref": "#/components/headers/RateLimitRemaining" },
+              "RateLimit-Reset": { "$ref": "#/components/headers/RateLimitReset" },
+              "RateLimit-Policy": { "$ref": "#/components/headers/RateLimitPolicy" }
+            },
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/PublishTemplateResponse" }
@@ -451,6 +471,7 @@
           "400": { "$ref": "#/components/responses/BadRequest" },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "409": { "$ref": "#/components/responses/Conflict" },
+          "429": { "$ref": "#/components/responses/TooManyRequests" },
           "500": { "$ref": "#/components/responses/InternalError" }
         }
       }
@@ -571,6 +592,28 @@
         "description": "JWT issued by POST /api/auth/signup or POST /api/auth/login. Send as `Authorization: Bearer <token>`."
       }
     },
+    "headers": {
+      "RateLimitLimit": {
+        "description": "Requests the caller's bucket holds for this policy.",
+        "schema": { "type": "integer", "example": 10 }
+      },
+      "RateLimitRemaining": {
+        "description": "Requests the caller can make right now without waiting.",
+        "schema": { "type": "integer", "example": 9 }
+      },
+      "RateLimitReset": {
+        "description": "Seconds until the caller's quota is fully restored.",
+        "schema": { "type": "integer", "example": 6 }
+      },
+      "RateLimitPolicy": {
+        "description": "Quota policy as `<limit>;w=<window seconds>`.",
+        "schema": { "type": "string", "example": "10;w=60" }
+      },
+      "RetryAfter": {
+        "description": "Seconds until the next request will be accepted.",
+        "schema": { "type": "integer", "minimum": 1, "example": 6 }
+      }
+    },
     "parameters": {
       "ResultLimit": {
         "name": "limit",
@@ -641,10 +684,17 @@
         }
       },
       "TooManyRequests": {
-        "description": "Rate limit exceeded",
+        "description": "Rate limit exceeded. The request was not processed. Wait at least `Retry-After` seconds before retrying; see registry-api/RATE_LIMITING.md.",
+        "headers": {
+          "Retry-After": { "$ref": "#/components/headers/RetryAfter" },
+          "RateLimit-Limit": { "$ref": "#/components/headers/RateLimitLimit" },
+          "RateLimit-Remaining": { "$ref": "#/components/headers/RateLimitRemaining" },
+          "RateLimit-Reset": { "$ref": "#/components/headers/RateLimitReset" },
+          "RateLimit-Policy": { "$ref": "#/components/headers/RateLimitPolicy" }
+        },
         "content": {
           "application/json": {
-            "schema": { "$ref": "#/components/schemas/Error" }
+            "schema": { "$ref": "#/components/schemas/RateLimitError" }
           }
         }
       }
@@ -654,6 +704,14 @@
         "type": "object",
         "required": ["error"],
         "properties": { "error": { "type": "string" } }
+      },
+      "RateLimitError": {
+        "type": "object",
+        "required": ["error", "retryAfter"],
+        "properties": {
+          "error": { "type": "string", "example": "Rate limit exceeded. Too many publish requests." },
+          "retryAfter": { "type": "integer", "minimum": 1, "description": "Same value as the Retry-After header." }
+        }
       },
       "Health": {
         "type": "object",
@@ -728,6 +786,8 @@
           "version": { "type": "string" },
           "description": { "type": "string" },
           "author": { "type": "string" },
+          "authors": { "type": "array", "items": { "type": "string" } },
+          "attribution": { "type": "string" },
           "tags": { "type": "array", "items": { "type": "string" } },
           "functionality": { "type": "array", "items": { "type": "string" } },
           "license": { "type": "string", "nullable": true },
@@ -848,15 +908,21 @@
       },
       "PublishTemplateRequest": {
         "type": "object",
-        "required": ["name", "version", "description", "author", "content"],
+        "required": ["name", "version", "description", "author", "license", "content"],
+        "anyOf": [
+          { "required": ["authors"] },
+          { "required": ["attribution"] }
+        ],
         "properties": {
           "name": { "type": "string" },
           "version": { "type": "string" },
           "description": { "type": "string" },
           "author": { "type": "string" },
+          "authors": { "type": "array", "items": { "type": "string" }, "description": "Non-empty contributor names; provide this or attribution." },
+          "attribution": { "type": "string", "description": "Non-empty attribution statement; provide this or authors." },
           "tags": { "type": "array", "items": { "type": "string" } },
           "functionality": { "type": "array", "items": { "type": "string" } },
-          "license": { "type": "string" },
+          "license": { "type": "string", "description": "Exact SPDX license identifier (for example MIT or Apache-2.0)." },
           "repository": { "type": "string" },
           "homepage": { "type": "string" },
           "documentation": { "type": "string" },

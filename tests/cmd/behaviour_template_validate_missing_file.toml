@@ -1,0 +1,3 @@
+# Golden CLI case: template validate reports a missing registry file
+description = "template validate reports a missing registry file"
+args = ["template", "validate", "does-not-exist-golden.json"]

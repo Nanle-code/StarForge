@@ -1,0 +1,3 @@
+# Golden CLI case: no arguments: clap usage error
+description = "no arguments: clap usage error"
+args = []

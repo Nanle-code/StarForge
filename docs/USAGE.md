@@ -299,12 +299,22 @@ starforge contract generate-bindings ./my_contract.wasm --lang ts
 > a private project, use `--no-provenance` when that information should not be
 > embedded in the contract.
 
-> **Invoking contracts:** `starforge contract invoke` doesn't yet decode real
-> return values from simulation, and `--submit` doesn't sign with local wallets
-> yet. Use `stellar contract invoke` for now; see
-> [what stellar-cli does that StarForge doesn't](MIGRATING_FROM_STELLAR_CLI.md#what-stellar-cli-does-that-starforge-doesnt).
-> Scripted, repeatable call plans are available through
+> **Invoking contracts:** see [guides/INVOKE.md](guides/INVOKE.md) for
+> `--submit`, `--auto-restore`, and JSON output when archived entries must be
+> restored before an invoke. Scripted, repeatable call plans are available through
 > [`contract invoke-script`](#repeatable-invocation-scripts).
+
+### Contract TTL
+
+```bash norun
+starforge contract ttl show C… --network testnet
+starforge contract ttl show C… --warn-below 10000 --json
+starforge contract ttl extend C… --ledgers 100000 --wallet deployer --submit
+```
+
+`ttl show` lists instance/code/persistent live-until ledgers and a rough ETA.
+`--warn-below` exits non-zero for monitor/cron jobs. `ttl extend` always prints
+a cost estimate before submitting `ExtendFootprintTTL`.
 
 ## Local AI assistant
 

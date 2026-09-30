@@ -1,0 +1,32 @@
+# Repository configuration for cargo-nextest.
+#
+# Docs: https://nexte.st/docs/configuration/
+#
+# nextest retries a failing test and marks it *flaky* when it passes on a
+# retry. Flaky tests are surfaced by `.github/workflows/flaky-tests.yml`
+# (JUnit report + `scripts/flaky-report.py`) and governed by the quarantine
+# policy in CONTRIBUTING.md ("Flaky Tests & Quarantine").
+#
+# cargo test keeps working as before; this file only affects `cargo nextest`.
+
+[profile.default]
+# Retry each failing test up to two times (three attempts total) so a single
+# flake does not fail a local run. A test that passes only on a retry is
+# still reported as flaky by `cargo nextest run`.
+retries = 2
+
+[profile.ci]
+# A CI flake sweep must finish with a complete picture, so keep going after
+# the first failure instead of stopping the run early.
+fail-fast = false
+retries = 2
+
+[profile.ci.junit]
+# Path is relative to `<store.dir>/<profile-name>`, and `store.dir` defaults
+# to `target/nextest`, so this writes `target/nextest/ci/junit.xml`.
+path = "junit.xml"
+# Distinguishes this report from other nextest reports when merged.
+report-name = "starforge-flaky-tests"
+# Flaky (retried) tests keep their captured output, which makes the first line
+# of the panic a useful "why did it flake" hint in the report.
+store-failure-output = true

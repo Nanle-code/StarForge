@@ -39,7 +39,7 @@ fn isolated_home() -> tempfile::TempDir {
 fn starforge(home: &std::path::Path) -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_starforge"));
     cmd.arg("-q");
-    cmd.env("HOME", home);
+    cmd.env("STARFORGE_HOME", home);
     cmd.env("USERPROFILE", home);
     cmd.env("STARFORGE_CONFIG_DIR", home.join(".starforge"));
     cmd
@@ -236,8 +236,7 @@ fn serve(stream: TcpStream, context: &AnchorContext) -> std::io::Result<()> {
                 TESTNET_PASSPHRASE,
             )
             .unwrap_or(false);
-            let signatures =
-                starforge::sep::sep10::signature_count(&submitted).unwrap_or_default();
+            let signatures = starforge::sep::sep10::signature_count(&submitted).unwrap_or_default();
 
             if !signed_by_client || signatures != 2 {
                 return write_response(

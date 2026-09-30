@@ -6,7 +6,9 @@ use crate::utils::{
         DeployRecord, DeployStatus,
     },
     deploy_policy, deployment_monitor, horizon, notifications, optimizer, output, print as p,
-    simulation_resources, soroban, wallet_signer,
+    project_config, simulation_resources,
+    smoke_tests::{self, SmokeContext, SmokeTest},
+    soroban, soroban_native, wallet_signer,
     wasm_hash::{compute_wasm_hash, BuildEnvironment},
     wasm_preflight,
 };
@@ -17,7 +19,6 @@ use clap::Args;
 use colored::*;
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
 use std::time::Instant;
 
 const SOROBAN_WASM_LIMIT_KB: f64 = 128.0;
@@ -44,9 +45,18 @@ pub struct DeployArgs {
     /// Skip confirmation prompt
     #[arg(long, default_value = "false")]
     pub yes: bool,
-    /// Execute deployment immediately if Stellar CLI is installed
+    /// Execute a native Soroban RPC deploy (upload WASM + create instance)
     #[arg(long, default_value = "false")]
     pub execute: bool,
+    /// Print the equivalent `stellar contract deploy` command instead of deploying
+    #[arg(long, default_value = "false", conflicts_with = "execute")]
+    pub print_only: bool,
+    /// Constructor argument (`type:value`, e.g. `address:G...`, `u32:1`, `string:hi`)
+    #[arg(long = "constructor-arg")]
+    pub constructor_args: Vec<String>,
+    /// 32-byte salt as hex for CreateContract (random when omitted)
+    #[arg(long)]
+    pub salt: Option<String>,
     /// Simulate the deploy transaction using Soroban RPC
     /// Simulate deploy transaction via Soroban RPC before confirmation
     #[arg(long, default_value = "false")]
@@ -78,6 +88,65 @@ pub struct DeployArgs {
     /// Comma-separated checklist item ids satisfied for this deploy (see deploy policy)
     #[arg(long, value_delimiter = ',')]
     pub checklist: Option<Vec<String>>,
+    /// Do not run the `[[smoke_tests]]` declared in `starforge-project.toml`
+    /// after a successful `--execute` deploy
+    #[arg(long)]
+    pub skip_smoke: bool,
+}
+
+/// Smoke tests declared in the discovered project manifest, plus the
+/// directory they run from. Loading validates them, so a bad declaration
+/// stops the command before anything is deployed.
+fn load_smoke_tests(skip: bool) -> Result<Option<(Vec<SmokeTest>, PathBuf)>> {
+    if skip {
+        return Ok(None);
+    }
+    let start = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    Ok(project_config::find_and_load_project_lockfile(&start)?
+        .filter(|(_, lockfile)| !lockfile.smoke_tests.is_empty())
+        .map(|(path, lockfile)| {
+            (
+                lockfile.smoke_tests,
+                smoke_tests::workdir_for_manifest(&path),
+            )
+        }))
+}
+
+/// Run post-deploy smoke tests against a confirmed deployment and report
+/// each result. Returns a [`smoke_tests::SmokeTestFailure`] error if any failed.
+fn run_post_deploy_smoke_tests(
+    tests: &[SmokeTest],
+    workdir: PathBuf,
+    contract_id: &str,
+    network: &str,
+    source: &str,
+) -> Result<()> {
+    p::header("Post-deploy Smoke Tests");
+    let ctx = SmokeContext {
+        contract_id: contract_id.to_string(),
+        network: network.to_string(),
+        source: source.to_string(),
+        workdir,
+    };
+    let report = smoke_tests::run_all(tests, &ctx);
+    for (line, result) in report.lines().iter().zip(&report.results) {
+        if result.outcome.is_pass() {
+            println!("  {}", line.green());
+        } else {
+            println!("  {}", line.red());
+        }
+    }
+    println!();
+    if report.all_passed() {
+        p::success(&format!("{} smoke test(s) passed", report.passed()));
+    } else {
+        p::error(&format!(
+            "{} of {} smoke test(s) failed. The deployment succeeded and the contract is live.",
+            report.failed(),
+            report.results.len()
+        ));
+    }
+    smoke_tests::into_result(&report, &ctx)
 }
 
 /// Extract a Soroban contract id (56-char `C…` strkey) from CLI stdout/stderr.
@@ -472,6 +541,10 @@ fn resolve_deploy_target(args: &DeployArgs) -> Result<(PathBuf, String, Option<S
 pub async fn handle(args: DeployArgs) -> Result<()> {
     let (target_wasm, target_network, target_wallet) = resolve_deploy_target(&args)?;
     let emit_json = args.json || output::is_json_mode_enabled();
+    // Unify the subcommand's own `--dry-run` with the global one so either
+    // placement (`starforge --dry-run deploy` or `starforge deploy --dry-run`)
+    // behaves identically. See docs/DRY_RUN_SEMANTICS.md.
+    let dry_run = args.dry_run || crate::utils::dry_run::is_enabled();
     if emit_json {
         #[derive(serde::Serialize)]
         struct DeployResponse {
@@ -494,7 +567,7 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
             wasm: target_wasm.display().to_string(),
             network: target_network.clone(),
             wallet: wallet_name.clone(),
-            dry_run: args.dry_run,
+            dry_run,
             execute: args.execute,
             simulated: args.simulate,
             success: true,
@@ -513,12 +586,23 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
         );
     }
 
-    let mut wasm_path = target_wasm.clone();
+    // Validate declared smoke tests up front: a broken declaration must fail
+    // here, never after a contract is already live.
+    let smoke = load_smoke_tests(args.skip_smoke)?;
+
+    let mut wasm_path = args.wasm.clone();
     let mut wasm_bytes = fs::read(&wasm_path)?;
     let mut wasm_size_kb = wasm_bytes.len() as f64 / 1024.0;
 
-    if args.optimize {
-        let optimized_path = target_wasm.with_file_name(format!(
+    if args.optimize && dry_run {
+        // A dry run must not touch the filesystem: report the planned
+        // optimization without writing the optimized artifact (#943).
+        p::header("WASM Optimization");
+        p::kv("Input WASM", &args.wasm.display().to_string());
+        p::info("Dry-run: optimization is planned but no optimized artifact is written.");
+        p::separator();
+    } else if args.optimize {
+        let optimized_path = args.wasm.with_file_name(format!(
             "{}-optimized.wasm",
             target_wasm.file_stem().unwrap_or_default().to_string_lossy()
         ));
@@ -589,6 +673,21 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
     p::separator();
 
     let wasm_hash = compute_local_wasm_hash(&wasm_bytes);
+
+    // ── Deploy policy + pre-flight inputs ─────────────────────────────
+    // Organization deploy policy: an explicit `--policy` file, or an
+    // auto-discovered `starforge-deploy-policy.toml` in the current
+    // directory. Loading a configured policy that fails to parse is fatal.
+    let policy_path = match args.policy.clone() {
+        Some(path) => Some(path),
+        None => deploy_policy::discover_policy_file(std::path::Path::new(".")),
+    };
+    let org_deploy_policy = policy_path
+        .as_ref()
+        .map(|path| deploy_policy::load_policy(path))
+        .transpose()?;
+    let wasm_policy = wasm_preflight::WasmPolicy::default();
+    let mut completed_checklist: Vec<String> = Vec::new();
 
     // ── AI-driven compliance checks (regulatory, security, best practices) ─
     if args.compliance {
@@ -743,7 +842,7 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
     }
 
     // --dry-run: validate everything and print deployment plan, then exit.
-    if args.dry_run {
+    if dry_run {
         return run_dry_run(
             &wasm_path,
             &wasm_bytes,
@@ -781,13 +880,23 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
 
     // Enforce organization deploy policy when configured
     if let (Some(path), Some(policy)) = (&policy_path, &org_deploy_policy) {
-        let checklist_override = if completed_checklist.is_empty() {
-            None
-        } else {
-            Some(completed_checklist.clone())
+        // CLI-provided checklist items take precedence; auto-derived items
+        // (e.g. `wasm_clean_analysis`) are merged in rather than dropped.
+        let checklist_override = match &args.checklist {
+            None if completed_checklist.is_empty() => None,
+            None => Some(completed_checklist.clone()),
+            Some(cli_items) => {
+                let mut items = completed_checklist.clone();
+                for item in cli_items {
+                    if !items.iter().any(|known| known == item) {
+                        items.push(item.clone());
+                    }
+                }
+                Some(items)
+            }
         };
         let context = deploy_policy::DeployContext::from_env(&args.network, args.execute)
-            .with_overrides(None, args.checklist.clone());
+            .with_overrides(None, checklist_override);
         deploy_policy::enforce(path, &policy, &context)?;
     }
 
@@ -847,13 +956,52 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
                 args.yes,
                 "contract deployment",
             )?;
-            soroban::sign_deploy_transaction(&wasm_hash, wallet, &args.network, &signing_request)?;
+            let fee_stroops = if wallet.usage_policy.max_fee.is_some() {
+                Some(
+                    soroban::simulate_deploy_transaction(&wasm_hash, &args.network, wallet)
+                        .await?
+                        .fee,
+                )
+            } else {
+                None
+            };
+            soroban::sign_deploy_transaction(
+                &wasm_hash,
+                wallet,
+                &args.network,
+                &signing_request,
+                fee_stroops,
+            )?;
             p::success(&format!("Deployment transaction signed on {}", device));
         } else if wallet.secret_key.is_none() {
             anyhow::bail!(
                 "Wallet '{}' has no local secret key. Use --hardware ledger or --hardware trezor for deployment.",
                 wallet.name
             );
+        } else {
+            let signing_request = wallet_signer::SigningRequest::from_options(
+                Some(wallet),
+                None,
+                Some(&args.hd_path),
+                &args.network,
+                args.yes,
+                "contract deployment",
+            )?;
+            let fee_stroops = if wallet.usage_policy.max_fee.is_some() {
+                Some(
+                    soroban::simulate_deploy_transaction(&wasm_hash, &args.network, wallet)
+                        .await?
+                        .fee,
+                )
+            } else {
+                None
+            };
+            let signing_request = match fee_stroops {
+                Some(fee) => signing_request.with_fee_stroops(fee),
+                None => signing_request,
+            }
+            .for_contract_deploy();
+            wallet_signer::authorize_wallet_policy(&signing_request)?;
         }
     }
 
@@ -893,25 +1041,9 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
     p::kv_accent("XLM Balance", &format!("{} XLM", xlm));
     p::kv("WASM Hash (local SHA-256)", &wasm_hash);
 
-    println!();
-    p::separator();
-    println!(
-        "  {} {}",
-        "✓".green().bold(),
-        "Ready! Run this to complete the deployment:".bright_white()
-    );
-    println!();
-    let deploy_cmd = build_stellar_deploy_command(&wasm_path, &wallet.public_key, &args.network);
-    for line in deploy_cmd.lines() {
-        println!("  {}", line.cyan());
-    }
-    println!();
-
     if args.execute {
-        p::info("Executing deployment with Stellar CLI...");
+        p::info("Executing native Soroban RPC deploy...");
 
-        // Track this deployment in history, linked to the previous successful
-        // deployment on this network so the upgrade/rollback lineage is preserved.
         let previous = last_successful(&args.network)?;
         let record = DeployRecord::new(
             &wasm_path.display().to_string(),
@@ -919,87 +1051,138 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
             &args.network,
             &wallet.name,
             previous.as_ref().map(|p| p.id.clone()),
-        );
+        )
+        .with_annotation(args.note.clone(), args.changelog.clone());
         let record_id = record_deployment(record)?;
 
-        let deploy_args = build_stellar_deploy_args(&wasm_path, &wallet.public_key, &args.network);
-        let started_at = Instant::now();
-        let output = Command::new("stellar")
-            .args(&deploy_args)
-            .output()
-            .map_err(|e| {
-                let _ = update_status(&record_id, DeployStatus::Failed, Some(e.to_string()));
-                anyhow::anyhow!("Failed to execute stellar CLI: {}", e)
-            })?;
-        let duration_ms = started_at.elapsed().as_millis() as u64;
+        let salt: [u8; 32] = match &args.salt {
+            Some(hex_salt) => {
+                let bytes = hex::decode(hex_salt)
+                    .map_err(|e| anyhow::anyhow!("invalid --salt hex: {e}"))?;
+                <[u8; 32]>::try_from(bytes.as_slice()).map_err(|_| {
+                    anyhow::anyhow!(
+                        "--salt must be 32 bytes (64 hex chars), got {}",
+                        bytes.len()
+                    )
+                })?
+            }
+            None => rand::random(),
+        };
+        let constructor_args = soroban_native::parse_constructor_args(&args.constructor_args)?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-            update_status(&record_id, DeployStatus::Failed, Some(stderr.clone()))?;
-            let _ = set_duration(&record_id, duration_ms);
-            p::error(&format!("Stellar CLI deployment failed: {}", stderr));
-
-            // Record deployment analytics event (execute attempt failed).
-            // Try to parse a contract id, even though the command failed.
-            let contract_id_for_analytics = parse_contract_id_from_stdout(&stderr);
-            tokio::spawn(record_analytics(analytics_cmds::AnalyticsCommands::Track(
-                analytics_cmds::TrackArgs {
-                    contract_id: contract_id_for_analytics.unwrap_or_default(),
-                    network: args.network.clone(),
-                    wasm_hash: Some(wasm_hash.clone()),
-                    deployer: Some(wallet.name.clone()),
-                    fee_stroops: None,
-                    tx_hash: None,
-                    label: Some("stellar-cli".to_string()),
-                    duration_secs: None,
-                    success: false,
-                    error: Some(stderr.clone()),
-                },
-            )));
-
-            // Automatic rollback safety net: revert to the last good deployment.
-            handle_failed_deploy_rollback(
-                args.no_auto_rollback,
-                previous,
-                &wallet.name,
+        let signing_request = if let Some(device) = args.hardware {
+            wallet_signer::SigningRequest::from_options(
+                Some(wallet),
+                Some(device),
+                Some(&args.hd_path),
                 &args.network,
-            )?;
+                args.yes,
+                "contract deployment",
+            )?
+            .for_contract_deploy()
+        } else {
+            wallet_signer::SigningRequest::from_options(
+                Some(wallet),
+                None,
+                Some(&args.hd_path),
+                &args.network,
+                args.yes,
+                "contract deployment",
+            )?
+            .for_contract_deploy()
+        };
 
-            let _ = emit_deployment_monitoring_alert(&args.network, None);
-            anyhow::bail!("Stellar CLI deployment failed: {}", stderr);
-        }
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut parsed_contract_id: Option<String> = None;
-        if let Some(contract_id) = parse_contract_id_from_stdout(&stdout) {
-            set_contract_id(&record_id, &contract_id)?;
-            p::kv("Contract ID", &contract_id);
-            parsed_contract_id = Some(contract_id);
-        }
-        update_status(&record_id, DeployStatus::Success, None)?;
+        let wasm_bytes = fs::read(&wasm_path)?;
+        let started_at = Instant::now();
+        let deploy_result = match soroban_native::deploy_wasm_native(
+            &wasm_bytes,
+            wallet,
+            &args.network,
+            &signing_request,
+            salt,
+            constructor_args,
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = update_status(&record_id, DeployStatus::Failed, Some(e.to_string()));
+                handle_failed_deploy_rollback(
+                    args.no_auto_rollback,
+                    previous,
+                    &wallet.name,
+                    &args.network,
+                )?;
+                return Err(e);
+            }
+        };
+        let duration_ms = started_at.elapsed().as_millis() as u64;
         let _ = set_duration(&record_id, duration_ms);
+        set_contract_id(&record_id, &deploy_result.contract_id)?;
+        update_status(&record_id, DeployStatus::Success, None)?;
 
-        // Record deployment analytics event (execute attempt succeeded).
-        tokio::spawn(record_analytics(analytics_cmds::AnalyticsCommands::Track(
-            analytics_cmds::TrackArgs {
-                contract_id: parsed_contract_id.clone().unwrap_or_default(),
-                network: args.network.clone(),
-                wasm_hash: Some(wasm_hash.clone()),
-                deployer: Some(wallet.name.clone()),
-                fee_stroops: None,
-                tx_hash: None,
-                label: Some("stellar-cli".to_string()),
-                duration_secs: None,
-                success: true,
-                error: None,
-            },
-        )));
+        if args.json || output::is_json_mode_enabled() {
+            return output::print_json(&serde_json::json!({
+                "contract_id": deploy_result.contract_id,
+                "wasm_hash": deploy_result.wasm_hash,
+                "upload_tx_hash": deploy_result.upload_tx_hash,
+                "create_tx_hash": deploy_result.create_tx_hash,
+                "wasm_already_uploaded": deploy_result.wasm_already_uploaded,
+                "network": args.network,
+                "wallet": wallet.name,
+            }));
+        }
 
+        if deploy_result.wasm_already_uploaded {
+            p::info("WASM hash already on-chain; skipped upload.");
+        }
         p::success("Deployment executed successfully!");
-        p::kv("Recorded deployment", &record_id[..8.min(record_id.len())]);
-        println!("{}", stdout);
+        p::kv("Contract ID", &deploy_result.contract_id);
+        p::kv("WASM Hash", &deploy_result.wasm_hash);
+        if let Some(ref upload) = deploy_result.upload_tx_hash {
+            p::kv("Upload Tx", upload);
+        }
+        p::kv("Create Tx", &deploy_result.create_tx_hash);
+
+        if let Some((tests, workdir)) = smoke {
+            run_post_deploy_smoke_tests(
+                &tests,
+                workdir,
+                &deploy_result.contract_id,
+                &args.network,
+                &wallet.public_key,
+            )?;
+        }
     } else {
-        p::info("Dry-run complete. Use --execute to deploy for real.");
+        println!();
+        p::separator();
+        println!(
+            "  {} {}",
+            "✓".green().bold(),
+            if args.print_only {
+                "Stellar CLI command (--print-only):".bright_white()
+            } else {
+                "Ready! Native deploy with --execute, or --print-only for stellar CLI:"
+                    .bright_white()
+            }
+        );
+        println!();
+        let deploy_cmd =
+            build_stellar_deploy_command(&wasm_path, &wallet.public_key, &args.network);
+        for line in deploy_cmd.lines() {
+            println!("  {}", line.cyan());
+        }
+        println!();
+
+        if let Some((tests, _)) = &smoke {
+            p::info(&format!(
+                "{} smoke test(s) declared; they run only after an executed deploy.",
+                tests.len()
+            ));
+        }
+        if !args.print_only {
+            p::info("Dry-run complete. Use --execute for a native Soroban RPC deploy.");
+        }
     }
 
     Ok(())

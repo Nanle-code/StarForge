@@ -40,8 +40,9 @@ pub struct StellarCliIdentity {
 pub fn default_search_dirs() -> Vec<PathBuf> {
     let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty());
     let cwd = std::env::current_dir().ok();
-    let home = env("HOME")
+    let home = env("STARFORGE_HOME")
         .or_else(|| env("USERPROFILE"))
+        .or_else(|| env("HOME"))
         .map(PathBuf::from)
         .or_else(dirs::home_dir);
     search_dirs(

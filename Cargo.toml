@@ -81,15 +81,18 @@ single_match = "allow"
 await_holding_lock = "allow"
 
 [dependencies]
-clap     = { version = "=4.4.18", features = ["derive", "color"] }
+# Caret ranges: MSRV-aware resolution (see `.cargo/config.toml` and CONTRIBUTING.md).
+clap     = { version = "4.4", features = ["derive", "color"] }
 serde    = { version = "1.0",     features = ["derive"] }
 serde_json = "1.0"
 regex    = "1.10"
-toml     = "=0.8.8"
+toml     = "0.8"
 semver   = "1.0"
-colored  = "=2.1.0"
+spdx     = "0.13.5"
+colored  = "2.1"
+# Pinned: 7.1.2+ pulls unicode-width 0.2 which requires a newer MSRV than 1.80.
 comfy-table  = "=7.1.1"
-dirs     = "=5.0.1"
+dirs     = "5.0"
 anyhow   = "1.0"
 thiserror = "2.0"
 chrono   = { version = "0.4", features = ["serde"] }
@@ -100,10 +103,11 @@ tokio      = { version = "1", features = ["full"] }
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 futures-util = "0.3"
 ctrlc      = "3.4"
-clap_complete  = "=4.4.10"
+clap_complete  = "4.4"
 dialoguer  = { version = "0.11", features = ["fuzzy-select", "password"] }
 aes-gcm = "0.10.3"
 argon2 = "0.5.3"
+# Pinned: strkey encoding must stay aligned with stellar-xdr 22.x fixtures.
 stellar-strkey = "=0.0.10"
 stellar-xdr = { version = "22.0.0", features = ["serde"] }
 base64     = "0.21"
@@ -115,6 +119,7 @@ wasmtime = { version = "24.0.7", default-features = false, features = ["cranelif
 uuid = { version = "1.6.1", features = ["v4", "serde"] }
 hidapi = { version = "2.6.5", optional = true }
 trezor-client = { version = "0.1.5", default-features = false, features = ["stellar"], optional = true }
+# Pinned: 3.2+ bumps MSRV past 1.80.
 zxcvbn = "=3.1.1"
 zeroize = { version = "1", features = ["derive"] }
 hex = "0.4"
@@ -135,11 +140,15 @@ minijinja = "2.24"
 serde_yaml = "0.9.34"
 async-trait = "0.1"
 futures = "0.3.33"
-ratatui = { version = "0.26", optional = true }
-crossterm = { version = "0.27", optional = true }
+ratatui = { version = "0.30", optional = true }
+crossterm = { version = "0.29", optional = true }
 
 [features]
 ai = []
+# OS-native secret storage (macOS Keychain, Windows Credential Manager, Linux
+# Secret Service). Dependency-free: the backend shells out to the platform
+# tool, so enabling it does not change `Cargo.lock`.
+keychain = []
 hardware-wallet = ["dep:hidapi", "dep:trezor-client"]
 unsafe-native-plugins = []
 memory-profiling = []
@@ -169,6 +178,8 @@ opt-level = 3
 lto = true
 
 [build-dependencies]
-clap = { version = "4.4.18", features = ["derive"] }
-clap_complete = "4.4.10"
+clap = { version = "4.4", features = ["derive"] }
+clap_complete = "4.4"
+# Pinned: clap_mangen 0.2.31+ requires clap 4.5 APIs not guaranteed on MSRV 1.80.
 clap_mangen = "=0.2.30"
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-serde_json-1"] }

@@ -46,6 +46,15 @@
           "type": "string",
           "description": "Template author or maintaining organisation."
         },
+        "authors": {
+          "type": ["string", "array"],
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Contributors credited for the template; required for publication unless attribution is provided."
+        },
+        "attribution": {
+          "type": "string",
+          "description": "Attribution statement; required for publication unless authors are provided."
+        },
         "tags": {
           "type": "array",
           "description": "Free-form search tags. Each tag must be a non-empty string.",

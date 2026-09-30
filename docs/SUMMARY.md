@@ -23,6 +23,7 @@
 # Deploying and operating
 
 - [Deploy policy as code](DEPLOY_POLICY.md)
+- [Post-deploy smoke tests](SMOKE_TESTS.md)
 - [Deployment checkpoints](DEPLOYMENT_CHECKPOINTS.md)
 - [Deployment scaling](DEPLOYMENT_SCALING.md)
 - [Simulation resource fees](SIMULATION_RESOURCES.md)
@@ -49,6 +50,7 @@
 - [Dependency policy](security/dependency-policy.md)
 - [Friendbot gating](security/friendbot-gating.md)
 - [Plugin capabilities](plugins/capabilities.md)
+- [Plugin authoring cookbook](plugins/cookbook.md)
 
 # AI features
 
@@ -58,3 +60,7 @@
 # Contributors
 
 - [Cargo metadata](CARGO_METADATA.md)
+
+# Testing and CI
+
+- [Nightly end-to-end suite (testnet)](NIGHTLY_E2E.md)

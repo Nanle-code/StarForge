@@ -1,0 +1,183 @@
+name: Nightly End-to-End (Testnet)
+
+# Catches breakage from network upgrades, RPC changes and dependency drift by
+# exercising the real Stellar testnet every night: create an ephemeral wallet,
+# fund it with Friendbot, then scaffold/build/deploy/invoke/upgrade/verify each
+# built-in contract template. A failing run opens (or updates) a single
+# tracking issue.
+
+on:
+  schedule:
+    # Nightly at 03:17 UTC. Off the top of the hour on purpose: GitHub's cron
+    # queue is busiest at :00 and scheduled runs there are often delayed.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      templates:
+        description: 'Comma-separated built-in templates to exercise'
+        required: false
+        default: 'hello-world,token,voting,nft'
+        type: string
+      keep_keys:
+        description: 'Keep the ephemeral keys after the run (debugging only)'
+        required: false
+        default: false
+        type: boolean
+
+# Least privilege: read the repository, write only the tracking issue.
+permissions:
+  contents: read
+  issues: write
+
+# A new nightly run supersedes an older one; manual dispatches on the same ref
+# share the group too, so the testnet is only exercised once at a time.
+concurrency:
+  group: nightly-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  STARFORGE_E2E_NETWORK: testnet
+  # Wall-clock budget for the suite itself; the job timeout below covers the
+  # toolchain build + Stellar CLI install + this budget.
+  STARFORGE_E2E_MAX_SECONDS: '720'
+
+jobs:
+  nightly-e2e:
+    name: Nightly E2E against Stellar testnet
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          # contract projects build to a wasm target; add both spellings so the
+          # generated template and `stellar contract build` both have one.
+          targets: wasm32-unknown-unknown,wasm32v1-none
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev libusb-1.0-0-dev pkg-config
+
+      - name: Build starforge (release)
+        run: cargo build --release --locked
+
+      - name: Install Stellar CLI
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/stellar/stellar-cli/main/install.sh | sh
+          # The installer uses /usr/local/bin when sudo is available and
+          # ~/.local/bin otherwise; make sure the user path is on PATH for the
+          # following steps either way. (It does not edit $GITHUB_PATH itself.)
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$PATH:$HOME/.local/bin"
+          stellar --version
+
+      - name: Run nightly end-to-end suite
+        id: e2e
+        # Keep going so the tracking issue can be filed and the artifacts
+        # uploaded, then fail the job at the end.
+        continue-on-error: true
+        env:
+          STARFORGE_BIN: ${{ github.workspace }}/target/release/starforge
+          STARFORGE_E2E_TEMPLATES: ${{ github.event.inputs.templates || 'hello-world,token,voting,nft' }}
+          STARFORGE_E2E_KEEP_KEYS: ${{ github.event.inputs.keep_keys == 'true' && '1' || '0' }}
+          # Reuse one target dir for the template crates so they share compiled
+          # dependencies and rust-cache can cache them between nightly runs.
+          # (Scoped to this step so it does not move the starforge binary above.)
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target/e2e
+        run: |
+          chmod +x ./.github/scripts/nightly-e2e.sh
+          ./.github/scripts/nightly-e2e.sh
+        shell: bash
+
+      - name: Upload end-to-end results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-e2e-results-${{ github.run_number }}
+          path: e2e-results/
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Open or update the tracking issue
+        if: steps.e2e.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const title = '[nightly-e2e] End-to-end suite failing against testnet';
+            const label = 'nightly-e2e';
+            const { owner, repo } = context.repo;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+
+            let summary = '_No summary artifact was produced._';
+            try {
+              summary = fs.readFileSync('e2e-results/summary.md', 'utf8');
+            } catch (err) {
+              core.warning(`Could not read e2e-results/summary.md: ${err.message}`);
+            }
+
+            // Ensure the tracking label exists (best effort; some tokens cannot
+            // manage labels, which must not block the issue itself).
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: label });
+            } catch (err) {
+              try {
+                await github.rest.issues.createLabel({
+                  owner, repo, name: label, color: 'd93f0b',
+                  description: 'Nightly real-testnet end-to-end failures',
+                });
+              } catch (_) { /* ignore */ }
+            }
+
+            const { data: openIssues } = await github.rest.issues.listForRepo({
+              owner, repo, state: 'open', per_page: 100,
+            });
+            const existing = openIssues.find(
+              (issue) => issue.title === title && !issue.pull_request,
+            );
+
+            const body = [
+              'The nightly end-to-end suite failed against **testnet**.',
+              '',
+              `- Run: ${runUrl}`,
+              `- Commit: \`${context.sha}\``,
+              `- Workflow: \`${context.workflow}\``,
+              '',
+              '<details><summary>Suite summary</summary>',
+              '',
+              summary,
+              '',
+              '</details>',
+              '',
+              '_This issue is maintained automatically: it is updated in place instead of opening duplicates._',
+            ].join('\n');
+
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: existing.number,
+                body: `Nightly E2E is still failing on \`${context.sha.slice(0, 7)}\` — ${runUrl}`,
+              });
+              await github.rest.issues.update({
+                owner, repo, issue_number: existing.number, body,
+              });
+              core.info(`Updated existing tracking issue #${existing.number}`);
+            } else {
+              const { data: created } = await github.rest.issues.create({
+                owner, repo, title, body, labels: [label],
+              });
+              core.info(`Created tracking issue #${created.number}`);
+            }
+
+      - name: Fail the job when the suite failed
+        if: steps.e2e.outcome == 'failure'
+        run: |
+          echo "::error::Nightly end-to-end suite failed; see the uploaded artifacts and the tracking issue."
+          exit 1

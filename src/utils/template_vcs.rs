@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -18,6 +19,22 @@ pub struct TemplateVersion {
 pub struct TemplateChangelog {
     pub template_name: String,
     pub versions: Vec<TemplateVersion>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectTemplateMetadata {
+    pub template: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TemplateUpgradePlan {
+    pub template: String,
+    pub from_version: String,
+    pub to_version: String,
+    pub major_steps: Vec<String>,
+    pub checklist: Vec<String>,
+    pub patch_hints: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,6 +104,10 @@ fn versions_file(template_path: &Path) -> PathBuf {
     vcs_dir(template_path).join("versions.json")
 }
 
+fn project_metadata_file(project_path: &Path) -> PathBuf {
+    project_path.join(".starforge-template.json")
+}
+
 fn changelog_file(template_path: &Path) -> PathBuf {
     vcs_dir(template_path).join("CHANGELOG.md")
 }
@@ -97,6 +118,71 @@ fn collaboration_file(template_path: &Path) -> PathBuf {
 
 fn knowledge_file(template_path: &Path) -> PathBuf {
     vcs_dir(template_path).join("knowledge.json")
+}
+
+pub fn plan_project_upgrade(
+    project_path: &Path,
+    target_version: &str,
+    include_patch_hints: bool,
+) -> Result<Option<TemplateUpgradePlan>> {
+    let metadata_path = project_metadata_file(project_path);
+    if !metadata_path.exists() {
+        return Ok(None);
+    }
+
+    let content = fs::read_to_string(&metadata_path).with_context(|| {
+        format!(
+            "Failed to read template metadata at {}",
+            metadata_path.display()
+        )
+    })?;
+    let metadata: ProjectTemplateMetadata = serde_json::from_str(&content).with_context(|| {
+        format!(
+            "Failed to parse template metadata at {}",
+            metadata_path.display()
+        )
+    })?;
+    let from = Version::parse(&metadata.version).context("Invalid template version in metadata")?;
+    let to = Version::parse(target_version).context("Invalid target template version")?;
+
+    if to <= from {
+        anyhow::bail!(
+            "Target template version {} must be newer than project version {}",
+            to,
+            from
+        );
+    }
+
+    let major_steps: Vec<String> = (from.major..to.major)
+        .map(|major| format!("{}.x -> {}.x", major, major + 1))
+        .collect();
+    let mut checklist: Vec<String> = major_steps
+        .iter()
+        .map(|step| format!("Review release notes and breaking changes for {}", step))
+        .collect();
+    checklist.extend([
+        "Compare the new template files with your project and merge changes manually".to_string(),
+        "Run the project test suite and review the final diff".to_string(),
+    ]);
+
+    let patch_hints = if include_patch_hints {
+        vec![
+            "Check dependency and configuration changes before updating package manifests"
+                .to_string(),
+            "Apply suggested edits by hand; StarForge does not modify project files".to_string(),
+        ]
+    } else {
+        Vec::new()
+    };
+
+    Ok(Some(TemplateUpgradePlan {
+        template: metadata.template,
+        from_version: from.to_string(),
+        to_version: to.to_string(),
+        major_steps,
+        checklist,
+        patch_hints,
+    }))
 }
 
 fn is_git_repo(path: &Path) -> bool {
@@ -222,6 +308,13 @@ pub fn commit_version(
     fs::write(
         versions_file(template_path),
         serde_json::to_string_pretty(&versions)?,
+    )?;
+    fs::write(
+        project_metadata_file(template_path),
+        serde_json::to_string_pretty(&ProjectTemplateMetadata {
+            template: versions.template_name.clone(),
+            version: version.to_string(),
+        })?,
     )?;
 
     if is_git_repo(template_path) {
@@ -760,6 +853,46 @@ mod tests {
     }
 
     #[test]
+    fn upgrade_plan_reports_missing_metadata() {
+        let tmp = tempdir().unwrap();
+        assert!(plan_project_upgrade(tmp.path(), "3.0.0", false)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn upgrade_plan_lists_each_major_transition_without_modifying_project() {
+        let tmp = tempdir().unwrap();
+        let metadata_path = project_metadata_file(tmp.path());
+        fs::write(
+            &metadata_path,
+            r#"{"template":"contract","version":"1.2.0"}"#,
+        )
+        .unwrap();
+
+        let plan = plan_project_upgrade(tmp.path(), "4.0.0", true)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(
+            plan.major_steps,
+            vec![
+                "1.x -> 2.x".to_string(),
+                "2.x -> 3.x".to_string(),
+                "3.x -> 4.x".to_string(),
+            ]
+        );
+        assert_eq!(plan.from_version, "1.2.0");
+        assert_eq!(plan.to_version, "4.0.0");
+        assert!(!plan.patch_hints.is_empty());
+        assert_eq!(
+            fs::read_to_string(&metadata_path).unwrap(),
+            r#"{"template":"contract","version":"1.2.0"}"#
+        );
+        assert!(!tmp.path().join("src").exists());
+    }
+
+    #[test]
     fn init_vcs_creates_directory_and_versions() {
         let tmp = tempdir().unwrap();
         make_valid_template(tmp.path());
@@ -780,6 +913,11 @@ mod tests {
 
         let versions = load_versions(tmp.path()).unwrap();
         assert_eq!(versions.versions.len(), 1);
+        let metadata: ProjectTemplateMetadata =
+            serde_json::from_str(&fs::read_to_string(project_metadata_file(tmp.path())).unwrap())
+                .unwrap();
+        assert_eq!(metadata.template, "test-template");
+        assert_eq!(metadata.version, "1.0.0");
     }
 
     #[test]

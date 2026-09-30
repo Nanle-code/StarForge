@@ -1,0 +1,3 @@
+# Golden CLI case: starforge optimize --help
+description = "starforge optimize --help"
+args = ["optimize", "--help"]

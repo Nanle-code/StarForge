@@ -23,6 +23,13 @@ struct Cli {
     #[arg(long, global = true)]
     json: bool,
 
+    /// Simulate every state-changing command: print the full plan of operations
+    /// (and costs) it would perform, then exit without writing any file or
+    /// submitting any transaction. Combine with `--json` for a machine-readable
+    /// plan. See docs/DRY_RUN_SEMANTICS.md.
+    #[arg(long, global = true)]
+    dry_run: bool,
+
     /// Suppress the ASCII banner and decorative output
     #[arg(long, short = 'q', global = true)]
     quiet: bool,
@@ -61,6 +68,11 @@ struct Cli {
     #[arg(long, global = true, hide = true)]
     allow_network_passphrase_mismatch: bool,
 
+    /// Allow mainnet signing with an unencrypted plaintext secret key.
+    /// This is unsafe and should only be used for deliberate legacy operations.
+    #[arg(long, global = true)]
+    allow_plaintext_mainnet: bool,
+
     /// Show all help flags, including advanced/power-user options that are hidden by default
     #[arg(long, global = true)]
     help_all: bool,
@@ -68,110 +80,71 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// AI-powered contract debugging assistant (error analysis, bug identification, fix suggestions)
-    #[command(subcommand)]
-    AiDebug(commands::ai_debug::AiDebugCommands),
-
-    /// AI-driven definitions, references, code graphs, dependencies, and contextual search
-    #[command(subcommand)]
-    AiNavigate(commands::ai_navigate::AiNavigateCommands),
-
-    /// Configurable code quality, security, performance, coverage, docs, and license gates
-    #[command(subcommand)]
-    AiQualityGate(commands::ai_quality_gate::AiQualityGateCommands),
-
-    /// Local LLM assistant for Soroban contracts (audit, explain, test, optimise, profile)
-    #[command(subcommand)]
-    Ai(commands::ai::AiCommands),
-
-    /// AI-driven performance profiling commands
-    #[command(subcommand, name = "ai-profile")]
-    AiProfile(commands::ai_profile::AiProfileCommands),
-
-    /// AI-powered IDE integration commands
-    #[command(subcommand, name = "ai-ide")]
-    AiIde(commands::ai_ide::AiIdeCommands),
-
-    /// AI-driven test maintenance commands
-    #[command(subcommand, name = "ai-test-maintain")]
-    AiTestMaintain(commands::ai_test_maintain::AiTestMaintainCommands),
-
-    /// AI-driven deployment testing commands
-    #[command(subcommand, name = "ai-deployment-test")]
-    AiDeploymentTest(commands::ai_deployment_test::AiDeploymentTestCommands),
-
-    /// Manage test wallets (create, list, fund, show, remove)
+    /// Manage test wallets (create, list, fund, sign), transactions, and devices
     #[command(subcommand)]
     Wallet(commands::wallet::WalletCommands),
-    /// Natural language command interface
-    Nl(commands::nl::NlArgs),
 
-    /// Generate Soroban project boilerplate
-    #[command(subcommand)]
-    New(commands::new::NewCommands),
-
-    /// Contract operations (invoke, inspect, etc.)
+    /// Contract operations (invoke, build, test, audit, upgrade, inspect, monitor)
     #[command(subcommand)]
     Contract(commands::contract::ContractCommands),
-    /// Generate smart contracts from natural language prompts
+
+    /// Deploy a compiled Soroban contract and manage the deployment lifecycle
     #[command(subcommand)]
-    Generate(commands::generate::GenerateCommands),
-    /// Smart contract completion assistant
+    Deploy(commands::tree::DeployTree),
+
+    /// View or switch the active network, run a local node, simulate, snapshot
     #[command(subcommand)]
-    Complete(commands::complete::CompleteCommands),
-    /// External plugins
-    #[command(external_subcommand)]
-    External(Vec<String>),
-    /// Debug Soroban contracts with breakpoints, stepping, and inspection
+    Network(commands::network::NetworkCommands),
+
+    /// Manage community contract templates, versions, and the registry
     #[command(subcommand)]
-    Debug(commands::debug::DebugCommands),
-    /// Deep contract storage inspection (state, key, storage)
+    Template(commands::template::TemplateCommands),
+
+    /// Manage third-party plugins
     #[command(subcommand)]
-    Inspect(commands::inspect::InspectCommands),
-    /// Deploy a compiled Soroban contract (.wasm)
-    Deploy(commands::deploy::DeployArgs),
-    /// Deployment history, rollback, verification, and dashboard
+    Plugin(commands::plugin::PluginCommands),
+
+    /// AI-assisted development: local assistant, audits, tests, search, planning
     #[command(subcommand)]
-    Deployments(commands::deployments::DeploymentsCommands),
-    /// Manage deployment environments (dev/staging/production): configuration, promotion, isolation, and a dashboard
-    #[command(subcommand)]
-    Environment(commands::environment::EnvironmentCommands),
-    /// Show starforge config and environment info
-    Info,
-    /// Manage AI prompt templates and versioning
-    #[command(subcommand)]
-    Prompts(commands::prompts::PromptsCommands),
-    /// Analyze and explain smart contract code using AI
-    #[command(subcommand)]
-    Explain(commands::explain::ExplainCommands),
-    /// Manage starforge configuration (telemetry, network)
+    Ai(commands::tree::AiTree),
+
+    /// Manage starforge configuration, telemetry, feature flags, and privacy
     #[command(subcommand)]
     Config(commands::config::ConfigCommands),
 
-    /// Manage telemetry settings directly
+    /// Project scaffolding and AI-driven project management
     #[command(subcommand)]
-    Telemetry(commands::telemetry::TelemetryCommands),
+    Project(commands::project::ProjectCommands),
 
-    Tx(commands::tx::TxArgs), // fetch transaction for the account
+    /// Developer-environment utilities: tutorials, natural language, PR checks
+    #[command(subcommand)]
+    Tool(commands::tree::ToolTree),
 
-    /// SEP-10 web authentication for Stellar anchors
-    ///
-    /// Runs the SEP-10 challenge/response handshake with a local wallet and
-    /// prints the JWT the anchor issues. See `docs/SEP10_AUTH.md`.
+    /// Classic Stellar assets: SAC contract id lookup and wrap/deploy
     #[command(subcommand)]
-    Sep10(commands::sep::Sep10Args),
+    Asset(commands::asset::AssetCommands),
 
-    /// View or switch the active network (testnet/mainnet)
-    #[command(subcommand)]
-    Network(commands::network::NetworkCommands),
-    /// Local Soroban devnet (Docker quickstart)
-    #[command(subcommand)]
-    Node(commands::node::NodeCommands),
     /// Generate shell completions for bash, zsh, fish, and powershell
     #[command(subcommand)]
     Completions(commands::completions::CompletionShell),
 
+    /// Generate or install man pages
+    #[command(subcommand)]
+    Man(commands::man::ManCommand),
+
+    /// On-chain account lifecycle with sponsored reserves (CAP-33)
+    #[command(subcommand)]
+    Account(commands::account::AccountCommands),
+
+    /// Watch contract sources and rebuild/redeploy on save
+    Dev(commands::dev::DevArgs),
+
+    /// Manage per-network contract and account aliases
+    #[command(subcommand)]
+    Alias(commands::alias::AliasCommands),
+
     /// Smart autocomplete — suggest and record commands
+    #[command(hide = true)]
     Autocomplete {
         /// Show suggestions for this partial command
         #[arg(long)]
@@ -194,213 +167,9 @@ enum Commands {
         stats: bool,
     },
 
-    /// Interactive REPL for local Soroban contract testing
-    Shell(commands::shell::ShellArgs),
-
-    /// Live monitoring (contract events or wallet threshold)
-    Monitor(commands::monitor::MonitorArgs),
-
-    /// Interactive CLI tutorials
-    #[command(subcommand)]
-    Tutorial(commands::tutorial::TutorialCommands),
-
-    /// Performance benchmarking utilities and industry-standard comparisons
-    #[command(subcommand)]
-    Benchmark(commands::benchmark::BenchmarkCommands),
-
-    /// Contract testing utilities for Soroban wasm
-    Test(commands::test::TestArgs),
-
-    /// Create and manage deterministic live-ledger snapshots for local tests
-    #[command(subcommand)]
-    Snapshot(commands::snapshot::SnapshotCommands),
-
-    /// Gas analysis and optimization helpers
-    #[command(subcommand)]
-    Gas(commands::gas::GasCommands),
-
-    /// AI-assisted deployment cost management: budgets, forecasting,
-    /// cross-network comparison, and reporting
-    #[command(subcommand)]
-    Cost(commands::cost::CostCommands),
-
-    /// Manage third-party plugins
-    #[command(subcommand)]
-    Plugin(commands::plugin::PluginCommands),
-
-    /// Check PR readiness (CI status and merge conflicts)
-    #[command(subcommand)]
-    Pr(commands::pr::PrCommands),
-
-    /// AI mutation testing for Soroban contracts
-    #[command(subcommand)]
-    Mutate(commands::mutate::MutateCommands),
-    /// Privacy protection, anonymization, consent, and reporting
-    #[command(subcommand)]
-    Privacy(commands::privacy::PrivacyCommands),
-    /// AI-driven project management for task tracking, sprints, resources, risks, and timelines
-    #[command(subcommand)]
-    Project(commands::project::ProjectCommands),
-    /// Project manifest management (starforge.toml: validate, schema, init, show)
-    #[command(subcommand)]
-    Manifest(commands::manifest::ManifestCommands),
-    /// Manage community contract templates from the marketplace
-    #[command(subcommand)]
-    Template(commands::template::TemplateCommands),
-
-    /// Interact with the remote template registry
-    #[command(subcommand)]
-    Registry(commands::registry::RegistryCommands),
-
-    /// Manage multi-signature transactions
-    #[command(subcommand)]
-    Multisig(commands::multisig_builder::MultisigCommands),
-
-    /// Contract upgrade management (propose, approve, execute, rollback)
-    #[command(subcommand)]
-    Upgrade(commands::upgrade::UpgradeCommands),
-
-    /// Contract upgrade governance (proposals, voting, timelock, audit)
-    #[command(subcommand)]
-    Governance(commands::governance::GovernanceCommands),
-
-    /// Multi-contract deployment orchestration
-    #[command(subcommand)]
-    Orchestrate(commands::orchestrate::OrchestrateCommands),
-
-    /// Visual pipeline builder for contract deployment workflows
-    #[command(subcommand)]
-    Pipeline(commands::pipeline_builder::PipelineCommands),
-
-    /// Security hardening, validation, and monitoring
-    #[command(subcommand)]
-    Security(commands::security::SecurityCommands),
-
-    /// Run a comprehensive security audit on a Soroban contract
-    Audit(commands::audit::AuditArgs),
-
-    /// AI-powered security audit for Soroban contracts using Claude
-    AiAudit(commands::ai_audit::AiAuditArgs),
-
-    /// AI-driven testing assistance (generate, optimize, analyze, maintain tests)
-    #[command(subcommand)]
-    AiTest(commands::ai_test::AiTestCommands),
-
-    /// AI property-based testing (discover properties, generate tests, validate invariants)
-    #[command(subcommand)]
-    AiPropertyTest(commands::ai_property_test::AiPropertyTestCommands),
-
-    /// AI feedback and learning system (record feedback, track quality, learn preferences)
-    #[command(subcommand)]
-    AiFeedback(commands::ai_feedback::AiFeedbackCommands),
-
-    /// AI code search and discovery (search code, find patterns, similar code)
-    #[command(subcommand)]
-    AiSearch(commands::ai_search::AiSearchCommands),
-
-    /// AI best practice recommendations (analyze contracts, scan projects, improvement plans)
-    #[command(subcommand)]
-    AiRecommend(commands::ai_recommend::AiRecommendCommands),
-
-    /// Intelligent AI model selection and routing based on task complexity and preferences
-    #[command(subcommand, name = "ai-route")]
-    AiRoute(commands::ai_model_router::AiModelRouterCommands),
-
-    /// AI project planning assistant — requirements, architecture, timeline, risks
-    #[command(subcommand, name = "ai-plan")]
-    AiPlan(commands::ai_plan::AiPlanCommands),
-
-    /// AI accessibility features — screen reader, voice commands, text simplification
-    #[command(subcommand, name = "ai-accessibility")]
-    AiAccessibility(commands::ai_accessibility::AiAccessibilityCommands),
-
-    /// AI contract function suggestions (context-aware function suggestions based on contract type)
-    #[command(subcommand)]
-    AiContractSuggest(commands::ai_contract_suggest::AiContractSuggestCommands),
-
-    /// AI documentation Q&A (answer questions about StarForge, Stellar, and Soroban docs with citations)
-    #[command(subcommand)]
-    AiDocQa(commands::ai_doc_qa::AiDocQaCommands),
-
-    /// Schedule deployments for future execution with approval workflows
-    #[command(subcommand)]
-    Schedule(commands::schedule::ScheduleCommands),
-
-    /// Local network simulation and testing environment
-    #[command(subcommand)]
-    Simulate(commands::simulate::SimulateCommands),
-
-    /// Backup and disaster recovery for contract state and code
-    #[command(subcommand)]
-    Backup(commands::backup::BackupCommands),
-
-    /// Static analysis and linting for Soroban contracts
-    Lint(commands::lint::LintArgs),
-
-    /// Generate or install man pages
-    #[command(subcommand)]
-    Man(commands::man::ManCommand),
-
-    /// Run connectivity diagnostics for attached Ledger/Trezor devices
-    Diagnostics(commands::diagnostics::DiagnosticsArgs),
-
-    /// Collect environment diagnostics and generate a prefilled bug report
-    BugReport(commands::bug_report::BugReportArgs),
-
-    /// Template version control (versioning, branching, changelog)
-    #[command(subcommand)]
-    TemplateVcs(commands::template_vcs::TemplateVcsCommands),
-
-    /// Contract performance monitoring and metrics dashboard
-    #[command(subcommand)]
-    Perf(commands::perf::PerfCommands),
-
-    /// Advanced contract performance analysis and profiling tools
-    #[command(subcommand)]
-    AdvancedPerf(commands::perf::AdvancedPerfCommands),
-
-    /// Contract documentation portal (generate, view, search)
-    #[command(subcommand)]
-    Docs(commands::docs::DocsCommands),
-
-    /// Contract deployment analytics, dashboards, and reporting
-    #[command(subcommand)]
-    Analytics(commands::analytics::AnalyticsCommands),
-
-    /// Approval workflow for contract deployments (multi-level approvals, audit, compliance)
-    #[command(subcommand)]
-    Approval(commands::approval::ApprovalCommands),
-
-    /// Manage feature flags for AI features (rollouts, A/B tests, rollback)
-    FeatureFlags(commands::feature_flags_cmd::FeatureFlagsArgs),
-
-    /// Contract storage migration tools (transform, validate, rollback)
-    #[command(subcommand)]
-    Migrate(commands::migrate::MigrateCommands),
-    /// AI-driven collaboration tools: code review, conflict resolution, knowledge sharing, contribution tracking
-    #[command(subcommand)]
-    Collab(commands::collab::CollabCommands),
-
-    /// Run formal verification on a contract
-    #[command(subcommand)]
-    Verify(commands::verify::VerifyCommands),
-    /// AI Contextual Help: command, workflow, error, and best-practice guidance
-    Help(commands::help::HelpArgs),
-
-    /// AI usage telemetry and analytics: calls, tokens, latency, cost, opt-out
-    #[command(subcommand)]
-    AiTelemetry(commands::ai_telemetry::AiTelemetryCommands),
-
-    /// Analyse and optimize compiled WASM / Rust contract source for gas and size
-    #[command(subcommand)]
-    Optimize(commands::optimize::OptimizeCommands),
-
-    /// AI-driven security training: lessons, exercises, progress tracking
-    #[command(subcommand)]
-    AiSecurityTraining(commands::ai_security_training::AiSecurityTrainingCommands),
-
-    #[command(subcommand)]
-    ContractMonitor(commands::contract_monitor::ContractMonitorCommands),
+    /// External plugins
+    #[command(external_subcommand)]
+    External(Vec<String>),
 
     /// Terminal User Interface for wallets, contracts, and transactions
     #[cfg(feature = "ui")]
@@ -441,8 +210,12 @@ fn main() {
 
 #[tokio::main]
 async fn run() {
-    let cli = Cli::parse();
-    
+    // ADR 0007: rewrite deprecated top-level spellings to noun-verb paths
+    // before clap sees them, warning on stderr.
+    let mut argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    commands::deprecations::rewrite_argv(&mut argv);
+    let cli = Cli::parse_from(argv);
+
     // Handle --help-all: show information about progressive disclosure
     if cli.help_all {
         eprintln!("StarForge Progressive Disclosure");
@@ -463,10 +236,17 @@ async fn run() {
         eprintln!("");
         std::process::exit(0);
     }
-    
+
     OUTPUT_MODE_INIT.call_once(|| {});
     utils::output::set_json_mode(cli.json);
     utils::output::set_plain_mode(cli.plain);
+    // `--dry-run` is process-global (it may be passed before or after the
+    // subcommand): record it so every command handler can short-circuit its
+    // mutations behind a shared plan. Detection also scans the raw arguments
+    // so it does not depend on where clap attached the global value.
+    let dry_run_requested =
+        cli.dry_run || std::env::args_os().any(|arg| arg.to_str() == Some("--dry-run"));
+    utils::dry_run::set_enabled(dry_run_requested);
     if utils::output::is_plain_mode_enabled() {
         // Global override: neutralizes every `colored` call in the codebase,
         // not only the ones in utils::print that also swap their Unicode
@@ -476,6 +256,7 @@ async fn run() {
     }
     utils::interactive::set_non_interactive(cli.non_interactive);
     utils::network_guard::set_allow_mismatch(cli.allow_network_passphrase_mismatch);
+    utils::network_guard::set_allow_plaintext_mainnet(cli.allow_plaintext_mainnet);
 
     // Initialise structured logging before anything else runs.
     let log_cfg =
@@ -498,98 +279,39 @@ async fn run() {
     utils::correlation::init(correlation_id);
 
     // Completion scripts are sourced by the shell, so stdout must be pure script.
-    if !cli.quiet && !matches!(cli.command, Commands::Completions(_)) {
+    // The same holds whenever stdout is redirected or piped: the `tx` XDR toolbox
+    // emits envelopes and JSON there (`tx encode | tx sign | tx submit`), and the
+    // banner would corrupt the payload.
+    use std::io::IsTerminal;
+    if !cli.quiet
+        && !matches!(cli.command, Commands::Completions(_))
+        && std::io::stdout().is_terminal()
+    {
         print_banner();
     }
 
+    // One stable name per noun, used for telemetry, logging, and recovery hints.
+    // The leaf verb is not included so the metric cardinality stays flat and a
+    // new verb never needs a telemetry-schema change.
     let command_name = match &cli.command {
-        Commands::Snapshot(_) => "snapshot",
-        Commands::AiDebug(_) => "ai-debug",
-        Commands::AiNavigate(_) => "ai-navigate",
-        Commands::AiQualityGate(_) => "ai-quality-gate",
-        Commands::Ai(_) => "ai",
-        Commands::AiProfile(_) => "ai-profile",
-        Commands::AiIde(_) => "ai-ide",
-        Commands::AiTestMaintain(_) => "ai-test-maintain",
-        Commands::AiDeploymentTest(_) => "ai-deployment-test",
         Commands::Wallet(_) => "wallet",
-        Commands::Nl(_) => "nl",
-        Commands::New(_) => "new",
-        Commands::Generate(_) => "generate",
         Commands::Contract(_) => "contract",
-        Commands::Complete(_) => "complete",
-        Commands::FeatureFlags(_) => "feature-flags",
-        Commands::Debug(_) => "debug",
-        Commands::Inspect(_) => "inspect",
         Commands::Deploy(_) => "deploy",
-        Commands::Deployments(_) => "deployments",
-        Commands::Environment(_) => "environment",
-        Commands::Info => "info",
-        Commands::BugReport(_) => "bug-report",
-        Commands::Prompts(_) => "prompts",
-        Commands::Explain(_) => "explain",
-        Commands::Config(_) => "config",
-        Commands::Telemetry(_) => "telemetry",
-        Commands::Tx(_) => "tx",
-        Commands::Sep10(_) => "sep10",
         Commands::Network(_) => "network",
-        Commands::Node(_) => "node",
-        Commands::Completions(_) => "completions",
-        Commands::Autocomplete { .. } => "autocomplete",
-        Commands::Shell(_) => "shell",
-        Commands::Monitor(_) => "monitor",
-        Commands::Multisig(_) => "multisig",
-        Commands::Tutorial(_) => "tutorial",
-        Commands::Benchmark(_) => "benchmark",
-        Commands::Test(_) => "test",
-        Commands::Gas(_) => "gas",
-        Commands::Cost(_) => "cost",
-        Commands::Plugin(_) => "plugin",
-        Commands::Pr(_) => "pr",
-        Commands::Mutate(_) => "mutate",
-        Commands::Privacy(_) => "privacy",
-        Commands::Project(_) => "project",
-        Commands::Manifest(_) => "manifest",
         Commands::Template(_) => "template",
-        Commands::Registry(_) => "registry",
-        Commands::Upgrade(_) => "upgrade",
-        Commands::Governance(_) => "governance",
-        Commands::Orchestrate(_) => "orchestrate",
-        Commands::Pipeline(_) => "pipeline",
-        Commands::Security(_) => "security",
-        Commands::Audit(_) => "audit",
-        Commands::AiAudit(_) => "ai-audit",
-        Commands::AiTest(_) => "ai-test",
-        Commands::AiPropertyTest(_) => "ai-property-test",
-        Commands::AiFeedback(_) => "ai-feedback",
-        Commands::AiSearch(_) => "ai-search",
-        Commands::AiRecommend(_) => "ai-recommend",
-        Commands::AiRoute(_) => "ai-route",
-        Commands::AiPlan(_) => "ai-plan",
-        Commands::AiAccessibility(_) => "ai-accessibility",
-        Commands::AiContractSuggest(_) => "ai-contract-suggest",
-        Commands::AiDocQa(_) => "ai-doc-qa",
-        Commands::Schedule(_) => "schedule",
-        Commands::Simulate(_) => "simulate",
-        Commands::Backup(_) => "backup",
-        Commands::Lint(_) => "lint",
+        Commands::Plugin(_) => "plugin",
+        Commands::Ai(_) => "ai",
+        Commands::Config(_) => "config",
+        Commands::Project(_) => "project",
+        Commands::Tool(_) => "tool",
+        Commands::Asset(_) => "asset",
+        Commands::Completions(_) => "completions",
         Commands::Man(_) => "man",
-        Commands::Diagnostics(_) => "diagnostics",
-        Commands::TemplateVcs(_) => "template-vcs",
-        Commands::Perf(_) => "perf",
-        Commands::AdvancedPerf(_) => "advanced-perf",
-        Commands::Docs(_) => "docs",
-        Commands::Analytics(_) => "analytics",
-        Commands::Approval(_) => "approval",
-        Commands::Migrate(_) => "migrate",
-        Commands::Collab(_) => "collab",
+        Commands::Account(_) => "account",
+        Commands::Dev(_) => "dev",
+        Commands::Alias(_) => "alias",
+        Commands::Autocomplete { .. } => "autocomplete",
         Commands::External(_) => "external",
-        Commands::Verify(_) => "verify",
-        Commands::Help(_) => "help",
-        Commands::AiTelemetry(_) => "ai-telemetry",
-        Commands::Optimize(_) => "optimize",
-        Commands::AiSecurityTraining(_) => "ai-security-training",
-        Commands::ContractMonitor(_) => "contract-monitor",
         #[cfg(feature = "ui")]
         Commands::Ui(_) => "ui",
     }
@@ -607,35 +329,24 @@ async fn run() {
 
     let start = std::time::Instant::now();
     let result = match cli.command {
-        Commands::AiDebug(cmd) => commands::ai_debug::handle(cmd).await,
-        Commands::AiNavigate(cmd) => commands::ai_navigate::handle(cmd),
-        Commands::AiQualityGate(cmd) => commands::ai_quality_gate::handle(cmd),
-        Commands::Ai(cmd) => commands::ai::handle(cmd).await,
-        Commands::AiProfile(cmd) => commands::ai_profile::handle(cmd).await,
-        Commands::AiIde(cmd) => commands::ai_ide::handle(cmd).await,
-        Commands::AiTestMaintain(cmd) => commands::ai_test_maintain::handle(cmd).await,
-        Commands::AiDeploymentTest(cmd) => commands::ai_deployment_test::handle(cmd).await,
+        // Every handler lives in the module that owns the command; the noun
+        // enums added by ADR 0007 forward to those modules unchanged.
         Commands::Wallet(cmd) => commands::wallet::handle(cmd).await,
-        Commands::Nl(args) => commands::nl::handle(args).await,
-        Commands::New(cmd) => commands::new::handle(cmd).await,
-        Commands::Generate(cmd) => commands::generate::handle(&cmd).await,
         Commands::Contract(cmd) => commands::contract::handle(cmd).await,
-        Commands::Inspect(cmd) => commands::inspect::handle(cmd).await,
-        Commands::Debug(cmd) => commands::debug::handle(cmd).await,
-        Commands::Deploy(args) => commands::deploy::handle(args).await,
-        Commands::Deployments(cmd) => commands::deployments::handle(cmd).await,
-        Commands::Environment(cmd) => commands::environment::handle(cmd),
-        Commands::Info => commands::info::handle().await,
-        Commands::BugReport(args) => commands::bug_report::handle(args).await,
-        Commands::Prompts(cmd) => commands::prompts::handle(&cmd).await,
-        Commands::Explain(ref cmd) => commands::explain::handle(cmd).await,
-        Commands::Config(cmd) => commands::config::handle(cmd).await,
-        Commands::Telemetry(cmd) => commands::telemetry::handle(cmd).await,
-        Commands::Tx(args) => commands::tx::handle(args).await,
-        Commands::Sep10(args) => commands::sep::handle(args).await,
+        Commands::Deploy(cmd) => commands::tree::handle_deploy(cmd).await,
         Commands::Network(cmd) => commands::network::handle(cmd).await,
-        Commands::Node(cmd) => commands::node::handle(cmd).await,
+        Commands::Template(cmd) => commands::template::handle(cmd).await,
+        Commands::Plugin(cmd) => commands::plugin::handle(cmd).await,
+        Commands::Ai(cmd) => commands::tree::handle_ai(cmd).await,
+        Commands::Config(cmd) => commands::config::handle(cmd).await,
+        Commands::Project(cmd) => commands::project::handle(cmd).await,
+        Commands::Tool(cmd) => commands::tree::handle_tool(cmd).await,
+        Commands::Asset(cmd) => commands::asset::handle(cmd).await,
         Commands::Completions(shell) => commands::completions::handle(shell).await,
+        Commands::Man(cmd) => commands::man::handle(cmd).await,
+        Commands::Account(cmd) => commands::account::handle(cmd).await,
+        Commands::Dev(args) => commands::dev::handle(args).await,
+        Commands::Alias(cmd) => commands::alias::handle(cmd).await,
         Commands::Autocomplete {
             suggest,
             record,
@@ -652,63 +363,7 @@ async fn run() {
             )
             .await
         }
-        Commands::Shell(args) => commands::shell::handle(args).await,
-        Commands::Monitor(args) => commands::monitor::handle(args).await,
-        Commands::Multisig(cmd) => commands::multisig_builder::handle(cmd).await,
-        Commands::Tutorial(cmd) => commands::tutorial::handle(cmd).await,
-        Commands::Benchmark(args) => commands::benchmark::handle(args).await,
-        Commands::Test(args) => commands::test::handle(args).await,
-        Commands::Snapshot(cmd) => commands::snapshot::handle(cmd).await,
-        Commands::Gas(args) => commands::gas::handle(args).await,
-        Commands::Plugin(args) => commands::plugin::handle(args).await,
-        Commands::Pr(cmd) => commands::pr::handle(cmd).await,
-        Commands::Mutate(cmd) => commands::mutate::handle(cmd).await,
-        Commands::Privacy(cmd) => commands::privacy::handle(cmd).await,
-        Commands::Template(args) => commands::template::handle(args).await,
-        Commands::Registry(cmd) => commands::registry::handle(cmd).await,
-        Commands::Upgrade(cmd) => commands::upgrade::handle(cmd).await,
-        Commands::Governance(cmd) => commands::governance::handle(cmd).await,
-        Commands::Orchestrate(cmd) => commands::orchestrate::handle(cmd).await,
-        Commands::Pipeline(cmd) => commands::pipeline_builder::handle(cmd).await,
-        Commands::Security(cmd) => commands::security::handle(cmd).await,
-        Commands::Audit(args) => commands::audit::handle(args).await,
-        Commands::AiAudit(args) => commands::ai_audit::handle(args).await,
-        Commands::AiTest(cmd) => commands::ai_test::handle(cmd).await,
-        Commands::AiPropertyTest(cmd) => commands::ai_property_test::handle(cmd).await,
-        Commands::AiFeedback(cmd) => commands::ai_feedback::handle(cmd).await,
-        Commands::AiSearch(cmd) => commands::ai_search::handle(cmd).await,
-        Commands::AiRecommend(cmd) => commands::ai_recommend::handle(cmd).await,
-        Commands::AiRoute(cmd) => commands::ai_model_router::handle(cmd).await,
-        Commands::AiPlan(cmd) => commands::ai_plan::handle(cmd).await,
-        Commands::AiAccessibility(cmd) => commands::ai_accessibility::handle(cmd).await,
-        Commands::AiContractSuggest(cmd) => commands::ai_contract_suggest::handle(cmd).await,
-        Commands::AiDocQa(cmd) => commands::ai_doc_qa::handle(cmd).await,
-        Commands::Schedule(cmd) => commands::schedule::handle(cmd).await,
-        Commands::Simulate(cmd) => commands::simulate::handle(cmd).await,
-        Commands::Backup(cmd) => commands::backup::handle(cmd).await,
-        Commands::Lint(args) => commands::lint::handle(args).await,
-        Commands::Man(cmd) => commands::man::handle(cmd).await,
-        Commands::Diagnostics(args) => commands::diagnostics::handle(args),
-        Commands::TemplateVcs(cmd) => commands::template_vcs::handle(cmd).await,
-        Commands::Perf(cmd) => commands::perf::handle(cmd).await,
-        Commands::AdvancedPerf(cmd) => commands::perf::handle_advanced(cmd).await,
-        Commands::Docs(cmd) => commands::docs::handle(cmd).await,
-        Commands::Analytics(cmd) => commands::analytics::handle(cmd).await,
-        Commands::Approval(cmd) => commands::approval::handle(cmd).await,
-        Commands::Migrate(cmd) => commands::migrate::handle(cmd),
-        Commands::Collab(cmd) => commands::collab::handle(cmd).await,
-        Commands::Complete(cmd) => commands::complete::handle(cmd).await,
-        Commands::Verify(cmd) => commands::verify::handle(cmd).await,
-        Commands::Cost(cmd) => commands::cost::handle(cmd).await,
-        Commands::Project(cmd) => commands::project::handle(cmd).await,
-        Commands::Manifest(cmd) => commands::manifest::handle(cmd).await,
-        Commands::FeatureFlags(args) => commands::feature_flags_cmd::handle(args).await,
         Commands::External(args) => handle_external_plugin(args),
-        Commands::Help(args) => commands::help::handle(args).await,
-        Commands::AiTelemetry(cmd) => commands::ai_telemetry::handle(cmd).await,
-        Commands::Optimize(cmd) => commands::optimize::handle(cmd).await,
-        Commands::AiSecurityTraining(cmd) => commands::ai_security_training::handle(cmd).await,
-        Commands::ContractMonitor(cmd) => commands::contract_monitor::handle(cmd).await,
         #[cfg(feature = "ui")]
         Commands::Ui(args) => commands::ui::handle(args).await,
     };
@@ -731,9 +386,10 @@ async fn run() {
     );
 
     if let Err(e) = result {
+        let error_code = utils::errors::ErrorCode::classify(&command_name, &e);
         if utils::output::is_json_mode_enabled() {
-            let _ = utils::output::print_error_json("command_error", &e.to_string());
-            std::process::exit(1);
+            let _ = utils::output::print_error_json(error_code, &e.to_string());
+            error_code.exit_code().exit();
         }
 
         let mut hints = recovery_hints(&command_name, &e);
@@ -742,8 +398,13 @@ async fn run() {
         // still produce a useful, command-agnostic one-liner.
         utils::context_help::troubleshoot_merging(&e.to_string(), &mut hints);
         utils::print::cli_error(&e, &hints.iter().map(String::as_str).collect::<Vec<_>>());
-        let code = utils::exit_codes::determine_exit_code(&e);
-        code.exit();
+        let exit_code = error_code.exit_code();
+        eprintln!("Error code: {}", error_code.id());
+        eprintln!("Cause: {}", error_code.cause());
+        eprintln!("Fix: {}", error_code.fix().trim());
+        eprintln!("Exit: {} ({})", exit_code.code(), exit_code.name());
+        eprintln!("Docs: {}", error_code.docs_url());
+        exit_code.exit();
     }
 
     // On a successful run, optionally surface a single proactive tip.
@@ -788,19 +449,38 @@ fn recovery_hints(command: &str, err: &anyhow::Error) -> Vec<String> {
             if msg.contains("not running") || msg.contains("ollama") {
                 hints.push("Install Ollama from https://ollama.ai/download".into());
                 hints.push("Start the daemon: ollama serve".into());
-                hints.push("Pull a model: starforge ai pull codellama:7b".into());
+                hints.push("Pull a model: starforge ai local pull codellama:7b".into());
             } else if msg.contains("model") || msg.contains("not found") {
-                hints.push("List available models: starforge ai models".into());
-                hints.push("Download a model: starforge ai pull codellama:7b".into());
+                hints.push("List available models: starforge ai local models".into());
+                hints.push("Download a model: starforge ai local pull codellama:7b".into());
             } else if msg.contains("wasm") || msg.contains("profile") {
                 hints.push("Build your contract first: stellar contract build".into());
                 hints.push(
-                    "Pass the compiled WASM: starforge ai profile <path/to/contract.wasm>".into(),
-                );
-                hints.push(
-                    "Save a baseline first: starforge ai profile <wasm> --output baseline.json"
+                    "Pass the compiled WASM: starforge ai profiling run <path/to/contract.wasm>"
                         .into(),
                 );
+                hints.push(
+                    "Save a baseline first: starforge ai profiling run <wasm> --output baseline.json"
+                        .into(),
+                );
+            } else if msg.contains("analyse")
+                || msg.contains("analyze")
+                || msg.contains("root cause")
+            {
+                hints.push(
+                    "Provide the full error message in quotes: starforge ai debug analyse \"<error>\""
+                        .into(),
+                );
+                hints
+                    .push("Explain a known error category: starforge ai debug explain auth".into());
+            } else if msg.contains("source") || msg.contains("src/lib.rs") {
+                hints.push("Point the command at a contract file, e.g. src/lib.rs.".into());
+                hints.push(
+                    "Discover properties: starforge ai property-test discover src/lib.rs".into(),
+                );
+            } else if msg.contains("search") || msg.contains("pattern") {
+                hints.push("Search code: starforge ai search search \"token transfer\"".into());
+                hints.push("Discover patterns: starforge ai search patterns".into());
             }
         }
         "wallet" => {
@@ -819,7 +499,17 @@ fn recovery_hints(command: &str, err: &anyhow::Error) -> Vec<String> {
             }
         }
         "deploy" => {
-            if msg.contains("wasm") || msg.contains("not found") || msg.contains("no such file") {
+            if msg.contains("smoke tests failed") {
+                hints.push("The contract is deployed; only the post-deploy checks failed.".into());
+                hints.push(
+                    "Fix the contract or the [[smoke_tests]] entry in starforge-project.toml."
+                        .into(),
+                );
+                hints.push("Deploy without running smoke tests: --skip-smoke".into());
+            } else if msg.contains("wasm")
+                || msg.contains("not found")
+                || msg.contains("no such file")
+            {
                 hints.push("Build your contract first: stellar contract build".into());
                 hints.push("Make sure you pass the correct --wasm path to deploy.".into());
             } else if msg.contains("account") || msg.contains("not found on") {
@@ -849,19 +539,11 @@ fn recovery_hints(command: &str, err: &anyhow::Error) -> Vec<String> {
                     "Run `stellar contract build` to ensure the contract is up to date.".into(),
                 );
                 hints.push("Check function name and argument types match the contract ABI.".into());
-            }
-        }
-        "tx" => {
-            if msg.contains("account not found") || msg.contains("not active") {
-                hints.push("Fund your account first: starforge wallet fund <name>".into());
-                hints.push("Verify you are on the right network: starforge network show".into());
-            } else if msg.contains("insufficient") {
-                hints.push("Check your XLM balance: starforge wallet show <name>".into());
-                hints.push("Fund the account: starforge wallet fund <name>".into());
-            } else if msg.contains("asset") {
-                hints.push(
-                    "Asset format is CODE:ISSUER (e.g. USDC:GA5ZS...) or XLM for native.".into(),
-                );
+            } else if msg.contains("wasm") || msg.contains("no such file") {
+                // `contract test`, `contract benchmark`, `contract lint` and
+                // `contract profile` all take a compiled artifact.
+                hints.push("Build your contract first: stellar contract build".into());
+                hints.push("Pass the correct --wasm path to the command.".into());
             }
         }
         "network" => {
@@ -871,10 +553,8 @@ fn recovery_hints(command: &str, err: &anyhow::Error) -> Vec<String> {
                     "Add a custom network: starforge network add <name> --horizon <url>".into(),
                 );
                 hints.push("Valid built-in networks: testnet, mainnet, docker-testnet".into());
-            }
-        }
-        "node" => {
-            if msg.contains("docker") || msg.contains("not found") || msg.contains("command") {
+            } else if msg.contains("docker") {
+                // `network node` runs the Docker devnet.
                 hints.push(
                     "Install Docker Desktop from https://www.docker.com/products/docker-desktop"
                         .into(),
@@ -908,52 +588,6 @@ fn recovery_hints(command: &str, err: &anyhow::Error) -> Vec<String> {
                 hints.push("Check your internet connection and retry.".into());
             }
         }
-        "ai-debug" => {
-            hints.push(
-                "Provide the full error message in quotes: starforge ai-debug analyse \"<error>\""
-                    .into(),
-            );
-            hints.push("Explain a specific category: starforge ai-debug explain auth".into());
-            hints.push("Available categories: auth, arithmetic, storage, token, panic, wasm, network, deployment, rollback, security, analytics, ttl, test, type".into());
-        }
-        "ai-test" => {
-            if msg.contains("not found") || msg.contains("no such file") {
-                hints.push("Ensure the source file exists: ls src/lib.rs".into());
-                hints.push("Build your contract first: stellar contract build".into());
-            } else if msg.contains("ollama") || msg.contains("not running") {
-                hints.push("Install Ollama: https://ollama.ai/download".into());
-                hints.push("Start Ollama: ollama serve".into());
-                hints.push("Or run without --use-ai for local generation".into());
-            } else if msg.contains("coverage") {
-                hints.push(
-                    "Generate coverage first: starforge test --coverage --source src/lib.rs".into(),
-                );
-            }
-        }
-        "ai-property-test" => {
-            hints.push(
-                "Provide a contract source file: starforge ai-property-test discover src/lib.rs"
-                    .into(),
-            );
-            hints.push("Run without --use-ai for local property discovery".into());
-        }
-        "ai-feedback" => {
-            hints.push("Record feedback: starforge ai-feedback record <feature> --prompt-summary \"...\" --response-summary \"...\" --rating positive".into());
-            hints.push("View stats: starforge ai-feedback stats".into());
-        }
-        "ai-search" => {
-            hints.push("Search code: starforge ai-search search \"token transfer\"".into());
-            hints.push("Discover patterns: starforge ai-search patterns".into());
-        }
-        "ai-recommend" => {
-            hints.push("Analyze a contract: starforge ai-recommend analyze src/lib.rs".into());
-            hints.push("Scan a project: starforge ai-recommend scan .".into());
-        }
-        "benchmark" | "test" if (msg.contains("wasm") || msg.contains("not found")) => {
-            hints.push("Build your contract first: stellar contract build".into());
-            hints.push("Pass the correct --wasm path to the command.".into());
-        }
-
         _ => {}
     }
 

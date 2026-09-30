@@ -1,0 +1,3 @@
+# Golden CLI case: starforge ai-test --help
+description = "starforge ai-test --help"
+args = ["ai-test", "--help"]
