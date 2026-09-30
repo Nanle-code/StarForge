@@ -58,22 +58,49 @@ impl FileCursorStore {
         Self { file_path: path }
     }
 
-    pub fn get_cursor(&self) -> Result<Option<u32>> {
+    pub fn get_cursor(&self) -> Result<Option<String>> {
         if !self.file_path.exists() {
             return Ok(None);
         }
-        let content = fs::read_to_string(&self.file_path)?;
-        let ledger: u32 = content.trim().parse()?;
-        Ok(Some(ledger))
+        let content = fs::read_to_string(&self.file_path)
+            .with_context(|| format!("failed to read cursor file {}", self.file_path.display()))?;
+        let record: CursorRecord = serde_json::from_str(&content)
+            .with_context(|| format!("invalid cursor file {}", self.file_path.display()))?;
+        if record.version != 1 || record.checksum != cursor_checksum(&record.cursor)? {
+            anyhow::bail!(
+                "invalid cursor file {}: integrity check failed",
+                self.file_path.display()
+            );
+        }
+        Ok(Some(record.cursor))
     }
 
-    pub fn save_cursor(&self, ledger: u32) -> Result<()> {
+    pub fn save_cursor(&self, cursor: &str) -> Result<()> {
         if let Some(parent) = self.file_path.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::write(&self.file_path, ledger.to_string())?;
+        let record = CursorRecord {
+            version: 1,
+            cursor: cursor.to_owned(),
+            checksum: cursor_checksum(cursor)?,
+        };
+        let temp = self.file_path.with_extension("cursor.tmp");
+        fs::write(&temp, serde_json::to_vec(&record)?)?;
+        fs::rename(&temp, &self.file_path)?;
         Ok(())
     }
+}
+
+#[derive(Serialize, Deserialize)]
+struct CursorRecord {
+    version: u8,
+    cursor: String,
+    checksum: String,
+}
+
+fn cursor_checksum(cursor: &str) -> Result<String> {
+    use sha2::Digest;
+    Ok(hex::encode(sha2::Sha256::digest(cursor.as_bytes())))
 }
 
 pub struct NdjsonSink {
@@ -116,12 +143,12 @@ impl EventSink for NdjsonSink {
         Ok(())
     }
 
-    async fn get_cursor(&self) -> Result<Option<u32>> {
+    async fn get_cursor(&self) -> Result<Option<String>> {
         self.cursor_store.get_cursor()
     }
 
-    async fn save_cursor(&mut self, ledger: u32) -> Result<()> {
-        self.cursor_store.save_cursor(ledger)
+    async fn save_cursor(&mut self, cursor: String) -> Result<()> {
+        self.cursor_store.save_cursor(&cursor)
     }
 }
 
@@ -177,12 +204,12 @@ impl EventSink for WebhookSink {
         Ok(())
     }
 
-    async fn get_cursor(&self) -> Result<Option<u32>> {
+    async fn get_cursor(&self) -> Result<Option<String>> {
         self.cursor_store.get_cursor()
     }
 
-    async fn save_cursor(&mut self, ledger: u32) -> Result<()> {
-        self.cursor_store.save_cursor(ledger)
+    async fn save_cursor(&mut self, cursor: String) -> Result<()> {
+        self.cursor_store.save_cursor(&cursor)
     }
 }
 
@@ -219,8 +246,15 @@ impl PostgresSink {
             .execute(
                 "CREATE TABLE IF NOT EXISTS event_cursors (
                 sink_id TEXT PRIMARY KEY,
-                last_ledger BIGINT NOT NULL
+                last_ledger BIGINT NOT NULL DEFAULT 0,
+                cursor_id TEXT
             )",
+                &[],
+            )
+            .await?;
+        client
+            .execute(
+                "ALTER TABLE event_cursors ADD COLUMN IF NOT EXISTS cursor_id TEXT",
                 &[],
             )
             .await?;
@@ -243,33 +277,60 @@ impl EventSink for PostgresSink {
             let topic: Vec<&str> = event.topic.iter().map(|s| s.as_str()).collect();
             let value = serde_json::to_value(&event.value)?;
             tx.execute(
-                "INSERT INTO events (id, ledger, event_type, topic, value) VALUES (, , , , ) ON CONFLICT (id) DO NOTHING",
+                "INSERT INTO events (id, ledger, event_type, topic, value) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING",
                 &[&event.id, &(event.ledger as i64), &event.event_type, &topic, &value],
             ).await?;
         }
         tx.commit().await?;
         Ok(())
     }
-    async fn get_cursor(&self) -> Result<Option<u32>> {
+    async fn get_cursor(&self) -> Result<Option<String>> {
         let row = self
             .client
             .query_opt(
-                "SELECT last_ledger FROM event_cursors WHERE sink_id = ",
+                "SELECT cursor_id FROM event_cursors WHERE sink_id = $1 AND cursor_id IS NOT NULL",
                 &[&self.sink_id],
             )
             .await?;
         if let Some(row) = row {
-            let ledger: i64 = row.get(0);
-            Ok(Some(ledger as u32))
+            let cursor: String = row.get(0);
+            Ok(Some(cursor))
         } else {
             Ok(None)
         }
     }
-    async fn save_cursor(&mut self, ledger: u32) -> Result<()> {
+    async fn save_cursor(&mut self, cursor: String) -> Result<()> {
         self.client.execute(
-            "INSERT INTO event_cursors (sink_id, last_ledger) VALUES (, ) ON CONFLICT (sink_id) DO UPDATE SET last_ledger = ",
-            &[&self.sink_id, &(ledger as i64)],
+            "INSERT INTO event_cursors (sink_id, last_ledger, cursor_id) VALUES ($1, 0, $2) ON CONFLICT (sink_id) DO UPDATE SET cursor_id = EXCLUDED.cursor_id",
+            &[&self.sink_id, &cursor],
         ).await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_cursor_survives_restart_and_detects_tampering() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.cursor");
+        FileCursorStore::new(path.clone())
+            .save_cursor("opaque-rpc-cursor")
+            .unwrap();
+        assert_eq!(
+            FileCursorStore::new(path.clone())
+                .get_cursor()
+                .unwrap()
+                .as_deref(),
+            Some("opaque-rpc-cursor")
+        );
+
+        let mut record: CursorRecord = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        record.cursor = "changed".to_owned();
+        fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+        let error = FileCursorStore::new(path).get_cursor().unwrap_err();
+        assert!(error.to_string().contains("integrity check failed"));
     }
 }
