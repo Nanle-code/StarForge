@@ -1104,11 +1104,13 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
             if args.print_only {
                 "Stellar CLI command (--print-only):".bright_white()
             } else {
-                "Ready! Native deploy with --execute, or --print-only for stellar CLI:".bright_white()
+                "Ready! Native deploy with --execute, or --print-only for stellar CLI:"
+                    .bright_white()
             }
         );
         println!();
-        let deploy_cmd = build_stellar_deploy_command(&wasm_path, &wallet.public_key, &args.network);
+        let deploy_cmd =
+            build_stellar_deploy_command(&wasm_path, &wallet.public_key, &args.network);
         for line in deploy_cmd.lines() {
             println!("  {}", line.cyan());
         }

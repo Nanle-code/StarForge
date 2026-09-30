@@ -20,12 +20,11 @@ use sha2::{Digest, Sha256};
 use stellar_strkey::Contract;
 use stellar_xdr::curr::{
     AccountId, Asset, BytesM, ContractExecutable, ContractIdPreimage,
-    ContractIdPreimageFromAddress, CreateContractArgs, CreateContractArgsV2, Hash,
-    HashIdPreimage, HashIdPreimageContractId, HostFunction, InvokeHostFunctionOp, LedgerKey,
-    LedgerKeyContractCode, Limits, Memo, Operation, OperationBody, Preconditions, PublicKey,
-    ReadXdr, ScAddress, ScVal, SequenceNumber, SorobanAuthorizationEntry, SorobanTransactionData,
-    Transaction, TransactionEnvelope, TransactionExt, TransactionV1Envelope, Uint256, VecM,
-    WriteXdr,
+    ContractIdPreimageFromAddress, CreateContractArgs, CreateContractArgsV2, Hash, HashIdPreimage,
+    HashIdPreimageContractId, HostFunction, InvokeHostFunctionOp, LedgerKey, LedgerKeyContractCode,
+    Limits, Memo, Operation, OperationBody, Preconditions, PublicKey, ReadXdr, ScAddress, ScVal,
+    SequenceNumber, SorobanAuthorizationEntry, SorobanTransactionData, Transaction,
+    TransactionEnvelope, TransactionExt, TransactionV1Envelope, Uint256, VecM, WriteXdr,
 };
 
 /// Outcome of a native WASM upload + contract create.
@@ -237,10 +236,7 @@ fn assemble_from_simulation(
 
 async fn next_sequence(public_key: &str, network: &str) -> Result<i64> {
     let account = horizon::fetch_account(public_key, network).await?;
-    let seq: i64 = account
-        .sequence
-        .parse()
-        .context("parse account sequence")?;
+    let seq: i64 = account.sequence.parse().context("parse account sequence")?;
     Ok(seq + 1)
 }
 
@@ -315,8 +311,7 @@ fn create_host_fn(
         Ok(HostFunction::CreateContractV2(CreateContractArgsV2 {
             contract_id_preimage: preimage,
             executable: ContractExecutable::Wasm(wasm_hash.clone()),
-            constructor_args: VecM::try_from(constructor_args)
-                .context("constructor args")?,
+            constructor_args: VecM::try_from(constructor_args).context("constructor args")?,
         }))
     }
 }
@@ -390,11 +385,9 @@ pub async fn deploy_wasm_native(
         MIN_BASE_FEE as u32,
     )?;
     let assembled = simulate_and_assemble(&unsigned, network).await?;
-    let create_tx_hash =
-        sign_submit_poll(assembled, network, signing, "contract create").await?;
+    let create_tx_hash = sign_submit_poll(assembled, network, signing, "contract create").await?;
 
-    let contract_id =
-        contract_id_from_address_preimage(&wallet.public_key, salt, network)?;
+    let contract_id = contract_id_from_address_preimage(&wallet.public_key, salt, network)?;
 
     Ok(NativeDeployResult {
         wasm_hash: wasm_hash_hex,
@@ -416,7 +409,10 @@ pub async fn wrap_asset_native(
     let contract_id = asset_contract_id(&asset, network)?;
 
     // If the SAC instance already exists, treat wrap as idempotent success.
-    if soroban::inspect_contract(&contract_id, network).await.is_ok() {
+    if soroban::inspect_contract(&contract_id, network)
+        .await
+        .is_ok()
+    {
         return Ok(NativeDeployResult {
             wasm_hash: String::new(),
             contract_id,

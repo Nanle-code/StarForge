@@ -602,7 +602,6 @@ pub fn validate_snapshot(snapshot: &StorageSnapshot, rules: &MigrationRules) -> 
 
 // ── Command handlers ──────────────────────────────────────────────────────────
 
-
 #[derive(Args)]
 pub struct IntrospectArgs {
     /// Path to contract source (.rs) or layout (.json) file
@@ -1691,7 +1690,8 @@ mod tests {
 }
 
 fn handle_introspect(args: IntrospectArgs) -> Result<()> {
-    let layout = crate::utils::storage_layout::StorageLayoutIntrospector::introspect_file(&args.contract)?;
+    let layout =
+        crate::utils::storage_layout::StorageLayoutIntrospector::introspect_file(&args.contract)?;
     if args.json {
         println!("{}", serde_json::to_string_pretty(&layout)?);
     } else {
@@ -1706,16 +1706,24 @@ fn handle_introspect(args: IntrospectArgs) -> Result<()> {
         println!();
         println!("Storage Keys:");
         for k in &layout.keys {
-            println!("  - {} [tier: {}, type: {}]", k.name, k.storage_tier, k.value_type);
+            println!(
+                "  - {} [tier: {}, type: {}]",
+                k.name, k.storage_tier, k.value_type
+            );
         }
     }
     Ok(())
 }
 
 fn handle_hazards(args: HazardsArgs) -> Result<()> {
-    let old_layout = crate::utils::storage_layout::StorageLayoutIntrospector::introspect_file(&args.old)?;
-    let new_layout = crate::utils::storage_layout::StorageLayoutIntrospector::introspect_file(&args.new)?;
-    let report = crate::utils::storage_layout::StorageLayoutIntrospector::compare_layouts(&old_layout, &new_layout);
+    let old_layout =
+        crate::utils::storage_layout::StorageLayoutIntrospector::introspect_file(&args.old)?;
+    let new_layout =
+        crate::utils::storage_layout::StorageLayoutIntrospector::introspect_file(&args.new)?;
+    let report = crate::utils::storage_layout::StorageLayoutIntrospector::compare_layouts(
+        &old_layout,
+        &new_layout,
+    );
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&report)?);
@@ -1724,7 +1732,14 @@ fn handle_hazards(args: HazardsArgs) -> Result<()> {
         p::separator();
         p::kv("From Contract", &report.from_contract);
         p::kv("To Contract", &report.to_contract);
-        p::kv("Status", if report.is_safe { "SAFE" } else { "HAZARDS DETECTED" });
+        p::kv(
+            "Status",
+            if report.is_safe {
+                "SAFE"
+            } else {
+                "HAZARDS DETECTED"
+            },
+        );
         p::kv("Breaking Hazards", &report.breaking_count.to_string());
         p::kv("Warnings", &report.warning_count.to_string());
         p::separator();
@@ -1735,7 +1750,9 @@ fn handle_hazards(args: HazardsArgs) -> Result<()> {
         } else {
             for h in &report.hazards {
                 let badge = match h.severity {
-                    crate::utils::storage_layout::HazardSeverity::Breaking => "[BREAKING]".red().bold(),
+                    crate::utils::storage_layout::HazardSeverity::Breaking => {
+                        "[BREAKING]".red().bold()
+                    }
                     crate::utils::storage_layout::HazardSeverity::HighRisk => "[HIGH RISK]".red(),
                     crate::utils::storage_layout::HazardSeverity::Warning => "[WARNING]".yellow(),
                     crate::utils::storage_layout::HazardSeverity::Info => "[INFO]".cyan(),
@@ -1748,8 +1765,14 @@ fn handle_hazards(args: HazardsArgs) -> Result<()> {
     }
 
     if let Some(out) = args.output_rules {
-        fs::write(&out, serde_json::to_string_pretty(&report.starter_migration_rules)?)?;
-        p::success(&format!("Wrote starter migration rules to {}", out.display()));
+        fs::write(
+            &out,
+            serde_json::to_string_pretty(&report.starter_migration_rules)?,
+        )?;
+        p::success(&format!(
+            "Wrote starter migration rules to {}",
+            out.display()
+        ));
     }
 
     Ok(())

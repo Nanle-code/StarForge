@@ -125,8 +125,7 @@ async fn wrap(args: WrapArgs) -> Result<()> {
         "SAC wrap",
     )?;
 
-    let result =
-        soroban_native::wrap_asset_native(asset, wallet, &args.network, &signing).await?;
+    let result = soroban_native::wrap_asset_native(asset, wallet, &args.network, &signing).await?;
 
     if args.json || output::is_json_mode_enabled() {
         return output::print_json(&WrapResponse {

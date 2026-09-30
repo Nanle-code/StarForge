@@ -47,7 +47,11 @@ fn watch_only_add_list_and_sign_rejection() {
         .args(["wallet", "list", "--json"])
         .output()
         .expect("wallet list");
-    assert!(list.status.success(), "{}", String::from_utf8_lossy(&list.stderr));
+    assert!(
+        list.status.success(),
+        "{}",
+        String::from_utf8_lossy(&list.stderr)
+    );
     let body = String::from_utf8_lossy(&list.stdout);
     assert!(
         body.contains("\"watch_only\":true") || body.contains("\"watch_only\": true"),

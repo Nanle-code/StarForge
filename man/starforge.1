@@ -19,46 +19,13 @@ Print version
 .SH SUBCOMMANDS
 .TP
 starforge\-wallet(1)
-Manage test wallets (create, list, fund, show, remove)
-.TP
-starforge\-account(1)
-On\-chain account lifecycle with sponsored reserves (CAP\-33)
-.TP
-starforge\-nl(1)
-Natural language command interface
-.TP
-starforge\-new(1)
-Generate Soroban project boilerplate
+Manage test wallets (create, list, fund, sign), transactions, and devices
 .TP
 starforge\-contract(1)
-Contract operations (invoke, build, test, audit, upgrade, inspect, monitor)
+Contract operations (invoke, build, test, audit, upgrade, inspect, monitor, ttl)
 .TP
 starforge\-deploy(1)
-Deploy a compiled Soroban contract (.wasm)
-.TP
-starforge\-deployments(1)
-Deployment history, rollback, verification, and dashboard
-.TP
-starforge\-info(1)
-Show starforge config and environment info
-.TP
-starforge\-prompts(1)
-Manage AI prompt templates and versioning
-.TP
-starforge\-explain(1)
-Analyze and explain smart contract code using AI
-.TP
-starforge\-config(1)
-Manage starforge configuration (telemetry, network)
-.TP
-starforge\-telemetry(1)
-Manage telemetry settings directly
-.TP
-starforge\-tx(1)
-Fetch a transaction for the account
-.TP
-starforge\-sep10(1)
-SEP\-10 web authentication for Stellar anchors
+Deploy a compiled Soroban contract and manage the deployment lifecycle
 .TP
 starforge\-network(1)
 View or switch the active network, run a local node, simulate, snapshot
@@ -81,10 +48,22 @@ Project scaffolding and AI\-driven project management
 starforge\-tool(1)
 Developer\-environment utilities: tutorials, natural language, PR checks
 .TP
+starforge\-asset(1)
+Classic Stellar assets: SAC contract id lookup and wrap/deploy
+.TP
 starforge\-completions(1)
 Generate shell completions for bash, zsh, fish, and powershell
 .TP
 starforge\-man(1)
 Generate or install man pages
+.TP
+starforge\-account(1)
+On\-chain account lifecycle with sponsored reserves (CAP\-33)
+.TP
+starforge\-dev(1)
+Watch contract sources and rebuild/redeploy on save
+.TP
+starforge\-alias(1)
+Manage per\-network contract and account aliases
 .SH VERSION
 v0.1.0

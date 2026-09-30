@@ -100,13 +100,23 @@ starforge wallet multisig notify proposal.json --message "Please sign the treasu
 
 | Command | Purpose |
 |---------|---------|
-| `contract invoke` | Invoke contract function (`--simulate`) |
+| `contract invoke` | Invoke contract function (`--submit`, `--auto-restore`, `--json`) |
 | `contract invoke-script` | Run an ordered YAML or JSON invocation script (`--dry-run`) |
+| `contract ttl show` | List instance/code/persistent TTL (live-until + ETA; `--warn-below`) |
+| `contract ttl extend` | Build/submit `ExtendFootprintTTL` (`--ledgers N`, cost estimate first) |
 | `contract build` | Build a Soroban contract with build provenance metadata |
 | `contract inspect` | Inspect deployed contract or local WASM metadata |
 | `contract generate-bindings <WASM_FILE>` | Generate Rust or TypeScript wrappers (`--lang rust\|ts`) |
 | `inspect storage` | Deep storage inspection |
 | `deploy --wasm <FILE>` | Prepare Soroban deployment |
+
+**Invoke restore:** when simulation returns a `restorePreamble`, StarForge can
+prompt (or `--auto-restore`) to submit a `RestoreFootprintOp`, then re-simulate.
+`--json` reports `"restored": true` when a restore ran. See
+[guides/INVOKE.md](guides/INVOKE.md).
+
+**TTL monitoring:** `contract ttl show --warn-below N` exits non-zero when any
+entry has fewer than `N` ledgers remaining — suitable for cron/alert jobs.
 
 **`deploy` flags:** `--network`, `--wallet`, `--optimize`, `--simulate`, `--yes`, `--execute`, `--policy`, `--checklist`, `--skip-smoke`
 

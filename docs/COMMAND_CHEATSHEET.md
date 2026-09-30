@@ -19,65 +19,15 @@ Global options: `--json`, `--quiet`/`-q`, `--log-format`, `--log-dir`, `--correl
 | Command | Description |
 |---|---|
 | `account` | On-chain account lifecycle with sponsored reserves (CAP-33) |
-| `advanced-perf` | Advanced contract performance analysis and profiling tools |
-| `ai` | Local LLM assistant for Soroban contracts (audit, explain, test, optimise, profile) |
-| `ai-accessibility` | AI accessibility features — screen reader, voice commands, text simplification |
-| `ai-audit` | AI-powered security audit for Soroban contracts using Claude |
-| `ai-contract-suggest` | AI contract function suggestions (context-aware suggestions based on contract type) |
-| `ai-debug` | AI-powered contract debugging assistant (error analysis, bug identification, fix suggestions) |
-| `ai-deployment-test` | AI-driven deployment testing commands |
-| `ai-doc-qa` | AI documentation Q&A (answer questions about StarForge, Stellar, and Soroban docs with citations) |
-| `ai-feedback` | AI feedback and learning system (record feedback, track quality, learn preferences) |
-| `ai-ide` | AI-powered IDE integration commands |
-| `ai-navigate` | AI-driven definitions, references, code graphs, dependencies, and contextual search |
-| `ai-plan` | AI project planning assistant — requirements, architecture, timeline, risks |
-| `ai-profile` | AI-driven performance profiling commands |
-| `ai-property-test` | AI property-based testing (discover properties, generate tests, validate invariants) |
-| `ai-quality-gate` | Configurable code quality, security, performance, coverage, docs, and license gates |
-| `ai-recommend` | AI best practice recommendations (analyze contracts, scan projects, improvement plans) |
-| `ai-route` | Intelligent AI model selection and routing based on task complexity and preferences |
-| `ai-search` | AI code search and discovery (search code, find patterns, similar code) |
-| `ai-security-training` | AI-driven security training: lessons, exercises, progress tracking |
-| `ai-telemetry` | AI usage telemetry and analytics: calls, tokens, latency, cost, opt-out |
-| `ai-test` | AI-driven testing assistance (generate, optimize, analyze, maintain tests) |
-| `ai-test-maintain` | AI-driven test maintenance commands |
+| `ai` | AI-assisted development: local assistant, audits, tests, search, planning |
 | `alias` | Manage per-network contract and account aliases |
-| `analytics` | Contract deployment analytics, dashboards, and reporting |
-| `approval` | Approval workflow for contract deployments (multi-level approvals, audit, compliance) |
-| `audit` | Run a comprehensive security audit on a Soroban contract |
-| `backup` | Backup and disaster recovery for contract state and code |
-| `benchmark` | Performance benchmarking utilities and industry-standard comparisons |
-| `collab` | AI-driven collaboration tools: code review, conflict resolution, knowledge sharing, contribution tracking |
-| `complete` | Smart contract completion assistant |
-| `completions` | Generate shell completions for bash, zsh, and fish |
-| `config` | Manage starforge configuration (telemetry, network) |
-| `contract` | Contract operations (invoke, inspect, etc.) |
-| `contract-monitor` | Contract health monitoring, performance tracking, security events, alerting, and dashboard |
-| `cost` | AI-assisted deployment cost management: budgets, forecasting, cross-network comparison, and reporting |
-| `debug` | Debug Soroban contracts with breakpoints, stepping, and inspection |
-| `deploy` | Deploy a compiled Soroban contract (.wasm) |
-| `deployments` | Deployment history, rollback, verification, and dashboard |
-| `diagnostics` | Run connectivity diagnostics for attached Ledger/Trezor devices |
-| `docs` | Contract documentation portal (generate, view, search) |
-| `explain` | Analyze and explain smart contract code using AI |
-| `gas` | Gas analysis and optimization helpers |
-| `generate` | Generate smart contracts from natural language prompts |
-| `governance` | Contract upgrade governance (proposals, voting, timelock, audit) |
-| `info` | Show starforge config and environment info |
-| `inspect` | Deep contract storage inspection (state, key, storage) |
-| `lint` | Static analysis and linting for Soroban contracts |
-| `migrate` | Contract storage migration tools (transform, validate, rollback) |
-| `monitor` | Live monitoring (contract events or wallet threshold) |
-| `multisig` | Manage multi-signature transactions |
-| `mutate` | AI mutation testing for Soroban contracts |
-| `network` | View or switch the active network (testnet/mainnet) |
-| `new` | Generate Soroban project boilerplate |
-| `nl` | Natural language command interface |
-| `node` | Local Soroban devnet (Docker quickstart) |
-| `optimize` | Analyse and optimize compiled WASM / Rust contract source for gas and size |
-| `orchestrate` | Multi-contract deployment orchestration |
-| `perf` | Contract performance monitoring and metrics dashboard |
-| `pipeline` | Visual pipeline builder for contract deployment workflows |
+| `asset` | Classic Stellar assets: SAC contract id lookup and wrap/deploy |
+| `completions` | Generate shell completions for bash, zsh, fish, and powershell |
+| `config` | Manage starforge configuration, telemetry, feature flags, and privacy |
+| `contract` | Contract operations (invoke, build, test, audit, upgrade, inspect, monitor, ttl) |
+| `deploy` | Deploy a compiled Soroban contract and manage the deployment lifecycle |
+| `dev` | Watch contract sources and rebuild/redeploy on save |
+| `network` | View or switch the active network, run a local node, simulate, snapshot |
 | `plugin` | Manage third-party plugins |
 | `project` | Project scaffolding and AI-driven project management |
 | `template` | Manage community contract templates, versions, and the registry |
@@ -143,6 +93,7 @@ Global options: `--json`, `--quiet`/`-q`, `--log-format`, `--log-dir`, `--correl
 | `mutate` | AI mutation testing |
 | `monitor` | Live contract event or wallet-threshold monitoring |
 | `health` | Contract health monitoring and alerting |
+| `ttl show|extend` | Inspect and extend ledger-entry TTLs (--warn-below, --ledgers) |
 
 ## `deploy` subcommands
 
@@ -170,56 +121,6 @@ Global options: `--json`, `--quiet`/`-q`, `--log-format`, `--log-dir`, `--correl
 | `node` | Local Soroban devnet (Docker quickstart) |
 | `simulate` | Local network simulation and testing |
 | `snapshot` | Deterministic live-ledger snapshots |
-
-## `template` subcommands
-
-| Subcommand | Description |
-|---|---|
-| `list` | List marketplace templates |
-| `search <QUERY>` | Search templates |
-| `show <ID>` | Template details |
-| `init <ID> <DIR>` | Scaffold from template |
-| `publish` | Publish template metadata |
-| `remove <ID>` | Remove local template entry |
-| `vcs` | Template version control (branch, changelog) |
-| `registry` | Interact with the remote template registry |
-
-## `plugin` subcommands
-
-| Subcommand | Description |
-|---|---|
-| `install` | Install a third-party plugin |
-| `list` | List installed plugins |
-| `verify` | Verify a plugin signature |
-| `audit` | Audit a plugin |
-
-## `ai` subcommands
-
-| Subcommand | Description |
-|---|---|
-| `local <status\|models\|pull\|ask\|…>` | Local LLM assistant (Ollama) |
-| `debug` | Error analysis and fix suggestions |
-| `navigate` | Definitions, references, code graphs |
-| `gate` | Code quality, security, coverage, license gates |
-| `security-audit` | AI security audit of a contract |
-| `tests` | Generate, optimize, and analyze tests |
-| `test-maintain` | Keep the test suite healthy |
-| `deploy-test` | AI-driven deployment testing |
-| `property-test` | Discover properties, validate invariants |
-| `search` | Code search and pattern discovery |
-| `recommend` | Best practice recommendations |
-| `route` | Model selection and routing |
-| `plan` | Requirements, architecture, timeline, risks |
-| `suggest` | Context-aware contract function suggestions |
-| `docs` | Documentation Q&A with citations |
-| `profiling` | Performance profiling |
-| `feedback` | Record feedback, track quality |
-| `telemetry` | AI usage telemetry and cost |
-| `training` | Security training lessons and progress |
-| `accessibility` | Screen reader, voice, text simplification |
-| `ide` | Editor snippets and task providers |
-| `prompts` | Prompt templates and versioning |
-| `help` | Contextual help for commands and workflows |
 
 ## `config` subcommands
 

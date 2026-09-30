@@ -244,8 +244,8 @@ async fn run() {
     // subcommand): record it so every command handler can short-circuit its
     // mutations behind a shared plan. Detection also scans the raw arguments
     // so it does not depend on where clap attached the global value.
-    let dry_run_requested = cli.dry_run
-        || std::env::args_os().any(|arg| arg.to_str() == Some("--dry-run"));
+    let dry_run_requested =
+        cli.dry_run || std::env::args_os().any(|arg| arg.to_str() == Some("--dry-run"));
     utils::dry_run::set_enabled(dry_run_requested);
     if utils::output::is_plain_mode_enabled() {
         // Global override: neutralizes every `colored` call in the codebase,

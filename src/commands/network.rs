@@ -1,8 +1,7 @@
 use crate::utils::{
     config,
     dry_run::{self, DryRunPlan, PlannedOperation},
-    output,
-    print as p,
+    output, print as p,
 };
 use anyhow::Result;
 use clap::Subcommand;

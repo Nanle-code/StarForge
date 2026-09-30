@@ -4,6 +4,7 @@
 templates, encrypted wallets and deployment safety checks for Stellar.**
 
 [![CI](https://github.com/Nanle-code/StarForge/actions/workflows/ci.yml/badge.svg)](https://github.com/Nanle-code/StarForge/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/Nanle-code/StarForge/branch/master/graph/badge.svg)](https://codecov.io/gh/Nanle-code/StarForge)
 ![License: MIT](https://img.shields.io/badge/License-MIT-cyan.svg)
 ![Status: beta](https://img.shields.io/badge/status-beta-yellow.svg)
 ![Stellar Wave](https://img.shields.io/badge/Stellar-Wave%20Program-blueviolet.svg)
