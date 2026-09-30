@@ -142,6 +142,7 @@ async-trait = "0.1"
 futures = "0.3.33"
 ratatui = { version = "0.30", optional = true }
 crossterm = { version = "0.29", optional = true }
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-serde_json-1"] }
 
 [features]
 ai = []
@@ -182,4 +183,3 @@ clap = { version = "4.4", features = ["derive"] }
 clap_complete = "4.4"
 # Pinned: clap_mangen 0.2.31+ requires clap 4.5 APIs not guaranteed on MSRV 1.80.
 clap_mangen = "=0.2.30"
-tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-serde_json-1"] }
