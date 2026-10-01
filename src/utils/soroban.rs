@@ -14,8 +14,13 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use stellar_strkey::{ed25519, Contract};
 use stellar_xdr::curr::{
-    AccountId, ContractDataDurability, ContractExecutable, Hash, LedgerEntryData, LedgerKey,
-    LedgerKeyContractData, PublicKey, ScAddress, ScMap, ScString, ScSymbol, ScVal, Uint256,
+    AccountId, ContractDataDurability, ContractExecutable, DecoratedSignature, ExtensionPoint,
+    Hash, HostFunction, InvokeContractArgs, InvokeHostFunctionOp, LedgerEntryData, LedgerKey,
+    LedgerKeyContractData, Limits, Memo, MuxedAccount, Operation, OperationBody, Preconditions,
+    PublicKey, ScAddress, ScMap, ScString, ScSymbol, ScVal, SequenceNumber, Signature,
+    SignatureHint, SorobanAuthorizationEntry, SorobanResources, SorobanTransactionData,
+    Transaction, TransactionEnvelope, TransactionExt, TransactionSignaturePayload,
+    TransactionSignaturePayloadTaggedTransaction, TransactionV1Envelope, Uint256, VecM, WriteXdr,
 };
 
 fn build_http_client(timeout: Duration) -> Result<Client> {
@@ -99,6 +104,9 @@ pub struct SimulationResult {
     #[serde(default)]
     pub resources: Option<SimulationResources>,
     #[serde(default)]
+    pub authorization: Option<crate::utils::soroban_auth::AuthEntryBundle>,
+    #[serde(default)]
+    pub transaction_data: Option<String>,
     pub auth: Vec<AuthNode>,
 }
 
@@ -223,135 +231,29 @@ pub async fn invoke_contract(
     network: &str,
     wallet: Option<&WalletEntry>,
     signing: Option<&SigningRequest>,
+    auth_signers: &[String],
+    auth_export: Option<&std::path::Path>,
+    auth_import: Option<&std::path::Path>,
 ) -> Result<InvokeOutcome> {
-    invoke_contract_with_options(
+    let source_wallet = match wallet {
+        Some(wallet) => wallet.clone(),
+        None => config::load()?
+            .wallets
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("Simulation needs a source wallet; add one with `starforge wallet create`"))?,
+    };
+    let mut simulation = simulate_transaction_from(
         contract_id,
         function,
         args,
         arg_types,
         network,
-        wallet,
-        signing,
-        InvokeOptions {
-            submit: wallet.is_some(),
-            ..InvokeOptions::default()
-        },
+        &source_wallet,
     )
-    .await
-}
-
-pub async fn invoke_contract_with_options(
-    contract_id: &str,
-    function: &str,
-    args: &[String],
-    arg_types: &[String],
-    network: &str,
-    wallet: Option<&WalletEntry>,
-    signing: Option<&SigningRequest>,
-    options: InvokeOptions,
-) -> Result<InvokeOutcome> {
-    let mut simulation =
-        simulate_transaction(contract_id, function, args, arg_types, network).await?;
-    let mut restored = false;
-    let mut restore_fee_stroops = None;
-    let mut restore_tx_hash = None;
-
-    if let Some(resources) = simulation.resources.as_ref() {
-        if resources.requires_restore() {
-            restore_fee_stroops = resources.restore_fee_stroops;
-            let tx_data = resources.restore_transaction_data.clone();
-            let fee = resources.restore_fee_stroops.unwrap_or(0);
-
-            match options.restore {
-                RestoreMode::Never => {}
-                RestoreMode::Prompt | RestoreMode::Auto => {
-                    let wallet = wallet.ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "Simulation requires restoring archived ledger entries \
-                             (restore fee ~{fee} stroops). Provide a wallet and \
-                             --auto-restore / confirm to restore, then re-invoke."
-                        )
-                    })?;
-                    let signing = signing.ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "A signing configuration is required to submit the restore transaction."
-                        )
-                    })?;
-                    let tx_data = tx_data.ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "restorePreamble is missing transactionData; cannot build RestoreFootprintOp."
-                        )
-                    })?;
-
-                    let should_restore = match options.restore {
-                        RestoreMode::Auto => true,
-                        RestoreMode::Never => false,
-                        RestoreMode::Prompt => {
-                            if options.yes {
-                                true
-                            } else {
-                                use crate::utils::confirmation::{
-                                    confirm_operation, ConfirmationConfig, OperationSummary,
-                                    RiskLevel,
-                                };
-                                let summary = OperationSummary::new(
-                                    "Restore Archived Ledger Entries".to_string(),
-                                    network.to_string(),
-                                    if network == "mainnet" {
-                                        RiskLevel::High
-                                    } else {
-                                        RiskLevel::Medium
-                                    },
-                                )
-                                .add("Contract ID", contract_id)
-                                .add(
-                                    "Restore fee",
-                                    format!("{fee} stroops ({:.7} XLM)", fee as f64 / 10_000_000.0),
-                                );
-                                let cfg = ConfirmationConfig {
-                                    risk_level: if network == "mainnet" {
-                                        RiskLevel::High
-                                    } else {
-                                        RiskLevel::Medium
-                                    },
-                                    network: network.to_string(),
-                                    skip_confirm: false,
-                                    dry_run: false,
-                                    prompt: Some(
-                                        "Submit restore transaction before invoke?".to_string(),
-                                    ),
-                                    require_type_confirmation: network == "mainnet",
-                                    ..Default::default()
-                                };
-                                confirm_operation(&summary, &cfg)?
-                            }
-                        }
-                    };
-
-                    if !should_restore {
-                        anyhow::bail!("Restore cancelled; invoke aborted.");
-                    }
-
-                    let hash = crate::utils::contract_ttl::restore_from_preamble(
-                        network, wallet, signing, &tx_data, fee,
-                    )
-                    .await?;
-                    restored = true;
-                    restore_tx_hash = Some(hash);
-
-                    simulation =
-                        simulate_transaction(contract_id, function, args, arg_types, network)
-                            .await?;
-                }
-            }
-        }
-    }
-
-    let transaction = if options.submit {
-        let w = wallet.ok_or_else(|| {
-            anyhow::anyhow!("submit requested but no wallet was provided for signing")
-        })?;
-        Some(
+    .await?;
+    let transaction = match wallet {
+        Some(w) => Some(
             submit_transaction(
                 contract_id,
                 function,
@@ -383,18 +285,48 @@ pub async fn simulate_transaction(
     arg_types: &[String],
     network: &str,
 ) -> Result<SimulationResult> {
+    let wallet = config::load()?
+        .wallets
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("Simulation needs a source wallet; add one with `starforge wallet create`"))?;
+    simulate_transaction_from(contract_id, function, args, arg_types, network, &wallet).await
+}
+
+async fn simulate_transaction_from(
+    contract_id: &str,
+    function: &str,
+    args: &[String],
+    arg_types: &[String],
+    network: &str,
+    source: &WalletEntry,
+) -> Result<SimulationResult> {
     let rpc_url = get_rpc_url(network)?;
-
-    // Convert arguments to XDR ScVal format
     let xdr_args = encode_arguments(args, arg_types)?;
+    let account = crate::utils::horizon::fetch_account(&source.public_key, network).await?;
+    let sequence = account
+        .sequence
+        .parse::<i64>()
+        .context("Horizon returned an invalid source account sequence")?
+        .checked_add(1)
+        .context("Source account sequence overflow")?;
+    let transaction = build_invoke_envelope_xdr(
+        contract_id,
+        function,
+        &xdr_args,
+        source,
+        sequence,
+        100,
+        TransactionExt::V0,
+        &[],
+    )?;
 
-    // Build the simulation request
     let request = SorobanRpcRequest {
         jsonrpc: "2.0".to_string(),
         id: 1,
         method: "simulateTransaction".to_string(),
         params: serde_json::json!({
-            "transaction": build_transaction_xdr(contract_id, function, &xdr_args)?,
+            "transaction": transaction,
         }),
     };
 
@@ -404,7 +336,7 @@ pub async fn simulate_transaction(
         .context("Simulation request failed")?;
 
     // Parse the simulation result (resources, fee, events, errors).
-    build_simulation_result(&result)
+    build_simulation_result(&result, network)
 }
 
 /// Runs `simulateTransaction` against an envelope exactly as supplied.
@@ -448,7 +380,7 @@ pub async fn simulate_deploy_transaction(
         .await
         .context("Deploy simulation request failed")?;
 
-    build_simulation_result(&result)
+    build_simulation_result(&result, network)
 }
 
 pub async fn submit_transaction(
@@ -464,7 +396,6 @@ pub async fn submit_transaction(
     crate::utils::network_guard::verify(network).await?;
     let rpc_url = get_rpc_url(network)?;
 
-    // Convert arguments to XDR ScVal format
     let xdr_args = encode_arguments(args, arg_types)?;
 
     // Build and sign the transaction
@@ -907,7 +838,7 @@ fn extract_fee(resources: Option<&SimulationResources>) -> u64 {
 }
 
 /// Assemble a [`SimulationResult`] from a raw RPC response.
-fn build_simulation_result(result: &serde_json::Value) -> Result<SimulationResult> {
+fn build_simulation_result(result: &serde_json::Value, network: &str) -> Result<SimulationResult> {
     let mut errors = extract_simulation_errors(result);
 
     let resources = match extract_resources(result) {
@@ -1421,7 +1352,7 @@ mod tests {
             serde_json::from_str(&fixture).expect("failed to deserialize simulate_success.json");
         let result = response.result.expect("missing result in response");
 
-        let simulation = build_simulation_result(&result).unwrap();
+        let simulation = build_simulation_result(&result, "testnet").unwrap();
 
         assert_eq!(simulation.fee, 58_181);
         let resources = simulation.resources.as_ref().expect("resources parsed");
@@ -1444,7 +1375,7 @@ mod tests {
         // A response from a non-Soroban endpoint: no minResourceFee, no
         // transactionData. The fee must fall back rather than be invented.
         let result = serde_json::json!({ "returnValue": "ok", "events": [] });
-        let simulation = build_simulation_result(&result).unwrap();
+        let simulation = build_simulation_result(&result, "testnet").unwrap();
 
         assert_eq!(simulation.fee, FALLBACK_FEE_STROOPS);
         assert!(simulation.resources.is_none());
@@ -1460,7 +1391,7 @@ mod tests {
             "error": "HostError: Error(Budget, ExceededLimit)",
             "events": [],
         });
-        let simulation = build_simulation_result(&result).unwrap();
+        let simulation = build_simulation_result(&result, "testnet").unwrap();
 
         assert!(simulation.resources.is_none());
         assert!(simulation.fee_plan(20).is_none());

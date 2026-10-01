@@ -829,12 +829,75 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
     if args.simulate {
         p::info("Simulating deploy transaction via Soroban RPC...");
         match soroban::simulate_deploy_transaction(&wasm_hash, &args.network, wallet).await {
-            Ok(simulation) => {
+            Ok(mut simulation) => {
                 p::kv(
                     "Minimum Resource Fee",
                     &format!("{} stroops", simulation.fee),
                 );
                 report_simulation_resources(&simulation, "");
+
+                // Handle Soroban authorization entries if present
+                if let Some(mut bundle) = simulation.authorization.take() {
+                    if !args.auth_signers.is_empty()
+                        || args.hardware.is_some()
+                        || args.auth_import.is_some()
+                    {
+                        let cfg = config::load()?;
+                        let signing_request = wallet_signer::SigningRequest::from_options(
+                            Some(wallet),
+                            args.hardware,
+                            Some(&args.hd_path),
+                            &args.network,
+                            args.yes,
+                            "contract deployment",
+                        )?;
+
+                        if let Some(input) = &args.auth_import {
+                            crate::utils::soroban_auth::import_signatures(&mut bundle, input)?;
+                        }
+
+                        if !args.auth_signers.is_empty() || args.hardware.is_some() {
+                            crate::utils::soroban_auth::sign_bundle_with_wallets(
+                                &mut bundle,
+                                &cfg.wallets,
+                                &args.auth_signers,
+                                signing_request.hardware,
+                                &args.hd_path,
+                            )?;
+                        }
+
+                        if let Some(output) = &args.auth_export {
+                            crate::utils::soroban_auth::export_bundle(&bundle, output)?;
+                            if bundle.entries.iter().any(|entry| entry.signature.is_none()) {
+                                anyhow::bail!(
+                                    "Authorization entries exported to {}; collect remote signatures, then retry with --auth-import",
+                                    output.display()
+                                );
+                            }
+                        }
+
+                        if let Some(missing) = bundle
+                            .entries
+                            .iter()
+                            .find(|entry| entry.signature.is_none())
+                        {
+                            anyhow::bail!(
+                                "Missing Soroban authorization signer for address {}. Add its wallet with --auth-signer <wallet>, or import a signed bundle with --auth-import <path>.",
+                                missing.address
+                            );
+                        }
+
+                        p::kv(
+                            "Authorization entries",
+                            &format!("{} signed", bundle.entries.len()),
+                        );
+                    }
+                } else if args.auth_import.is_some() || args.auth_export.is_some() || !args.auth_signers.is_empty() {
+                    anyhow::bail!(
+                        "No Soroban address authorization entries were returned by simulation"
+                    );
+                }
+
                 if !simulation.errors.is_empty() {
                     for error in &simulation.errors {
                         p::warn(&format!("Simulation error: {}", error));
@@ -936,6 +999,70 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
     }
 
     if args.execute {
+        // Handle Soroban authorization entries for deployment
+        if !args.auth_signers.is_empty() || args.auth_import.is_some() || args.auth_export.is_some() {
+            p::info("Checking for Soroban authorization requirements...");
+            match soroban::simulate_deploy_transaction(&wasm_hash, &args.network, wallet).await {
+                Ok(mut simulation) => {
+                    if let Some(mut bundle) = simulation.authorization.take() {
+                        let cfg = config::load()?;
+                        let signing_request = wallet_signer::SigningRequest::from_options(
+                            Some(wallet),
+                            args.hardware,
+                            Some(&args.hd_path),
+                            &args.network,
+                            args.yes,
+                            "contract deployment",
+                        )?;
+
+                        if let Some(input) = &args.auth_import {
+                            crate::utils::soroban_auth::import_signatures(&mut bundle, input)?;
+                        }
+
+                        if !args.auth_signers.is_empty() || args.hardware.is_some() {
+                            crate::utils::soroban_auth::sign_bundle_with_wallets(
+                                &mut bundle,
+                                &cfg.wallets,
+                                &args.auth_signers,
+                                signing_request.hardware,
+                                &args.hd_path,
+                            )?;
+                        }
+
+                        if let Some(output) = &args.auth_export {
+                            crate::utils::soroban_auth::export_bundle(&bundle, output)?;
+                            if bundle.entries.iter().any(|entry| entry.signature.is_none()) {
+                                anyhow::bail!(
+                                    "Authorization entries exported to {}; collect remote signatures, then retry with --auth-import",
+                                    output.display()
+                                );
+                            }
+                        }
+
+                        if let Some(missing) = bundle
+                            .entries
+                            .iter()
+                            .find(|entry| entry.signature.is_none())
+                        {
+                            anyhow::bail!(
+                                "Missing Soroban authorization signer for address {}. Add its wallet with --auth-signer <wallet>, or import a signed bundle with --auth-import <path>.",
+                                missing.address
+                            );
+                        }
+
+                        p::success(&format!("Signed {} authorization entries", bundle.entries.len()));
+                    } else {
+                        anyhow::bail!(
+                            "No Soroban address authorization entries were returned by simulation"
+                        );
+                    }
+                }
+                Err(error) => {
+                    anyhow::bail!("Failed to simulate deployment for authorization: {}", error);
+                }
+            }
+        }
+
         if let Some(device) = args.hardware {
             let signing_request = wallet_signer::SigningRequest::from_options(
                 Some(wallet),
