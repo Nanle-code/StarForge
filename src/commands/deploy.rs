@@ -1,6 +1,6 @@
 use crate::commands::analytics as analytics_cmds;
 use crate::utils::{
-    config, confirmation,
+    config, confirmation, deploy_checklist,
     deploy_history::{
         self, last_successful, record_deployment, set_contract_id, set_duration, update_status,
         DeployRecord, DeployStatus,
@@ -92,6 +92,18 @@ pub struct DeployArgs {
     /// after a successful `--execute` deploy
     #[arg(long)]
     pub skip_smoke: bool,
+    /// Acknowledge and proceed despite failed required mainnet checklist checks
+    #[arg(long)]
+    pub override_checklist: bool,
+}
+
+fn load_deployment_checklist_config() -> Result<deploy_checklist::DeploymentChecklistConfig> {
+    let start = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let config = project_config::find_and_load_project_lockfile(&start)?
+        .and_then(|(_, lockfile)| lockfile.deployment_checklist)
+        .unwrap_or_default();
+    config.validate()?;
+    Ok(config)
 }
 
 /// Smoke tests declared in the discovered project manifest, plus the
@@ -820,6 +832,23 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
         p::separator();
     }
 
+    if args.network.eq_ignore_ascii_case("mainnet") && args.execute {
+        let checklist_config = load_deployment_checklist_config()?;
+        let report = deploy_checklist::run(
+            &wasm_path,
+            &args.network,
+            wallet,
+            args.hardware,
+            &checklist_config,
+        )
+        .await?;
+        crate::commands::deploy_checklist::print_report(&report);
+        if !report.passed && args.override_checklist {
+            p::warn("Required checklist failures explicitly overridden with --override-checklist.");
+        }
+        deploy_checklist::enforce_mainnet_gate(&args.network, &report, args.override_checklist)?;
+    }
+
     // Enforce organization deploy policy when configured
     if let (Some(path), Some(policy)) = (&policy_path, &org_deploy_policy) {
         // CLI-provided checklist items take precedence; auto-derived items
@@ -1104,11 +1133,13 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
             if args.print_only {
                 "Stellar CLI command (--print-only):".bright_white()
             } else {
-                "Ready! Native deploy with --execute, or --print-only for stellar CLI:".bright_white()
+                "Ready! Native deploy with --execute, or --print-only for stellar CLI:"
+                    .bright_white()
             }
         );
         println!();
-        let deploy_cmd = build_stellar_deploy_command(&wasm_path, &wallet.public_key, &args.network);
+        let deploy_cmd =
+            build_stellar_deploy_command(&wasm_path, &wallet.public_key, &args.network);
         for line in deploy_cmd.lines() {
             println!("  {}", line.cyan());
         }

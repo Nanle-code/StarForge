@@ -557,10 +557,7 @@ pub async fn submit_signed_envelope(
     submit_signed_xdr(signed_xdr, network).await
 }
 
-async fn submit_signed_xdr(
-    signed_xdr: &str,
-    network: &str,
-) -> Result<TransactionSubmitResult> {
+async fn submit_signed_xdr(signed_xdr: &str, network: &str) -> Result<TransactionSubmitResult> {
     let horizon = horizon_url(network)?;
     let url = format!("{}/transactions", horizon);
     let form_data = [("tx", urlencoding::encode(signed_xdr))];
@@ -661,10 +658,7 @@ pub async fn submit_multisig_transaction(
 /// Unlike [`submit_payment_with_signing`] this performs no signing, so the
 /// caller owns the bytes on the wire — the contract `tx submit` needs to stay
 /// composable with `tx encode | tx sign`.
-pub async fn submit_envelope(
-    envelope_xdr: &str,
-    network: &str,
-) -> Result<EnvelopeSubmitOutcome> {
+pub async fn submit_envelope(envelope_xdr: &str, network: &str) -> Result<EnvelopeSubmitOutcome> {
     let horizon = horizon_url(network)?;
     let url = format!("{}/transactions", horizon);
     let form_data = [("tx", urlencoding::encode(envelope_xdr))];

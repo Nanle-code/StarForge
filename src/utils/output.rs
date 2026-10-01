@@ -97,10 +97,7 @@ pub fn print_json<T: Serialize>(value: &T) -> Result<()> {
     Ok(())
 }
 
-fn error_json_envelope(
-    code: crate::utils::errors::ErrorCode,
-    message: &str,
-) -> JsonEnvelope<()> {
+fn error_json_envelope(code: crate::utils::errors::ErrorCode, message: &str) -> JsonEnvelope<()> {
     let explanation: crate::utils::errors::ErrorExplanation = code.into();
     JsonEnvelope::<()> {
         version: 1,
@@ -139,7 +136,10 @@ mod tests {
         assert_eq!(value["error"]["code"], "SF1203");
         assert!(value["error"]["cause"].is_string());
         assert!(value["error"]["fix"].is_string());
-        assert!(value["error"]["docs"].as_str().unwrap().contains("ERRORS.md#sf1203"));
+        assert!(value["error"]["docs"]
+            .as_str()
+            .unwrap()
+            .contains("ERRORS.md#sf1203"));
         assert_eq!(value["error"]["exit_code"], 6);
     }
 

@@ -97,6 +97,7 @@ Global options: `--json`, `--quiet`/`-q`, `--log-format`, `--log-dir`, `--correl
 | `mutate` | AI mutation testing |
 | `monitor` | Live contract event or wallet-threshold monitoring |
 | `health` | Contract health monitoring and alerting |
+| `ttl show|extend` | Inspect and extend ledger-entry TTLs (--warn-below, --ledgers) |
 
 ## `deploy` subcommands
 

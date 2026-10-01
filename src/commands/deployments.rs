@@ -1,6 +1,5 @@
 use crate::utils::deploy_history::{
-    annotation, annotations, get_record, last_successful, load_history, set_verified,
-    DeployStatus,
+    annotation, annotations, get_record, last_successful, load_history, set_verified, DeployStatus,
 };
 use crate::utils::deployment_monitor;
 use crate::utils::deployment_monitoring_service::{

@@ -1,4 +1,5 @@
 use crate::commands::invoke_script;
+use crate::utils::config::WalletEntry;
 use crate::utils::hardware_wallet::HardwareWalletKind;
 use crate::utils::{bindings, call_graph, config, print as p, soroban, wallet_signer};
 use anyhow::Result;
@@ -112,6 +113,69 @@ pub enum ContractCommands {
     /// Contract health monitoring and alerting
     #[command(subcommand)]
     Health(crate::commands::contract_monitor::ContractMonitorCommands),
+    /// Inspect and extend ledger-entry TTLs (instance, code, persistent)
+    #[command(subcommand)]
+    Ttl(TtlCommands),
+}
+
+#[derive(Subcommand)]
+pub enum TtlCommands {
+    /// List instance/code/persistent entries with live-until ledger and ETA
+    Show(TtlShowArgs),
+    /// Build (and optionally submit) an ExtendFootprintTTL operation
+    Extend(TtlExtendArgs),
+}
+
+#[derive(Args)]
+pub struct TtlShowArgs {
+    /// Contract ID whose ledger entries to inspect
+    pub contract_id: String,
+    /// Ledger-key selectors (`instance`, `code`, `symbol:NAME`, or base64 LedgerKey XDR).
+    /// Repeatable. Defaults to instance + code.
+    #[arg(long = "key")]
+    pub keys: Vec<String>,
+    /// Network to query
+    #[arg(long, default_value = "testnet")]
+    pub network: String,
+    /// Exit non-zero when any entry has fewer than N ledgers remaining (cron/monitor)
+    #[arg(long = "warn-below")]
+    pub warn_below: Option<u32>,
+    /// Emit JSON
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args)]
+pub struct TtlExtendArgs {
+    /// Contract ID whose ledger entries to extend
+    pub contract_id: String,
+    /// Target TTL floor in ledgers from now (`extendTo`)
+    #[arg(long)]
+    pub ledgers: u32,
+    /// Ledger-key selectors (`instance`, `code`, `symbol:NAME`, or base64 LedgerKey XDR)
+    #[arg(long = "key")]
+    pub keys: Vec<String>,
+    /// Network to use
+    #[arg(long, default_value = "testnet")]
+    pub network: String,
+    /// Wallet used to sign the extend transaction
+    #[arg(long)]
+    pub wallet: Option<String>,
+    /// Submit after showing the cost estimate (default: simulate only)
+    #[arg(long)]
+    pub submit: bool,
+    /// Skip confirmation of the extend cost
+    #[arg(long)]
+    pub yes: bool,
+    /// Emit JSON
+    #[arg(long)]
+    pub json: bool,
+    /// Sign with a hardware wallet instead of a local secret key
+    #[arg(long, value_enum)]
+    pub hardware: Option<HardwareWalletKind>,
+    /// HD derivation path for hardware wallet signing
+    #[arg(long, default_value = crate::utils::hardware_wallet::STELLAR_HD_PATH)]
+    pub hd_path: String,
 }
 
 #[derive(Args)]
@@ -294,15 +358,24 @@ pub struct InvokeArgs {
     /// Argument types (use multiple --type flags, must match --arg count)
     #[arg(long = "type", action = clap::ArgAction::Append)]
     pub types: Vec<String>,
-    /// Network to use
-    #[arg(long, default_value = "testnet", value_parser = ["testnet", "mainnet"])]
+    /// Network to use (testnet, mainnet, docker-testnet, or a configured custom network)
+    #[arg(long, default_value = "testnet")]
     pub network: String,
-    /// Wallet name to use for signing (required with --submit)
+    /// Wallet name to use for signing (required with --submit or restore)
     #[arg(long)]
     pub wallet: Option<String>,
     /// Submit the transaction after simulation
     #[arg(long, default_value = "false")]
     pub submit: bool,
+    /// Automatically restore archived ledger entries when simulation returns a restorePreamble
+    #[arg(long, default_value = "false")]
+    pub auto_restore: bool,
+    /// Skip interactive confirmation prompts (scripted mode; also skips restore prompts)
+    #[arg(long, default_value = "false")]
+    pub yes: bool,
+    /// Emit machine-readable JSON (includes `restored` when a restore ran)
+    #[arg(long, default_value = "false")]
+    pub json: bool,
     /// Sign with a hardware wallet instead of a local secret key
     #[arg(long, value_enum)]
     pub hardware: Option<HardwareWalletKind>,
@@ -435,6 +508,7 @@ pub async fn handle(cmd: ContractCommands) -> Result<()> {
         ContractCommands::Mutate(cmd) => crate::commands::mutate::handle(cmd).await,
         ContractCommands::Monitor { args } => crate::commands::monitor::handle(args).await,
         ContractCommands::Health(cmd) => crate::commands::contract_monitor::handle(cmd).await,
+        ContractCommands::Ttl(cmd) => handle_ttl(cmd).await,
     }
 }
 
@@ -812,15 +886,29 @@ fn handle_build(args: BuildArgs) -> Result<()> {
     Ok(())
 }
 
-fn fetch_contract_spec(contract_id: &str, network: &str) -> Result<crate::utils::bindings::ContractMetadata> {
+fn fetch_contract_spec(
+    contract_id: &str,
+    network: &str,
+) -> Result<crate::utils::bindings::ContractMetadata> {
     let output = std::process::Command::new("stellar")
-        .args(["contract", "fetch", "--id", contract_id, "--network", network])
+        .args([
+            "contract",
+            "fetch",
+            "--id",
+            contract_id,
+            "--network",
+            network,
+        ])
         .output()?;
-    
+
     if !output.status.success() {
-        anyhow::bail!("Failed to fetch contract WASM for {}: {}", contract_id, String::from_utf8_lossy(&output.stderr));
+        anyhow::bail!(
+            "Failed to fetch contract WASM for {}: {}",
+            contract_id,
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
-    
+
     let entries = crate::utils::bindings::read_spec_entries(&output.stdout)?;
     Ok(crate::utils::bindings::parse_spec_entries(&entries))
 }
@@ -839,25 +927,38 @@ async fn handle_invoke(args: InvokeArgs) -> Result<()> {
     config::validate_network(&args.network)?;
 
     let function_name = args.function.clone().unwrap_or_default();
-    let wants_contract_help = function_name.is_empty() || function_name == "--help" || function_name == "-h";
-    let wants_func_help = args.slop.contains(&"--help".to_string()) || args.slop.contains(&"-h".to_string());
+    let wants_contract_help =
+        function_name.is_empty() || function_name == "--help" || function_name == "-h";
+    let wants_func_help =
+        args.slop.contains(&"--help".to_string()) || args.slop.contains(&"-h".to_string());
 
     let metadata = fetch_contract_spec(&args.contract_id, &args.network)?;
 
     if wants_contract_help {
         println!("Available functions for contract {}:\n", args.contract_id);
         for f in &metadata.functions {
-            let inputs = f.inputs.iter().map(|i| format!("{}: {}", i.name, i.type_name)).collect::<Vec<_>>().join(", ");
+            let inputs = f
+                .inputs
+                .iter()
+                .map(|i| format!("{}: {}", i.name, i.type_name))
+                .collect::<Vec<_>>()
+                .join(", ");
             println!("  - {} ({})", f.name, inputs);
         }
         return Ok(());
     }
 
-    let func_spec = metadata.functions.iter().find(|f| f.name == function_name)
+    let func_spec = metadata
+        .functions
+        .iter()
+        .find(|f| f.name == function_name)
         .ok_or_else(|| anyhow::anyhow!("Function '{}' not found in contract", function_name))?;
 
     if wants_func_help {
-        println!("Usage: starforge contract invoke {} {} [OPTIONS]\n", args.contract_id, function_name);
+        println!(
+            "Usage: starforge contract invoke {} {} [OPTIONS]\n",
+            args.contract_id, function_name
+        );
         println!("Arguments:");
         for i in &func_spec.inputs {
             println!("  --{} <{}>", i.name, i.type_name);
@@ -871,7 +972,11 @@ async fn handle_invoke(args: InvokeArgs) -> Result<()> {
     if !parsed_types.is_empty() || !parsed_args.is_empty() {
         p::warn("The --type flag is deprecated. Arguments are now typed automatically from the contract spec.");
         if parsed_args.len() != parsed_types.len() && !parsed_types.is_empty() {
-            anyhow::bail!("Argument count mismatch: {} args but {} types specified", parsed_args.len(), parsed_types.len());
+            anyhow::bail!(
+                "Argument count mismatch: {} args but {} types specified",
+                parsed_args.len(),
+                parsed_types.len()
+            );
         }
         if parsed_types.is_empty() {
             parsed_types = vec!["string".to_string(); parsed_args.len()];
@@ -880,19 +985,20 @@ async fn handle_invoke(args: InvokeArgs) -> Result<()> {
         let mut cmd = clap::Command::new(&func_spec.name)
             .no_binary_name(true)
             .ignore_errors(false);
-            
+
         for input in &func_spec.inputs {
             cmd = cmd.arg(
                 clap::Arg::new(&input.name)
                     .long(&input.name)
                     .required(true)
-                    .help(input.type_name.clone())
+                    .help(input.type_name.clone()),
             );
         }
-        
-        let matches = cmd.try_get_matches_from(&args.slop)
+
+        let matches = cmd
+            .try_get_matches_from(&args.slop)
             .map_err(|e| anyhow::anyhow!("Invalid arguments for '{}':\n{}", function_name, e))?;
-            
+
         for input in &func_spec.inputs {
             let val: String = matches.get_one::<String>(&input.name).unwrap().clone();
             parsed_args.push(val);
@@ -917,181 +1023,501 @@ async fn handle_invoke(args: InvokeArgs) -> Result<()> {
         p::kv("Arguments", "none");
     }
 
-    if args.network == "mainnet" {
+    if args.network == "mainnet" && !args.json {
         p::warn("You are invoking on MAINNET. This may cost real XLM if submitted.");
     }
 
-    // Load wallet and signing configuration for submission
-    let (submit_wallet, signing_request) = if args.submit {
+    // Prefer loading a wallet whenever restore or submit may need one. For
+    // plain simulation we still try the default wallet so a restorePreamble
+    // can be handled interactively when keys are available.
+    let (submit_wallet, signing_request) = {
         let cfg = config::load()?;
-        let wallet = if let Some(ref wallet_name) = args.wallet {
-            cfg.wallets
-                .iter()
-                .find(|w| &w.name == wallet_name)
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Wallet '{}' not found. Run `starforge wallet list`",
-                        wallet_name
-                    )
-                })?
-        } else if !cfg.wallets.is_empty() {
-            p::info(&format!(
-                "No --wallet specified. Using: {}",
-                cfg.wallets[0].name.cyan()
-            ));
-            &cfg.wallets[0]
+        let maybe = if let Some(ref wallet_name) = args.wallet {
+            Some(
+                cfg.wallets
+                    .iter()
+                    .find(|w| &w.name == wallet_name)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "Wallet '{}' not found. Run `starforge wallet list`",
+                            wallet_name
+                        )
+                    })?
+                    .clone(),
+            )
+        } else if args.submit || args.auto_restore {
+            if cfg.wallets.is_empty() {
+                anyhow::bail!(
+                    "No wallets found for submission. Create one first:\n  starforge wallet create deployer --fund"
+                );
+            }
+            if !args.json {
+                p::info(&format!(
+                    "No --wallet specified. Using: {}",
+                    cfg.wallets[0].name.cyan()
+                ));
+            }
+            Some(cfg.wallets[0].clone())
         } else {
-            anyhow::bail!(
-                "No wallets found for submission. Create one first:\n  starforge wallet create deployer --fund"
-            );
+            cfg.wallets.first().cloned()
         };
-        p::kv("Wallet", &wallet.name);
-        if wallet.secret_key.is_none() && args.hardware.is_none() {
-            anyhow::bail!(
-                "Wallet '{}' has no local secret key. Use --hardware ledger or --hardware trezor.",
-                wallet.name
-            );
+
+        match maybe {
+            Some(wallet) => {
+                if !args.json && (args.submit || args.auto_restore) {
+                    p::kv("Wallet", &wallet.name);
+                }
+                if (args.submit || args.auto_restore)
+                    && wallet.secret_key.is_none()
+                    && args.hardware.is_none()
+                {
+                    anyhow::bail!(
+                        "Wallet '{}' has no local secret key. Use --hardware ledger or --hardware trezor.",
+                        wallet.name
+                    );
+                }
+                let signing = wallet_signer::SigningRequest::from_options(
+                    Some(&wallet),
+                    args.hardware,
+                    Some(&args.hd_path),
+                    &args.network,
+                    true,
+                    "contract invocation",
+                )?;
+                (Some(wallet), Some(signing))
+            }
+            None => (None, None),
         }
-        let signing = wallet_signer::SigningRequest::from_options(
-            Some(wallet),
-            args.hardware,
-            Some(&args.hd_path),
-            &args.network,
-            true, // skip immediate hardware confirmation, do it after simulation
-            "contract invocation",
-        )?;
-        (Some(wallet.clone()), Some(signing))
-    } else {
-        (None, None)
     };
 
-    p::separator();
+    if !args.json {
+        p::separator();
+        println!();
+        p::step(
+            1,
+            if args.submit { 2 } else { 1 },
+            "Simulating contract invocation…",
+        );
+    }
 
-    // Step 1 (+ optional Step 2): delegate to shared invoke_contract()
-    println!();
-    p::step(
-        1,
-        if args.submit { 2 } else { 1 },
-        "Simulating contract invocation…",
-    );
+    let restore_mode = if args.auto_restore {
+        soroban::RestoreMode::Auto
+    } else if submit_wallet.is_some() {
+        soroban::RestoreMode::Prompt
+    } else {
+        soroban::RestoreMode::Never
+    };
 
-    let outcome = soroban::invoke_contract(
+    let outcome = soroban::invoke_contract_with_options(
         &args.contract_id,
         &function_name,
         &parsed_args,
         &parsed_types,
         &args.network,
-        None,
-        None,
+        submit_wallet.as_ref(),
+        signing_request.as_ref(),
+        soroban::InvokeOptions {
+            restore: restore_mode,
+            yes: args.yes || args.auto_restore || args.json,
+            submit: false,
+        },
     )
     .await?;
 
-    let simulation_result = outcome.simulation;
-    p::kv_accent("Simulation", "✓ Success");
-    p::kv("Return Value", &simulation_result.return_value);
-    p::kv("Fee (stroops)", &simulation_result.fee.to_string());
-    p::kv(
-        "Fee (XLM)",
-        &format!("{:.7}", simulation_result.fee as f64 / 10_000_000.0),
-    );
+    finalize_invoke_after_sim(
+        args,
+        &function_name,
+        &parsed_args,
+        &parsed_types,
+        outcome,
+        submit_wallet,
+        signing_request,
+    )
+    .await
+}
 
-    if !simulation_result.events.is_empty() {
+async fn finalize_invoke_after_sim(
+    args: InvokeArgs,
+    function_name: &str,
+    parsed_args: &[String],
+    parsed_types: &[String],
+    outcome: soroban::InvokeOutcome,
+    submit_wallet: Option<WalletEntry>,
+    signing_request: Option<wallet_signer::SigningRequest>,
+) -> Result<()> {
+    let simulation_result = &outcome.simulation;
+
+    if args.json {
+        let payload = serde_json::json!({
+            "contract_id": args.contract_id,
+            "function": function_name,
+            "network": args.network,
+            "return_value": simulation_result.return_value,
+            "fee_stroops": simulation_result.fee,
+            "restored": outcome.restored,
+            "restore_fee_stroops": outcome.restore_fee_stroops,
+            "restore_tx_hash": outcome.restore_tx_hash,
+            "events": simulation_result.events,
+            "errors": simulation_result.errors,
+            "submitted": false,
+            "tx_hash": serde_json::Value::Null,
+        });
+        if !args.submit {
+            println!("{}", serde_json::to_string_pretty(&payload)?);
+            return Ok(());
+        }
+        // Fall through to submit, then emit final JSON.
+    } else {
+        if outcome.restored {
+            p::success("Restored archived ledger entries before invoke");
+            if let Some(fee) = outcome.restore_fee_stroops {
+                p::kv("Restore fee (stroops)", &fee.to_string());
+            }
+            if let Some(hash) = &outcome.restore_tx_hash {
+                p::kv("Restore TX", hash);
+            }
+        }
+        p::kv_accent("Simulation", "✓ Success");
+        p::kv("Return Value", &simulation_result.return_value);
+        p::kv("Fee (stroops)", &simulation_result.fee.to_string());
         p::kv(
-            "Events",
-            &format!("{} emitted", simulation_result.events.len()),
+            "Fee (XLM)",
+            &format!("{:.7}", simulation_result.fee as f64 / 10_000_000.0),
         );
-        for (i, event) in simulation_result.events.iter().enumerate() {
-            p::kv(&format!("  Event {}", i + 1), event);
+
+        if let Some(resources) = simulation_result.resources.as_ref() {
+            if resources.requires_restore() && !outcome.restored {
+                p::warn(
+                    "Simulation reported archived entries (restorePreamble). \
+                     Re-run with --auto-restore or --submit to restore them first.",
+                );
+            }
+        }
+
+        if !simulation_result.events.is_empty() {
+            p::kv(
+                "Events",
+                &format!("{} emitted", simulation_result.events.len()),
+            );
+            for (i, event) in simulation_result.events.iter().enumerate() {
+                p::kv(&format!("  Event {}", i + 1), event);
+            }
         }
     }
 
     if args.submit {
-        let submit_wallet_ref = submit_wallet.as_ref().unwrap();
-        
+        let submit_wallet_ref = submit_wallet
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("--submit requires a wallet; pass --wallet <name>"))?;
+
         let risk_level = if args.network == "mainnet" {
             crate::utils::confirmation::RiskLevel::High
         } else {
             crate::utils::confirmation::RiskLevel::Medium
         };
 
-        let mut summary = crate::utils::confirmation::OperationSummary::new(
+        if !args.json {
+            let mut summary = crate::utils::confirmation::OperationSummary::new(
+                if args.hardware.is_some() {
+                    "Hardware Wallet — Invoke Contract".to_string()
+                } else {
+                    "Invoke Contract Function".to_string()
+                },
+                args.network.clone(),
+                risk_level,
+            )
+            .add("Contract ID", &args.contract_id)
+            .add("Function", function_name)
+            .add(
+                "Wallet",
+                if args.hardware.is_some() {
+                    format!("{} (Hardware)", submit_wallet_ref.name)
+                } else {
+                    submit_wallet_ref.name.clone()
+                },
+            )
+            .add(
+                "Estimated Fee",
+                format!("{} stroops", simulation_result.fee),
+            )
+            .add("Return Value", &simulation_result.return_value)
+            .with_auth_trees(simulation_result.auth.clone());
+
             if args.hardware.is_some() {
-                "Hardware Wallet — Invoke Contract".to_string()
-            } else {
-                "Invoke Contract Function".to_string()
-            },
-            args.network.clone(),
-            risk_level,
-        )
-        .add("Contract ID", &args.contract_id)
-        .add("Function", &args.function)
-        .add(
-            "Wallet",
-            if args.hardware.is_some() {
-                format!("{} (Hardware)", submit_wallet_ref.name)
-            } else {
-                submit_wallet_ref.name.clone()
-            },
-        )
-        .add(
-            "Estimated Fee",
-            format!("{} stroops", simulation_result.fee),
-        )
-        .add("Return Value", &simulation_result.return_value)
-        .with_auth_trees(simulation_result.auth.clone());
+                summary = summary.add("Next step", "Review and approve on your device screen");
+            }
 
-        if args.hardware.is_some() {
-            summary = summary.add("Next step", "Review and approve on your device screen");
+            let confirm_config = crate::utils::confirmation::ConfirmationConfig {
+                risk_level,
+                network: args.network.clone(),
+                skip_confirm: args.yes,
+                dry_run: false,
+                prompt: if args.hardware.is_some() {
+                    Some("Proceed with hardware wallet signing?".to_string())
+                } else {
+                    Some("Submit this transaction?".to_string())
+                },
+                require_type_confirmation: args.network == "mainnet" && !args.yes,
+                ..Default::default()
+            };
+
+            if !crate::utils::confirmation::confirm_operation(&summary, &confirm_config)? {
+                anyhow::bail!("Transaction submission cancelled.");
+            }
+
+            if let Some(kind) = args.hardware {
+                p::info(&format!(
+                    "Connect your {} and approve the invocation on the device screen.",
+                    kind
+                ));
+            }
+
+            println!();
+            p::step(2, 2, "Submitting transaction…");
         }
 
-        let confirm_config = crate::utils::confirmation::ConfirmationConfig {
-            risk_level,
-            network: args.network.clone(),
-            skip_confirm: false,
-            dry_run: false,
-            prompt: if args.hardware.is_some() {
-                Some("Proceed with hardware wallet signing?".to_string())
-            } else {
-                Some("Submit this transaction?".to_string())
-            },
-            require_type_confirmation: args.network == "mainnet",
-            ..Default::default()
-        };
-
-        if !crate::utils::confirmation::confirm_operation(&summary, &confirm_config)? {
-            anyhow::bail!("Transaction submission cancelled.");
-        }
-
-        if let Some(kind) = args.hardware {
-            p::info(&format!(
-                "Connect your {} and approve the invocation on the device screen.",
-                kind
-            ));
-        }
-
-        println!();
-        p::step(2, 2, "Submitting transaction…");
-        
         let tx_result = soroban::submit_transaction(
             &args.contract_id,
-            &args.function,
-            &args.args,
-            &arg_types,
+            function_name,
+            parsed_args,
+            parsed_types,
             &args.network,
             submit_wallet_ref,
             signing_request.as_ref(),
+            simulation_result.fee,
         )
         .await?;
 
-        p::kv_accent("Transaction", "✓ Submitted");
-        p::kv("TX Hash", &tx_result.hash);
-        p::kv("Return Value", &tx_result.return_value);
-    } else {
+        if args.json {
+            let payload = serde_json::json!({
+                "contract_id": args.contract_id,
+                "function": function_name,
+                "network": args.network,
+                "return_value": tx_result.return_value,
+                "fee_stroops": simulation_result.fee,
+                "restored": outcome.restored,
+                "restore_fee_stroops": outcome.restore_fee_stroops,
+                "restore_tx_hash": outcome.restore_tx_hash,
+                "events": simulation_result.events,
+                "errors": simulation_result.errors,
+                "submitted": true,
+                "tx_hash": tx_result.hash,
+            });
+            println!("{}", serde_json::to_string_pretty(&payload)?);
+        } else {
+            p::kv_accent("Transaction", "✓ Submitted");
+            p::kv("TX Hash", &tx_result.hash);
+            p::kv("Return Value", &tx_result.return_value);
+            p::separator();
+        }
+    } else if !args.json {
         println!();
         p::info("Simulation complete. Add --submit to execute the transaction.");
+        p::separator();
     }
 
-    p::separator();
+    Ok(())
+}
+
+async fn handle_ttl(cmd: TtlCommands) -> Result<()> {
+    match cmd {
+        TtlCommands::Show(args) => handle_ttl_show(args).await,
+        TtlCommands::Extend(args) => handle_ttl_extend(args).await,
+    }
+}
+
+async fn handle_ttl_show(args: TtlShowArgs) -> Result<()> {
+    let report = crate::utils::contract_ttl::show_ttl(
+        &args.contract_id,
+        &args.network,
+        &args.keys,
+        args.warn_below,
+    )
+    .await?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        p::header("Contract TTL");
+        p::kv("Contract", &report.contract_id);
+        p::kv("Network", &report.network);
+        p::kv("Latest ledger", &report.latest_ledger.to_string());
+        p::separator();
+        for entry in &report.entries {
+            p::info(&format!("{} ({})", entry.key, entry.kind));
+            match entry.live_until_ledger {
+                Some(lu) => p::kv("  Live until", &lu.to_string()),
+                None => p::kv("  Live until", "unknown / missing"),
+            }
+            match entry.remaining_ledgers {
+                Some(r) => p::kv("  Remaining", &format!("{r} ledgers")),
+                None => p::kv("  Remaining", "unknown"),
+            }
+            if let Some(eta) = &entry.eta {
+                p::kv("  ETA", eta);
+            }
+        }
+        if let Some(threshold) = args.warn_below {
+            if !report.low_ttl.is_empty() {
+                p::warn(&format!(
+                    "{} entr{} below --warn-below {threshold}",
+                    report.low_ttl.len(),
+                    if report.low_ttl.len() == 1 {
+                        "y"
+                    } else {
+                        "ies"
+                    }
+                ));
+            } else {
+                p::success(&format!(
+                    "All entries have at least {threshold} ledgers of TTL remaining"
+                ));
+            }
+        }
+        p::separator();
+    }
+
+    if args.warn_below.is_some() && !report.low_ttl.is_empty() {
+        anyhow::bail!(
+            "TTL warning: {} entr{} below threshold",
+            report.low_ttl.len(),
+            if report.low_ttl.len() == 1 {
+                "y"
+            } else {
+                "ies"
+            }
+        );
+    }
+    Ok(())
+}
+
+async fn handle_ttl_extend(args: TtlExtendArgs) -> Result<()> {
+    let cfg = config::load()?;
+    let wallet = if let Some(ref name) = args.wallet {
+        cfg.wallets
+            .iter()
+            .find(|w| &w.name == name)
+            .ok_or_else(|| anyhow::anyhow!("Wallet '{name}' not found"))?
+            .clone()
+    } else if !cfg.wallets.is_empty() {
+        if !args.json {
+            p::info(&format!(
+                "No --wallet specified. Using: {}",
+                cfg.wallets[0].name.cyan()
+            ));
+        }
+        cfg.wallets[0].clone()
+    } else {
+        anyhow::bail!(
+            "No wallets found. Create one with `starforge wallet create deployer --fund`"
+        );
+    };
+
+    let signing = wallet_signer::SigningRequest::from_options(
+        Some(&wallet),
+        args.hardware,
+        Some(&args.hd_path),
+        &args.network,
+        true,
+        "extend TTL",
+    )?;
+
+    // Always simulate first to show cost.
+    let estimate = crate::utils::contract_ttl::extend_ttl(
+        &args.contract_id,
+        &args.network,
+        &args.keys,
+        args.ledgers,
+        &wallet,
+        &signing,
+        false,
+    )
+    .await?;
+
+    if args.json && !args.submit {
+        println!("{}", serde_json::to_string_pretty(&estimate)?);
+        return Ok(());
+    }
+
+    if !args.json {
+        p::header("Extend Contract TTL");
+        p::kv("Contract", &args.contract_id);
+        p::kv("Network", &args.network);
+        p::kv("Extend to", &format!("{} ledgers from now", args.ledgers));
+        p::kv("Keys", &estimate.keys_extended.to_string());
+        p::kv(
+            "Estimated fee",
+            &format!(
+                "{} stroops ({:.7} XLM)",
+                estimate.estimated_fee_stroops, estimate.estimated_fee_xlm
+            ),
+        );
+        p::separator();
+    }
+
+    if !args.submit {
+        if !args.json {
+            p::info("Simulation only. Re-run with --submit to broadcast the extend transaction.");
+        }
+        return Ok(());
+    }
+
+    if !args.yes && !args.json {
+        let risk = if args.network == "mainnet" {
+            crate::utils::confirmation::RiskLevel::High
+        } else {
+            crate::utils::confirmation::RiskLevel::Medium
+        };
+        let summary = crate::utils::confirmation::OperationSummary::new(
+            "Extend Footprint TTL".to_string(),
+            args.network.clone(),
+            risk,
+        )
+        .add("Contract", &args.contract_id)
+        .add("Ledgers", args.ledgers.to_string())
+        .add(
+            "Estimated fee",
+            format!("{} stroops", estimate.estimated_fee_stroops),
+        );
+        let confirm = crate::utils::confirmation::ConfirmationConfig {
+            risk_level: risk,
+            network: args.network.clone(),
+            skip_confirm: false,
+            dry_run: false,
+            prompt: Some("Submit ExtendFootprintTTL?".to_string()),
+            require_type_confirmation: args.network == "mainnet",
+            ..Default::default()
+        };
+        if !crate::utils::confirmation::confirm_operation(&summary, &confirm)? {
+            anyhow::bail!("TTL extend cancelled.");
+        }
+    }
+
+    let result = crate::utils::contract_ttl::extend_ttl(
+        &args.contract_id,
+        &args.network,
+        &args.keys,
+        args.ledgers,
+        &wallet,
+        &signing,
+        true,
+    )
+    .await?;
+
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        p::success("TTL extended");
+        if let Some(hash) = &result.tx_hash {
+            p::kv("TX Hash", hash);
+        }
+        p::kv("Fee", &format!("{} stroops", result.estimated_fee_stroops));
+        p::separator();
+    }
+    Ok(())
+}
+
+async fn handle_version(_args: crate::commands::contract::VersionArgs) -> Result<()> {
     Ok(())
 }
 
@@ -1410,9 +1836,5 @@ fn handle_deps(args: DepsArgs) -> Result<()> {
         }
     }
 
-    Ok(())
-}
-
-async fn handle_version(_args: crate::commands::contract::VersionArgs) -> Result<()> {
     Ok(())
 }

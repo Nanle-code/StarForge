@@ -199,10 +199,7 @@ pub fn prompt_hardware_confirmation(
 }
 
 /// Resolve a plaintext secret key from a wallet entry, decrypting when needed.
-fn enforce_mainnet_plaintext_policy(
-    wallet: &config::WalletEntry,
-    network: &str,
-) -> Result<()> {
+fn enforce_mainnet_plaintext_policy(wallet: &config::WalletEntry, network: &str) -> Result<()> {
     enforce_mainnet_plaintext_policy_with_override(
         wallet,
         network,
@@ -240,7 +237,10 @@ fn enforce_mainnet_plaintext_policy_with_override(
     details.insert("network".to_string(), "mainnet".to_string());
     details.insert("wallet".to_string(), wallet.name.clone());
     details.insert("plaintext_secret".to_string(), "true".to_string());
-    details.insert("override".to_string(), "allow-plaintext-mainnet".to_string());
+    details.insert(
+        "override".to_string(),
+        "allow-plaintext-mainnet".to_string(),
+    );
 
     if let Err(e) = crate::utils::audit::log_action(
         "allow_plaintext_mainnet_signing",

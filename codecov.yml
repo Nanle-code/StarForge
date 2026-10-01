@@ -1,0 +1,66 @@
+# Codecov configuration — coverage ratchet for StarForge (#904)
+#
+# Project status uses `target: auto` so each PR is compared against the base
+# branch coverage (global ratchet). A drop larger than `threshold` fails CI.
+# Patch status enforces a minimum coverage on changed lines.
+# Critical paths (crypto, wallet, config) use higher component targets.
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+        if_ci_failed: error
+    patch:
+      default:
+        target: 70%
+        threshold: 1%
+        if_ci_failed: error
+
+comment:
+  layout: "reach,diff,flags,files,footer"
+  behavior: default
+  require_changes: true
+
+flags:
+  rust:
+    paths:
+      - src/
+      - tests/
+
+component_management:
+  default_rules:
+    statuses:
+      - type: project
+        target: auto
+        threshold: 1%
+  individual_components:
+    - component_id: crypto
+      name: crypto
+      paths:
+        - src/utils/crypto.rs
+        - src/wasm/crypto.rs
+      statuses:
+        - type: project
+          target: 80%
+          threshold: 0.5%
+    - component_id: wallet
+      name: wallet
+      paths:
+        - src/commands/wallet.rs
+        - src/utils/wallet_signer.rs
+        - src/utils/wallet_import.rs
+      statuses:
+        - type: project
+          target: 75%
+          threshold: 0.5%
+    - component_id: config
+      name: config
+      paths:
+        - src/utils/config.rs
+        - src/commands/config.rs
+      statuses:
+        - type: project
+          target: 75%
+          threshold: 0.5%

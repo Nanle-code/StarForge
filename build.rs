@@ -62,29 +62,23 @@ enum Commands {
     Project,
     #[command(about = "Developer-environment utilities: tutorials, natural language, PR checks")]
     Tool,
+    #[command(about = "Classic Stellar assets: SAC contract id lookup and wrap/deploy")]
+    Asset,
     #[command(about = "Generate shell completions for bash, zsh, fish, and powershell")]
     Completions,
     #[command(about = "Generate or install man pages")]
     Man,
+    #[command(about = "On-chain account lifecycle with sponsored reserves (CAP-33)")]
+    Account,
+    #[command(about = "Watch contract sources and rebuild/redeploy on save")]
+    Dev,
+    #[command(about = "Manage per-network contract and account aliases")]
+    Alias,
     #[command(
         about = "Smart autocomplete — suggest and record commands",
         hide = true
     )]
-    Help,
-    #[command(about = "AI usage telemetry and analytics: calls, tokens, latency, cost, opt-out")]
-    AiTelemetry,
-    #[command(
-        about = "Analyse and optimize compiled WASM / Rust contract source for gas and size"
-    )]
-    Optimize,
-    #[command(about = "AI-driven security training: lessons, exercises, progress tracking")]
-    AiSecurityTraining,
-    #[command(
-        about = "Contract health monitoring, performance tracking, security events, alerting, and dashboard"
-    )]
-    ContractMonitor,
-    #[command(about = "Manage per-network contract and account aliases")]
-    Alias,
+    Autocomplete,
 }
 
 /// The acceptance criterion from issue #936: top-level `--help` shows at most
@@ -198,6 +192,10 @@ const MAJOR_SUBCOMMANDS: &[(&str, &[(&str, &str)])] = &[
                 "Live contract event or wallet-threshold monitoring",
             ),
             ("health", "Contract health monitoring and alerting"),
+            (
+                "ttl show|extend",
+                "Inspect and extend ledger-entry TTLs (--warn-below, --ledgers)",
+            ),
         ],
     ),
     (
@@ -383,6 +381,10 @@ const SUBCOMMAND_INFO: &[(&str, &str)] = &[
         "Deploy a compiled Soroban contract and manage the lifecycle",
     ),
     ("deploy run", "Deploy a compiled Soroban contract (.wasm)"),
+    (
+        "deploy checklist",
+        "Verify required pre-mainnet deployment checks",
+    ),
     (
         "deploy history",
         "Deployment history, rollback, verification, dashboard",

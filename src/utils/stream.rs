@@ -109,6 +109,17 @@ impl SorobanEventStream {
         self
     }
 
+    /// Resume pagination from an opaque Soroban RPC cursor.
+    pub fn with_cursor(mut self, cursor: Option<String>) -> Self {
+        self.cursor = cursor;
+        self
+    }
+
+    /// Return the latest RPC pagination cursor received from the server.
+    pub fn cursor(&self) -> Option<&str> {
+        self.cursor.as_deref()
+    }
+
     pub fn with_filters(mut self, filters: EventStreamFilters) -> Self {
         self.filters = filters;
         self

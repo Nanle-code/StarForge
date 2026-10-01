@@ -28,7 +28,8 @@ fn issued_asset_matches_stellar_cli_testnet() {
     let asset = parse_classic_asset(&format!("USDC:{issuer}")).unwrap();
     let id = asset_contract_id(&asset, "testnet").unwrap();
     assert_eq!(
-        id, "CDGEB6EHEYGZ2OJ37R4NIQJYA2RCBDDLDXOOVC7VXWM6YFPW7AD2DHBM"
+        id,
+        "CDGEB6EHEYGZ2OJ37R4NIQJYA2RCBDDLDXOOVC7VXWM6YFPW7AD2DHBM"
     );
 }
 

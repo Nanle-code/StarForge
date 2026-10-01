@@ -1,26 +1,25 @@
 ## Summary
 
-Implements four Advancement issues in one PR, plus repairs merge fallout that left `src/main.rs` with duplicate clap variants and a `qpub` typo in `src/utils/mod.rs`.
+Implements four Advancement issues focused on Soroban state archival operations and CI quality gates.
 
-- **#932 — Watch-only wallets:** `starforge wallet watch` stores public-key-only wallets; list/JSON mark `watch_only: true`; signing is rejected with a clear error; usable as aliases/multisig addresses.
-- **#903 — MSRV policy & dependency pins:** Documents N−3 / minor-only MSRV bumps; replaces exact pins on clap/toml/colored/dirs/clap_complete with caret ranges (remaining `=` pins justified); adds scheduled `latest-deps` workflow.
-- **#905 — Native Soroban deploy:** `deploy run --execute` uploads WASM + creates the contract via RPC (simulate → assemble → sign → submit → poll); idempotent skip when WASM hash exists; `--print-only` keeps the stellar CLI command path; constructor args supported.
-- **#909 — SAC commands:** `starforge asset contract-id` / `asset wrap` for classic assets and native XLM; contract ids match `stellar contract id asset` fixtures; SEP-41 template docs show SAC usage.
+- **#908 — Contract TTL commands:** `starforge contract ttl show` lists instance/code/persistent live-until ledgers with ETA; `--warn-below` exits non-zero for cron/monitors; `ttl extend --ledgers N` simulates cost then builds/submits `ExtendFootprintTTL`.
+- **#907 — Auto-restore before invoke:** Detects `restorePreamble` in simulation, shows restore cost, prompts or honors `--auto-restore` / `--yes`, submits `RestoreFootprintOp`, re-simulates; `--json` reports `restored` / `restore_tx_hash`. Documented in `docs/guides/INVOKE.md`.
+- **#904 — Coverage ratchet:** `coverage.yml` uploads LLVM coverage artifacts + Codecov; enforces `coverage-ratchet.toml` global floor and higher critical-path floors for crypto/wallet/config; `codecov.yml` patch/project/component status; README coverage badge.
+- **#898 — CI workflow enforcement:** `rustfmt` is a hard gate (tree formatted); `secure-defaults` remains its own job; added `actionlint` job over all workflows. Also repairs truncated `home_lock` test helpers and a corrupted `build.rs` Commands enum that blocked compilation of the cheat-sheet generator.
 
-closes #932
-closes #903
-closes #905
-closes #909
+closes #908
+closes #907
+closes #904
+closes #898
 
 ## Test plan
 
-- [ ] `cargo test --test watch_only_wallet`
-- [ ] `cargo test --test sac_contract_id` (vectors vs `stellar contract id asset`)
-- [ ] `cargo test -p starforge soroban_native`
-- [ ] `starforge wallet watch treasury --address G… && starforge wallet list --json` shows `"watch_only": true`
-- [ ] Signing a watch-only wallet fails with a watch-only message
-- [ ] `starforge asset contract-id XLM --network testnet` → `CDLZFC3S…`
-- [ ] Local quickstart: `starforge deploy run --wasm … --wallet … --execute` returns a contract id (text + `--json`)
-- [ ] Re-run deploy with the same WASM reports WASM already uploaded
-- [ ] `starforge deploy run … --print-only` still prints a stellar CLI command
-- [ ] MSRV job still green on Rust 1.80; `latest-deps` workflow present
+- [ ] `cargo fmt --all --check`
+- [ ] `actionlint -color` (or CI Actionlint job)
+- [ ] `cargo test -p starforge contract_ttl --lib`
+- [ ] `cargo test -p starforge simulation_resources --lib`
+- [ ] Local/quickstart: `starforge contract ttl show <C…> --network docker-testnet`
+- [ ] `starforge contract ttl extend <C…> --ledgers 100000 --wallet …` shows fee before `--submit`
+- [ ] Force archival locally, then `starforge contract invoke … --auto-restore --json` reports `"restored": true`
+- [ ] Coverage workflow attaches `coverage-report` artifact and ratchet step passes
+- [ ] Unformatted file makes Rustfmt CI fail

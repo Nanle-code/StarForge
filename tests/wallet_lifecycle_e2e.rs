@@ -103,7 +103,6 @@ mod wallet_lifecycle_e2e_tests {
             self.wallets.push(wallet);
             Ok(())
         }
-        }
 
         fn list_wallets(&self) -> Vec<&WalletEntry> {
             self.wallets.iter().collect()
