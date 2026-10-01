@@ -1244,3 +1244,152 @@ fn multisig_from_template_creates_proposal() {
     assert!(contents.contains("buyer"));
     assert!(contents.contains("\"threshold\": 2"));
 }
+
+fn onboarding_command(
+    home: &std::path::Path,
+    working_dir: &std::path::Path,
+    args: &[&str],
+) -> std::process::Output {
+    starforge(home)
+        .current_dir(working_dir)
+        .args(args)
+        .output()
+        .expect("spawn onboarding command")
+}
+
+#[test]
+fn onboarding_completes_offline_and_failed_checkpoints_do_not_advance() {
+    let home = isolated_home();
+    let working_dir = isolated_home();
+
+    let start = onboarding_command(
+        home.path(),
+        working_dir.path(),
+        &[
+            "tool",
+            "tutorial",
+            "start",
+            "onboarding-15-minute",
+            "--demo",
+        ],
+    );
+    assert_success(&start, "starforge tool tutorial start onboarding-15-minute --demo");
+
+    let installed = onboarding_command(
+        home.path(),
+        working_dir.path(),
+        &["--version"],
+    );
+    assert_success(&installed, "starforge --version");
+    let first_next = onboarding_command(
+        home.path(),
+        working_dir.path(),
+        &["tool", "tutorial", "next"],
+    );
+    assert_success(&first_next, "starforge tool tutorial next (install checkpoint)");
+
+    let missing_wallet = onboarding_command(
+        home.path(),
+        working_dir.path(),
+        &["tool", "tutorial", "next"],
+    );
+    assert!(!missing_wallet.status.success());
+    let missing_wallet_output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&missing_wallet.stdout),
+        String::from_utf8_lossy(&missing_wallet.stderr)
+    );
+    assert!(missing_wallet_output.contains("Repair hint:"));
+    assert!(missing_wallet_output.contains("starforge wallet create onboarding"));
+
+    let status = onboarding_command(
+        home.path(),
+        working_dir.path(),
+        &["tool", "tutorial", "status"],
+    );
+    assert_success(&status, "starforge tool tutorial status");
+    assert!(
+        String::from_utf8_lossy(&status.stdout).contains("step 2 of 4 (1 completed)")
+    );
+
+    let wallet = onboarding_command(
+        home.path(),
+        working_dir.path(),
+        &["wallet", "create", "onboarding"],
+    );
+    assert_success(&wallet, "starforge wallet create onboarding");
+    let wallet_next = onboarding_command(
+        home.path(),
+        working_dir.path(),
+        &["tool", "tutorial", "next"],
+    );
+    assert_success(&wallet_next, "starforge tool tutorial next (wallet checkpoint)");
+
+    let missing_project = onboarding_command(
+        home.path(),
+        working_dir.path(),
+        &["tool", "tutorial", "next"],
+    );
+    assert!(!missing_project.status.success());
+    let missing_project_output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&missing_project.stdout),
+        String::from_utf8_lossy(&missing_project.stderr)
+    );
+    assert!(missing_project_output.contains("Repair hint:"));
+    assert!(missing_project_output.contains("onboarding-contract"));
+
+    let scaffold = onboarding_command(
+        home.path(),
+        working_dir.path(),
+        &[
+            "new",
+            "contract",
+            "onboarding-contract",
+            "--template",
+            "hello-world",
+        ],
+    );
+    assert_success(
+        &scaffold,
+        "starforge new contract onboarding-contract --template hello-world",
+    );
+    let scaffold_next = onboarding_command(
+        home.path(),
+        working_dir.path(),
+        &["tool", "tutorial", "next"],
+    );
+    assert_success(&scaffold_next, "starforge tool tutorial next (scaffold checkpoint)");
+
+    let simulation = onboarding_command(
+        home.path(),
+        working_dir.path(),
+        &[
+            "network",
+            "simulate",
+            "run",
+            "--scenario",
+            "simple-counter",
+        ],
+    );
+    assert_success(
+        &simulation,
+        "starforge network simulate run --scenario simple-counter",
+    );
+    let completed = onboarding_command(
+        home.path(),
+        working_dir.path(),
+        &["tool", "tutorial", "next"],
+    );
+    assert_success(&completed, "starforge tool tutorial next (simulation checkpoint)");
+    let completed_output = String::from_utf8_lossy(&completed.stdout);
+    assert!(completed_output.contains("Tutorial complete!"));
+    assert!(completed_output.contains("Elapsed"));
+
+    let progress_path = home.path().join(".starforge/tutorial_status.json");
+    let progress: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(progress_path).expect("read local progress"))
+            .expect("parse local progress");
+    assert_eq!(progress["active"], serde_json::Value::Null);
+    assert_eq!(progress["completed_steps"], serde_json::json!([0, 1, 2, 3]));
+}
