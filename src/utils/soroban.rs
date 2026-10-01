@@ -16,11 +16,12 @@ use stellar_strkey::{ed25519, Contract};
 use stellar_xdr::curr::{
     AccountId, ContractDataDurability, ContractExecutable, DecoratedSignature, ExtensionPoint,
     Hash, HostFunction, InvokeContractArgs, InvokeHostFunctionOp, LedgerEntryData, LedgerKey,
-    LedgerKeyContractData, Limits, Memo, MuxedAccount, Operation, OperationBody, Preconditions,
-    PublicKey, ScAddress, ScMap, ScString, ScSymbol, ScVal, SequenceNumber, Signature,
-    SignatureHint, SorobanAuthorizationEntry, SorobanResources, SorobanTransactionData,
-    Transaction, TransactionEnvelope, TransactionExt, TransactionSignaturePayload,
-    TransactionSignaturePayloadTaggedTransaction, TransactionV1Envelope, Uint256, VecM, WriteXdr,
+    LedgerKeyContractCode, LedgerKeyContractData, Limits, Memo, MuxedAccount, Operation,
+    OperationBody, Preconditions, PublicKey, ReadXdr, ScAddress, ScMap, ScString, ScSymbol,
+    ScVal, SequenceNumber, Signature, SignatureHint, SorobanAuthorizationEntry, SorobanResources,
+    SorobanTransactionData, Transaction, TransactionEnvelope, TransactionExt,
+    TransactionSignaturePayload, TransactionSignaturePayloadTaggedTransaction,
+    TransactionV1Envelope, Uint256, VecM, WriteXdr,
 };
 
 fn build_http_client(timeout: Duration) -> Client {
@@ -86,11 +87,19 @@ pub struct AuthNode {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SimulationResult {
+    #[serde(default)]
+    pub failed: bool,
     pub return_value: String,
+    #[serde(default)]
+    pub decoded_return_value: serde_json::Value,
     /// Minimum resource fee (stroops) reported by simulation, falling back to
     /// [`FALLBACK_FEE_STROOPS`] when the RPC server did not report one.
     pub fee: u64,
     pub events: Vec<String>,
+    #[serde(default)]
+    pub decoded_events: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub diagnostic_events: Vec<String>,
     #[serde(default)]
     pub errors: Vec<String>,
     /// Full resource accounting (CPU, memory, footprint, minimum resource fee)
@@ -249,7 +258,7 @@ pub async fn invoke_contract(
     )
     .await?;
     let transaction = match wallet {
-        Some(w) => Some(
+        Some(w) if !simulation.failed => Some(
             submit_transaction(
                 contract_id,
                 function,
@@ -331,8 +340,9 @@ async fn simulate_transaction_from(
         .await
         .context("Simulation request failed")?;
 
-    // Parse the simulation result (resources, fee, events, errors).
-    build_simulation_result(&result, network)
+    // Spec retrieval is best-effort: older contracts may not retain code or spec metadata.
+    let metadata = fetch_contract_metadata(contract_id, network).await.ok();
+    build_simulation_result_with_metadata(&result, network, metadata.as_ref())
 }
 
 /// Runs `simulateTransaction` against an envelope exactly as supplied.
@@ -798,13 +808,114 @@ fn build_deploy_transaction_xdr(
 }
 
 fn decode_return_value(result: &serde_json::Value) -> Result<String> {
-    // Simplified return value decoding
-    // In production, decode actual XDR ScVal to human-readable format
-    if let Some(return_val) = result.get("returnValue") {
-        Ok(return_val.as_str().unwrap_or("null").to_string())
-    } else {
-        Ok("void".to_string())
+    Ok(format_json_value(&extract_return_value_json(result)))
+}
+
+fn extract_return_value_json(result: &serde_json::Value) -> serde_json::Value {
+    let value = result
+        .get("returnValue")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| {
+            result
+                .get("results")?
+                .as_array()?
+                .first()?
+                .get("xdr")?
+                .as_str()
+        });
+    value
+        .map(|encoded| decode_scval_json(encoded).unwrap_or_else(|| serde_json::json!(encoded)))
+        .unwrap_or(serde_json::Value::Null)
+}
+
+fn decode_scval_json(encoded: &str) -> Option<serde_json::Value> {
+    use stellar_xdr::curr::ReadXdr;
+
+    let scval = ScVal::from_xdr_base64(encoded, Limits::none()).ok()?;
+    Some(scval_to_json(&scval))
+}
+
+fn scval_to_json(value: &ScVal) -> serde_json::Value {
+    match value {
+        ScVal::Bool(value) => serde_json::Value::Bool(*value),
+        ScVal::Void => serde_json::Value::Null,
+        ScVal::U32(value) => serde_json::json!(value),
+        ScVal::I32(value) => serde_json::json!(value),
+        ScVal::U64(value) => serde_json::json!(value),
+        ScVal::I64(value) => serde_json::json!(value),
+        ScVal::Timepoint(value) => serde_json::json!(value.0.to_string()),
+        ScVal::Duration(value) => serde_json::json!(value.0.to_string()),
+        ScVal::U128(value) => serde_json::json!(format!("{value:?}")),
+        ScVal::I128(value) => serde_json::json!(format!("{value:?}")),
+        ScVal::U256(value) => serde_json::json!(format!("{value:?}")),
+        ScVal::I256(value) => serde_json::json!(format!("{value:?}")),
+        ScVal::Bytes(value) => serde_json::json!(format!("0x{}", format_bytes(value.as_ref()))),
+        ScVal::String(value) => serde_json::json!(value.to_utf8_string_lossy()),
+        ScVal::Symbol(value) => serde_json::json!(value.to_utf8_string_lossy()),
+        ScVal::Address(address) => serde_json::json!(format_scaddress(address)),
+        ScVal::Vec(values) => serde_json::Value::Array(
+            values
+                .as_ref()
+                .map(|items| items.iter().map(scval_to_json).collect())
+                .unwrap_or_default(),
+        ),
+        ScVal::Map(entries) => {
+            let mut object = serde_json::Map::new();
+            if let Some(entries) = entries {
+                for entry in &entries.0 {
+                    let key = match &entry.key {
+                        ScVal::Symbol(symbol) => symbol.to_utf8_string_lossy(),
+                        ScVal::String(string) => string.to_utf8_string_lossy(),
+                        other => format_scval(other),
+                    };
+                    object.insert(key, scval_to_json(&entry.val));
+                }
+            }
+            serde_json::Value::Object(object)
+        }
+        ScVal::Error(error) => serde_json::json!(format!("{error:?}")),
+        ScVal::LedgerKeyContractInstance => serde_json::json!("LedgerKeyContractInstance"),
+        ScVal::LedgerKeyNonce(_) => serde_json::json!("LedgerKeyNonce"),
+        ScVal::ContractInstance(instance) => serde_json::json!({
+            "executable": format!("{:?}", instance.executable),
+            "storage_entries": instance.storage.as_ref().map(|storage| storage.0.len()).unwrap_or(0),
+        }),
     }
+}
+
+fn format_json_value(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(text) => text.clone(),
+        _ => serde_json::to_string(value).unwrap_or_else(|_| value.to_string()),
+    }
+}
+
+fn format_contract_error(error: &str, metadata: &crate::utils::bindings::ContractMetadata) -> String {
+    let Some(code) = parse_contract_error_code(error) else {
+        return error.to_string();
+    };
+    metadata
+        .errors
+        .iter()
+        .find_map(|error_enum| {
+            error_enum.cases.iter().find_map(|case| {
+                (case.value == code).then(|| {
+                    if case.doc.is_empty() {
+                        format!("{} ({code})", case.name)
+                    } else {
+                        format!("{} ({code}): {}", case.name, case.doc)
+                    }
+                })
+            })
+        })
+        .unwrap_or_else(|| error.to_string())
+}
+
+fn parse_contract_error_code(error: &str) -> Option<u32> {
+    let marker = "Error(Contract, #";
+    let start = error.find(marker)? + marker.len();
+    let digits: String = error[start..].chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok()
 }
 
 /// Fee used when the RPC server reports no resource accounting at all.
@@ -835,7 +946,22 @@ fn extract_fee(resources: Option<&SimulationResources>) -> u64 {
 
 /// Assemble a [`SimulationResult`] from a raw RPC response.
 fn build_simulation_result(result: &serde_json::Value, network: &str) -> Result<SimulationResult> {
+    build_simulation_result_with_metadata(result, network, None)
+}
+
+fn build_simulation_result_with_metadata(
+    result: &serde_json::Value,
+    network: &str,
+    metadata: Option<&crate::utils::bindings::ContractMetadata>,
+) -> Result<SimulationResult> {
     let mut errors = extract_simulation_errors(result);
+    let failed = !errors.is_empty();
+    if let Some(metadata) = metadata {
+        errors = errors
+            .iter()
+            .map(|error| format_contract_error(error, metadata))
+            .collect();
+    }
 
     let resources = match extract_resources(result) {
         Ok(resources) => Some(resources),
@@ -852,14 +978,139 @@ fn build_simulation_result(result: &serde_json::Value, network: &str) -> Result<
 
     let auth = extract_auth(result).unwrap_or_default();
 
+    let decoded_return_value = extract_return_value_json(result);
+    let decoded_events = extract_event_json(result);
+    let events = decoded_events
+        .iter()
+        .map(format_json_value)
+        .collect();
+
     Ok(SimulationResult {
-        return_value: decode_return_value(result)?,
+        failed,
+        return_value: format_json_value(&decoded_return_value),
+        decoded_return_value,
         fee: extract_fee(resources.as_ref()),
-        events: extract_events(result)?,
+        events,
+        decoded_events,
+        diagnostic_events: extract_diagnostic_events(result),
         errors,
         resources,
         auth,
     })
+}
+
+async fn fetch_contract_metadata(
+    contract_id: &str,
+    network: &str,
+) -> Result<crate::utils::bindings::ContractMetadata> {
+    let instance_key = build_contract_instance_key(contract_id)?;
+    let instance_entries = fetch_ledger_entries(&[instance_key], network).await?;
+    let instance_xdr = instance_entries
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("contract instance was not found"))?;
+    let instance_bytes = BASE64.decode(instance_xdr)?;
+    let instance = LedgerEntryData::from_xdr(&instance_bytes, Limits::none())?;
+    let wasm_hash = match instance {
+        LedgerEntryData::ContractData(entry) => match entry.val {
+            ScVal::ContractInstance(instance) => match instance.executable {
+                ContractExecutable::Wasm(hash) => hash,
+                other => anyhow::bail!("unsupported contract executable: {other:?}"),
+            },
+            other => anyhow::bail!("unexpected contract instance value: {other:?}"),
+        },
+        other => anyhow::bail!("expected contract instance entry, got {other:?}"),
+    };
+
+    let code_key = LedgerKey::ContractCode(LedgerKeyContractCode { hash: wasm_hash });
+    let code_entries = fetch_ledger_entries(&[code_key], network).await?;
+    let code_xdr = code_entries
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("contract code was not found"))?;
+    let code_bytes = BASE64.decode(code_xdr)?;
+    let code = LedgerEntryData::from_xdr(&code_bytes, Limits::none())?;
+    let wasm = match code {
+        LedgerEntryData::ContractCode(entry) => entry.code.0,
+        other => anyhow::bail!("expected contract code entry, got {other:?}"),
+    };
+    let entries = crate::utils::bindings::read_spec_entries(&wasm)?;
+    Ok(crate::utils::bindings::parse_spec_entries(&entries))
+}
+
+async fn fetch_ledger_entries(keys: &[LedgerKey], network: &str) -> Result<Vec<String>> {
+    let keys = keys
+        .iter()
+        .map(ledger_key_to_xdr_base64)
+        .collect::<Result<Vec<_>>>()?;
+    let request = SorobanRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: 1,
+        method: "getLedgerEntries".to_string(),
+        params: serde_json::json!({ "keys": keys, "xdrFormat": "base64" }),
+    };
+    let result: serde_json::Value = rpc_request_with_url(&get_rpc_url(network)?, request)
+        .await
+        .context("Failed to fetch contract spec ledger entries")?;
+    Ok(result
+        .get("entries")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.get("xdr").and_then(serde_json::Value::as_str))
+        .map(str::to_string)
+        .collect())
+}
+
+fn extract_event_json(result: &serde_json::Value) -> Vec<serde_json::Value> {
+    result
+        .get("events")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|event| {
+            event
+                .as_str()
+                .and_then(|encoded| decode_contract_event_json(encoded).or_else(|| decode_scval_json(encoded)))
+                .unwrap_or_else(|| event.clone())
+        })
+        .collect()
+}
+
+fn decode_contract_event_json(encoded: &str) -> Option<serde_json::Value> {
+    use stellar_xdr::curr::{ContractEventBody, DiagnosticEvent};
+
+    let diagnostic = DiagnosticEvent::from_xdr_base64(encoded, Limits::none()).ok()?;
+    let event = &diagnostic.event;
+    let body = match &event.body {
+        ContractEventBody::V0(body) => body,
+    };
+    Some(serde_json::json!({
+        "contract_id": event.contract_id.as_ref().map(|hash| format_bytes(&hash.0)),
+        "type": format!("{:?}", event.type_),
+        "in_successful_contract_call": diagnostic.in_successful_contract_call,
+        "topics": body.topics.iter().map(scval_to_json).collect::<Vec<_>>(),
+        "data": scval_to_json(&body.data),
+    }))
+}
+
+fn extract_diagnostic_events(result: &serde_json::Value) -> Vec<String> {
+    let events = result
+        .get("diagnosticEvents")
+        .or_else(|| {
+            (!extract_simulation_errors(result).is_empty())
+                .then(|| result.get("events"))
+                .flatten()
+        });
+    events
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|event| {
+            event
+                .as_str()
+                .map(decode_event_string)
+                .unwrap_or_else(|| event.to_string())
+        })
+        .collect()
 }
 
 fn extract_auth(result: &serde_json::Value) -> Result<Vec<AuthNode>> {
@@ -1408,6 +1659,47 @@ mod tests {
         let errors = extract_simulation_errors(&result);
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0], "\"Simulation failed due to budget exceeded\"");
+    }
+
+    #[test]
+    fn simulation_names_contract_error_from_spec() {
+        let metadata = crate::utils::bindings::ContractMetadata {
+            functions: vec![],
+            structs: vec![],
+            enums: vec![],
+            events: vec![],
+            unions: vec![],
+            errors: vec![crate::utils::bindings::ContractErrorEnum {
+                name: "TokenError".to_string(),
+                cases: vec![crate::utils::bindings::ContractErrorCase {
+                    name: "InsufficientBalance".to_string(),
+                    value: 4,
+                    doc: "The sender balance is too low.".to_string(),
+                }],
+            }],
+        };
+        let result = serde_json::json!({ "error": "HostError: Error(Contract, #4)" });
+        let simulation =
+            build_simulation_result_with_metadata(&result, "testnet", Some(&metadata)).unwrap();
+
+        assert!(simulation.failed);
+        assert!(simulation.errors[0].contains("InsufficientBalance (4)"));
+        assert!(simulation.errors[0].contains("The sender balance is too low."));
+    }
+
+    #[test]
+    fn scval_xdr_decodes_to_json_with_udt_field_names() {
+        let field = stellar_xdr::curr::ScMapEntry {
+            key: ScVal::Symbol(ScSymbol("balance".as_bytes().to_vec().try_into().unwrap())),
+            val: ScVal::U32(17),
+        };
+        let value = ScVal::Map(Some(ScMap(vec![field].try_into().unwrap())));
+        let encoded = value.to_xdr_base64(Limits::none()).unwrap();
+
+        assert_eq!(
+            decode_scval_json(&encoded),
+            Some(serde_json::json!({ "balance": 17 }))
+        );
     }
 
     #[test]
