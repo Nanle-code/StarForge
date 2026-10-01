@@ -19,14 +19,10 @@ updates:
       cargo-minor-and-patch:
         update-types: [minor, patch]
     ignore:
-      # Deliberately exact-pinned in Cargo.toml (`=x.y.z`), mostly to hold the
-      # 1.80 MSRV; bump these by hand after checking the MSRV job.
-      - dependency-name: clap
-      - dependency-name: clap_complete
+      # Remaining exact pins in Cargo.toml (justified next to each `=` entry).
+      # Caret-ranged crates (clap, toml, colored, dirs, clap_complete) may update.
       - dependency-name: clap_mangen
-      - dependency-name: toml
-      - dependency-name: colored
-      - dependency-name: dirs
+      - dependency-name: comfy-table
       - dependency-name: stellar-strkey
       - dependency-name: zxcvbn
       # time >= 0.3.46 requires Rust 1.88, above our 1.80 MSRV (see deny.toml).

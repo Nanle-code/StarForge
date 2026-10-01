@@ -148,6 +148,19 @@ fn moved_commands_are_registered_under_their_noun() {
 }
 
 #[test]
+fn deploy_checklist_command_is_registered() {
+    let output = Command::new(env!("CARGO_BIN_EXE_starforge"))
+        .args(["deploy", "checklist", "--help"])
+        .output()
+        .expect("run starforge deploy checklist --help");
+    assert!(output.status.success());
+    let help = String::from_utf8_lossy(&output.stdout);
+    assert!(help.contains("--wasm"));
+    assert!(help.contains("--network"));
+    assert!(help.contains("--json"));
+}
+
+#[test]
 fn legacy_ai_verbs_resolve_under_ai_local() {
     let help = noun_help("ai");
     assert!(help.contains(" local"), "`ai local` must exist");

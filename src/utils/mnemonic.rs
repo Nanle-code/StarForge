@@ -274,4 +274,3 @@ mod tests {
         assert_ne!(sk0, sk1);
     }
 }
-

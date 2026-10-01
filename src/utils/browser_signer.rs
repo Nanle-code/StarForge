@@ -124,7 +124,11 @@ impl BrowserSignRequest {
         let transaction_xdr = transaction_xdr.into();
         let network = network.into();
         let network_passphrase = crate::utils::config::get_network_passphrase(&network);
-        Self { transaction_xdr, network, network_passphrase }
+        Self {
+            transaction_xdr,
+            network,
+            network_passphrase,
+        }
     }
 
     /// A dependency-free, human-readable summary of the envelope. The handoff
@@ -190,7 +194,10 @@ pub struct LocalhostHandoffSigner {
 impl LocalhostHandoffSigner {
     /// Create a signer that waits `timeout` for the wallet and opens a browser.
     pub fn new(timeout: Duration) -> Self {
-        Self { timeout, open_browser: true }
+        Self {
+            timeout,
+            open_browser: true,
+        }
     }
 
     /// Control whether the handoff tries to open the system browser.
@@ -203,7 +210,10 @@ impl LocalhostHandoffSigner {
 impl WalletSigner for LocalhostHandoffSigner {
     fn sign(&self, request: &BrowserSignRequest) -> std::result::Result<String, HandoffError> {
         let mut server = HandoffServer::bind(request.clone(), self.timeout)?;
-        p::info(&format!("Waiting for a browser wallet signature on {}", server.url()));
+        p::info(&format!(
+            "Waiting for a browser wallet signature on {}",
+            server.url()
+        ));
         if self.open_browser && !open_in_browser(server.url()) {
             p::warn("Could not open a browser automatically; open the URL above manually.");
         }
@@ -243,9 +253,9 @@ impl WalletSigner for MockWalletSigner {
         match self {
             MockWalletSigner::Returning(signed_xdr) => Ok(signed_xdr.clone()),
             MockWalletSigner::TimingOut => Err(HandoffError::Timeout(Duration::from_secs(0))),
-            MockWalletSigner::Rejected => {
-                Err(HandoffError::WalletRejected("rejected by mock wallet".to_string()))
-            }
+            MockWalletSigner::Rejected => Err(HandoffError::WalletRejected(
+                "rejected by mock wallet".to_string(),
+            )),
         }
     }
 }
@@ -273,12 +283,18 @@ impl NonceGuard {
         let mut rng = rand::thread_rng();
         let mut bytes = [0u8; NONCE_BYTES];
         rng.fill_bytes(&mut bytes);
-        Self { nonce: hex::encode(bytes), consumed: false }
+        Self {
+            nonce: hex::encode(bytes),
+            consumed: false,
+        }
     }
 
     /// Construct a guard around a caller-supplied nonce (used in tests).
     pub fn from_nonce(nonce: impl Into<String>) -> Self {
-        Self { nonce: nonce.into(), consumed: false }
+        Self {
+            nonce: nonce.into(),
+            consumed: false,
+        }
     }
 
     /// The nonce value.
@@ -340,7 +356,14 @@ impl HandoffServer {
         let port = listener.local_addr()?.port();
         let nonce = NonceGuard::generate();
         let url = format!("http://127.0.0.1:{}/?nonce={}", port, nonce.value());
-        Ok(Self { listener, port, nonce, request, url, timeout })
+        Ok(Self {
+            listener,
+            port,
+            nonce,
+            request,
+            url,
+            timeout,
+        })
     }
 
     /// The port the handoff is listening on.
@@ -420,13 +443,17 @@ pub fn content_security_policy(script_nonce: &str) -> String {
 fn validate_signed_xdr(signed_xdr: &str) -> std::result::Result<String, HandoffError> {
     let trimmed = signed_xdr.trim();
     if trimmed.is_empty() {
-        return Err(HandoffError::InvalidSignature("signed XDR is empty".to_string()));
+        return Err(HandoffError::InvalidSignature(
+            "signed XDR is empty".to_string(),
+        ));
     }
     let bytes = general_purpose::STANDARD.decode(trimmed).map_err(|_| {
         HandoffError::InvalidSignature("signed XDR is not valid base64".to_string())
     })?;
     if bytes.is_empty() {
-        return Err(HandoffError::InvalidSignature("signed XDR decodes to zero bytes".to_string()));
+        return Err(HandoffError::InvalidSignature(
+            "signed XDR decodes to zero bytes".to_string(),
+        ));
     }
     Ok(trimmed.to_string())
 }
@@ -492,7 +519,13 @@ struct HttpResponse {
 
 impl HttpResponse {
     fn new(status: u16, reason: &'static str, content_type: &'static str, body: Vec<u8>) -> Self {
-        Self { status, reason, content_type, headers: Vec::new(), body }
+        Self {
+            status,
+            reason,
+            content_type,
+            headers: Vec::new(),
+            body,
+        }
     }
 
     fn with_header(mut self, name: &'static str, value: impl Into<String>) -> Self {
@@ -501,7 +534,12 @@ impl HttpResponse {
     }
 
     fn json(status: u16, reason: &'static str, body: &str) -> Self {
-        Self::new(status, reason, "application/json; charset=utf-8", body.as_bytes().to_vec())
+        Self::new(
+            status,
+            reason,
+            "application/json; charset=utf-8",
+            body.as_bytes().to_vec(),
+        )
     }
 
     fn error(status: u16, reason: &'static str, message: &str) -> Self {
@@ -510,8 +548,10 @@ impl HttpResponse {
     }
 
     fn page(html: String, script_nonce: &str) -> Self {
-        Self::new(200, "OK", "text/html; charset=utf-8", html.into_bytes())
-            .with_header("Content-Security-Policy", content_security_policy(script_nonce))
+        Self::new(200, "OK", "text/html; charset=utf-8", html.into_bytes()).with_header(
+            "Content-Security-Policy",
+            content_security_policy(script_nonce),
+        )
     }
 }
 
@@ -565,7 +605,14 @@ fn read_http_request(stream: &TcpStream) -> std::io::Result<HttpRequest> {
         reader.read_exact(&mut body)?;
     }
 
-    Ok(HttpRequest { method, path, query, host, origin, body })
+    Ok(HttpRequest {
+        method,
+        path,
+        query,
+        host,
+        origin,
+        body,
+    })
 }
 
 /// Write an HTTP response and close the connection.
@@ -615,11 +662,18 @@ fn handle_request(
 
     match (request.method.as_str(), request.path.as_str()) {
         ("GET", "/") => match query_param(&request.query, "nonce") {
-            Some(candidate) if candidate == nonce.value() => {
-                (HttpResponse::page(page_html(script_nonce), script_nonce), None)
-            }
-            Some(_) => (HttpResponse::error(403, "Forbidden", "invalid handoff nonce"), None),
-            None => (HttpResponse::error(400, "Bad Request", "missing handoff nonce"), None),
+            Some(candidate) if candidate == nonce.value() => (
+                HttpResponse::page(page_html(script_nonce), script_nonce),
+                None,
+            ),
+            Some(_) => (
+                HttpResponse::error(403, "Forbidden", "invalid handoff nonce"),
+                None,
+            ),
+            None => (
+                HttpResponse::error(400, "Bad Request", "missing handoff nonce"),
+                None,
+            ),
         },
         ("GET", "/api/transaction") => match query_param(&request.query, "nonce") {
             Some(candidate) if candidate == nonce.value() => {
@@ -632,8 +686,14 @@ fn handle_request(
                 });
                 (HttpResponse::json(200, "OK", &payload.to_string()), None)
             }
-            Some(_) => (HttpResponse::error(403, "Forbidden", "invalid handoff nonce"), None),
-            None => (HttpResponse::error(400, "Bad Request", "missing handoff nonce"), None),
+            Some(_) => (
+                HttpResponse::error(403, "Forbidden", "invalid handoff nonce"),
+                None,
+            ),
+            None => (
+                HttpResponse::error(400, "Bad Request", "missing handoff nonce"),
+                None,
+            ),
         },
         ("POST", "/api/sign-result") => {
             if let Some(origin) = request.origin.as_deref() {
@@ -668,13 +728,19 @@ fn handle_request(
                     HandoffError::MissingNonce => 400,
                     _ => 403,
                 };
-                return (HttpResponse::error(status, reason_for(status), &err.to_string()), None);
+                return (
+                    HttpResponse::error(status, reason_for(status), &err.to_string()),
+                    None,
+                );
             }
 
             let signed = match validate_signed_xdr(&payload.signed_xdr) {
                 Ok(signed) => signed,
                 Err(err) => {
-                    return (HttpResponse::error(400, "Bad Request", &err.to_string()), None)
+                    return (
+                        HttpResponse::error(400, "Bad Request", &err.to_string()),
+                        None,
+                    )
                 }
             };
 
@@ -735,7 +801,9 @@ fn open_in_browser(url: &str) -> bool {
 /// Build the one-time handoff page. `script_nonce` is embedded both as the CSP
 /// nonce and as the inline-script nonce, so injected inline scripts never run.
 fn page_html(script_nonce: &str) -> String {
-    PAGE_TEMPLATE.replace("__NONCE__", script_nonce).replace("__KIT_VERSION__", WALLET_KIT_VERSION)
+    PAGE_TEMPLATE
+        .replace("__NONCE__", script_nonce)
+        .replace("__KIT_VERSION__", WALLET_KIT_VERSION)
 }
 
 const PAGE_TEMPLATE: &str = r#"<!doctype html>
@@ -873,13 +941,19 @@ mod tests {
         let nonce = guard.value().to_string();
         guard.verify_and_consume(&nonce).unwrap();
         assert!(guard.is_consumed());
-        assert!(matches!(guard.verify_and_consume(&nonce), Err(HandoffError::NonceAlreadyUsed)));
+        assert!(matches!(
+            guard.verify_and_consume(&nonce),
+            Err(HandoffError::NonceAlreadyUsed)
+        ));
     }
 
     #[test]
     fn wrong_nonce_is_rejected_without_consuming() {
         let guard = NonceGuard::generate();
-        assert!(matches!(guard.verify("deadbeef"), Err(HandoffError::InvalidNonce)));
+        assert!(matches!(
+            guard.verify("deadbeef"),
+            Err(HandoffError::InvalidNonce)
+        ));
         assert!(matches!(guard.verify(""), Err(HandoffError::MissingNonce)));
         assert!(!guard.is_consumed());
     }
@@ -965,7 +1039,12 @@ mod tests {
             "signedXdr": general_purpose::STANDARD.encode(b"signed"),
         })
         .to_string();
-        let mut req = request("POST", "/api/sign-result", "nonce=abc123", body.into_bytes());
+        let mut req = request(
+            "POST",
+            "/api/sign-result",
+            "nonce=abc123",
+            body.into_bytes(),
+        );
         req.origin = Some("https://attacker.example".to_string());
 
         let (response, signed) = handle_request(&req, &mut guard, &sign_request, "abc123", 41234);
@@ -982,7 +1061,12 @@ mod tests {
             serde_json::json!({ "nonce": "abc123", "signedXdr": "not base64!!" }).to_string();
 
         let (response, signed) = handle_request(
-            &request("POST", "/api/sign-result", "nonce=abc123", body.into_bytes()),
+            &request(
+                "POST",
+                "/api/sign-result",
+                "nonce=abc123",
+                body.into_bytes(),
+            ),
             &mut guard,
             &sign_request,
             "abc123",
@@ -990,7 +1074,10 @@ mod tests {
         );
         assert_eq!(response.status, 400);
         assert!(signed.is_none());
-        assert!(!guard.is_consumed(), "a malformed payload must not burn the nonce");
+        assert!(
+            !guard.is_consumed(),
+            "a malformed payload must not burn the nonce"
+        );
     }
 
     #[test]
@@ -1001,7 +1088,12 @@ mod tests {
 
         let body = serde_json::json!({ "nonce": "abc123", "signedXdr": &signed }).to_string();
         let (first, returned) = handle_request(
-            &request("POST", "/api/sign-result", "nonce=abc123", body.clone().into_bytes()),
+            &request(
+                "POST",
+                "/api/sign-result",
+                "nonce=abc123",
+                body.clone().into_bytes(),
+            ),
             &mut guard,
             &sign_request,
             "abc123",
@@ -1011,7 +1103,12 @@ mod tests {
         assert_eq!(returned.as_deref(), Some(signed.as_str()));
 
         let (second, _) = handle_request(
-            &request("POST", "/api/sign-result", "nonce=abc123", body.into_bytes()),
+            &request(
+                "POST",
+                "/api/sign-result",
+                "nonce=abc123",
+                body.into_bytes(),
+            ),
             &mut guard,
             &sign_request,
             "abc123",

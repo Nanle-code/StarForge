@@ -47,17 +47,20 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt
-      # NON-BLOCKING on purpose: master is not rustfmt-clean yet (a handful of
-      # files under src/commands, src/utils and tests/ still need
-      # `cargo fmt --all`). Reformatting them in one sweep would conflict with
-      # every open branch, so drift is surfaced as a warning annotation for now.
-      # Once `cargo fmt --all --check` passes on master, replace this step with
-      # a plain `cargo fmt --all --check` so the job becomes a hard gate.
       - name: Check formatting
-        run: |
-          if ! cargo fmt --all --check; then
-            echo "::warning title=rustfmt::Code is not rustfmt-clean. Run 'cargo fmt --all' locally. This check is currently non-blocking."
-          fi
+        run: cargo fmt --all --check
+
+  actionlint:
+    name: Actionlint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install actionlint
+        uses: taiki-e/install-action@v2
+        with:
+          tool: actionlint
+      - name: Lint all workflow files
+        run: actionlint -color
 
   msrv:
     name: MSRV (Rust 1.80)

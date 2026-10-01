@@ -1,21 +1,16 @@
-use crate::utils::{config, wallet_signer};
+use crate::utils::{config, http_client as shared_http, wallet_signer};
 use anyhow::{Context, Result};
 use once_cell::sync::Lazy;
 use reqwest::Client;
 use serde::Deserialize;
 use std::time::Duration;
 
-fn build_http_client(timeout: Duration) -> Result<Client> {
-    Client::builder()
-        .timeout(timeout)
-        .pool_max_idle_per_host(10)
-        .build()
-        .context("Failed to create Horizon HTTP client")
-}
+/// Overall timeout for Horizon calls.
+const HORIZON_TIMEOUT: Duration = Duration::from_secs(10);
 
-static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
-    build_http_client(Duration::from_secs(10)).expect("Failed to create shared Horizon HTTP client")
-});
+/// Shared client for Horizon requests, built by the central factory (#902) so
+/// proxy, custom CA bundle and user agent are applied like everywhere else.
+static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| shared_http::client_with_timeout(HORIZON_TIMEOUT));
 
 /// Shared HTTP client used for Horizon requests.
 pub(crate) fn http_client() -> &'static Client {
@@ -24,35 +19,15 @@ pub(crate) fn http_client() -> &'static Client {
 
 /// Issue an HTTP request against Horizon with bounded retries and exponential
 /// backoff for transient failures (5xx / 429 / connection errors).
+///
+/// Thin wrapper over [`shared_http::send_with_retry`], kept so callers in this
+/// module read in Horizon terms.
 pub async fn send_with_retry<F, Fut>(make_request: F) -> Result<reqwest::Response>
 where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = std::result::Result<reqwest::Response, reqwest::Error>>,
 {
-    const MAX_RETRIES: u32 = 3;
-    let mut backoff = Duration::from_millis(150);
-
-    for attempt in 1..=MAX_RETRIES {
-        match make_request().await {
-            Ok(res)
-                if (res.status().is_server_error()
-                    || res.status() == reqwest::StatusCode::TOO_MANY_REQUESTS)
-                    && attempt < MAX_RETRIES =>
-            {
-                tokio::time::sleep(backoff).await;
-                backoff *= 2;
-            }
-            Ok(res) => return Ok(res),
-            Err(e) => {
-                if attempt == MAX_RETRIES {
-                    return Err(e).context("Horizon request failed after retries");
-                }
-                tokio::time::sleep(backoff).await;
-                backoff *= 2;
-            }
-        }
-    }
-    anyhow::bail!("Exceeded maximum Horizon retries")
+    shared_http::send_with_retry(make_request).await
 }
 
 pub fn network_config(network: &str) -> Result<config::NetworkConfig> {
@@ -557,10 +532,7 @@ pub async fn submit_signed_envelope(
     submit_signed_xdr(signed_xdr, network).await
 }
 
-async fn submit_signed_xdr(
-    signed_xdr: &str,
-    network: &str,
-) -> Result<TransactionSubmitResult> {
+async fn submit_signed_xdr(signed_xdr: &str, network: &str) -> Result<TransactionSubmitResult> {
     let horizon = horizon_url(network)?;
     let url = format!("{}/transactions", horizon);
     let form_data = [("tx", urlencoding::encode(signed_xdr))];
@@ -661,10 +633,7 @@ pub async fn submit_multisig_transaction(
 /// Unlike [`submit_payment_with_signing`] this performs no signing, so the
 /// caller owns the bytes on the wire — the contract `tx submit` needs to stay
 /// composable with `tx encode | tx sign`.
-pub async fn submit_envelope(
-    envelope_xdr: &str,
-    network: &str,
-) -> Result<EnvelopeSubmitOutcome> {
+pub async fn submit_envelope(envelope_xdr: &str, network: &str) -> Result<EnvelopeSubmitOutcome> {
     let horizon = horizon_url(network)?;
     let url = format!("{}/transactions", horizon);
     let form_data = [("tx", urlencoding::encode(envelope_xdr))];

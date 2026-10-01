@@ -74,7 +74,7 @@ impl RpcBudgetConfig {
     /// Create budget configuration optimized for CI environments.
     pub fn for_ci() -> Self {
         Self {
-            max_qps: 5,      // More conservative for CI
+            max_qps: 5, // More conservative for CI
             max_concurrent: 3,
             enabled: true,
         }
@@ -83,7 +83,7 @@ impl RpcBudgetConfig {
     /// Create budget configuration optimized for interactive use.
     pub fn for_interactive() -> Self {
         Self {
-            max_qps: 15,     // More permissive for interactive use
+            max_qps: 15, // More permissive for interactive use
             max_concurrent: 8,
             enabled: true,
         }
@@ -129,7 +129,7 @@ impl RpcBudget {
     }
 
     /// Acquire a permit for making an RPC request.
-    /// 
+    ///
     /// This enforces both concurrency limits (via semaphore) and QPS limits
     /// (via rate limiting). Returns an error if budgets are exhausted.
     pub async fn acquire_permit(&self) -> Result<RpcPermit> {
@@ -141,7 +141,8 @@ impl RpcBudget {
         self.check_qps_limit()?;
 
         // Acquire concurrency permit
-        let permit = self.semaphore
+        let permit = self
+            .semaphore
             .acquire()
             .await
             .context("Failed to acquire RPC concurrency permit")?;
@@ -183,7 +184,7 @@ impl RpcBudget {
     pub fn stats(&self) -> RpcBudgetStats {
         let current_concurrent = self.semaphore.available_permits();
         let used_concurrent = self.config.max_concurrent as usize - current_concurrent;
-        
+
         RpcBudgetStats {
             max_qps: self.config.max_qps,
             max_concurrent: self.config.max_concurrent,
@@ -209,7 +210,7 @@ impl RpcPermit {
         } else {
             None
         };
-        
+
         Self {
             _permit: permit,
             telemetry_enabled,
@@ -223,10 +224,7 @@ impl Drop for RpcPermit {
         if self.telemetry_enabled {
             if let Some(start) = self.start_time {
                 let duration = start.elapsed();
-                tracing::debug!(
-                    "RPC request completed in {:?}",
-                    duration
-                );
+                tracing::debug!("RPC request completed in {:?}", duration);
             }
         }
     }
@@ -248,10 +246,10 @@ impl RpcBudgetStats {
         if !self.enabled {
             return false;
         }
-        
+
         let qps_utilization = self.current_qps as f64 / self.max_qps as f64;
         let concurrent_utilization = self.current_concurrent as f64 / self.max_concurrent as f64;
-        
+
         qps_utilization > 0.8 || concurrent_utilization > 0.8
     }
 
@@ -262,12 +260,17 @@ impl RpcBudgetStats {
         }
 
         let qps_pct = (self.current_qps as f64 / self.max_qps as f64 * 100.0) as u32;
-        let concurrent_pct = (self.current_concurrent as f64 / self.max_concurrent as f64 * 100.0) as u32;
+        let concurrent_pct =
+            (self.current_concurrent as f64 / self.max_concurrent as f64 * 100.0) as u32;
 
         format!(
             "RPC Budget: {}/{} QPS ({}%), {}/{} concurrent ({}%)",
-            self.current_qps, self.max_qps, qps_pct,
-            self.current_concurrent, self.max_concurrent, concurrent_pct
+            self.current_qps,
+            self.max_qps,
+            qps_pct,
+            self.current_concurrent,
+            self.max_concurrent,
+            concurrent_pct
         )
     }
 }
@@ -292,7 +295,8 @@ impl RpcBudgetManager {
         }
 
         let budget = Arc::new(RpcBudget::from_env());
-        self.budgets.insert(endpoint.to_string(), Arc::clone(&budget));
+        self.budgets
+            .insert(endpoint.to_string(), Arc::clone(&budget));
         budget
     }
 

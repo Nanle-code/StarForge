@@ -139,7 +139,9 @@ impl Drop for ProgressReporter {
 }
 
 fn suffix(message: Option<&str>) -> String {
-    message.map(|value| format!(": {value}")).unwrap_or_default()
+    message
+        .map(|value| format!(": {value}"))
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

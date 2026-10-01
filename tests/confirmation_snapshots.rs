@@ -20,15 +20,21 @@ fn test_auth_tree_snapshot() {
         "testnet".to_string(),
         RiskLevel::Medium,
     )
-    .add("Contract ID", "CDLZFC3SYJYDZT7K67VZ75HPJVIEWXUNLYYDBUE2XQ4K7W5V7X4YV3Z6")
+    .add(
+        "Contract ID",
+        "CDLZFC3SYJYDZT7K67VZ75HPJVIEWXUNLYYDBUE2XQ4K7W5V7X4YV3Z6",
+    )
     .add("Function", "swap")
     .with_auth_trees(auth_trees);
 
     // Normally we'd use `display()` but it prints to stdout. We can just test the
     // data structure or assume visual verification.
-    
-    // As a snapshot, we could capture stdout using `gag` or similar, but 
+
+    // As a snapshot, we could capture stdout using `gag` or similar, but
     // it's sufficient to ensure the structures are correctly populated.
     assert_eq!(summary.auth_trees.len(), 1);
-    assert_eq!(summary.auth_trees[0].sub_invocations[0].function, "transfer");
+    assert_eq!(
+        summary.auth_trees[0].sub_invocations[0].function,
+        "transfer"
+    );
 }

@@ -72,6 +72,10 @@ struct Cli {
     /// This is unsafe and should only be used for deliberate legacy operations.
     #[arg(long, global = true)]
     allow_plaintext_mainnet: bool,
+
+    /// Show all help flags, including advanced/power-user options that are hidden by default
+    #[arg(long, global = true)]
+    help_all: bool,
 }
 
 #[derive(Subcommand)]
@@ -170,6 +174,10 @@ enum Commands {
     #[command(subcommand)]
     Tool(commands::tree::ToolTree),
 
+    /// Classic Stellar assets: SAC contract id lookup and wrap/deploy
+    #[command(subcommand)]
+    Asset(commands::asset::AssetCommands),
+
     /// Generate shell completions for bash, zsh, fish, and powershell
     #[command(subcommand)]
     Completions(commands::completions::CompletionShell),
@@ -177,6 +185,17 @@ enum Commands {
     /// Generate or install man pages
     #[command(subcommand)]
     Man(commands::man::ManCommand),
+
+    /// On-chain account lifecycle with sponsored reserves (CAP-33)
+    #[command(subcommand)]
+    Account(commands::account::AccountCommands),
+
+    /// Watch contract sources and rebuild/redeploy on save
+    Dev(commands::dev::DevArgs),
+
+    /// Manage per-network contract and account aliases
+    #[command(subcommand)]
+    Alias(commands::alias::AliasCommands),
 
     /// Smart autocomplete — suggest and record commands
     #[command(hide = true)]
@@ -205,6 +224,10 @@ enum Commands {
     /// Manage per-network contract and account aliases
     #[command(subcommand)]
     Alias(commands::alias::AliasCommands),
+
+    /// Signing agent: hold unlocked keys in locked memory with a session timeout
+    #[command(subcommand)]
+    Agent(commands::agent::AgentCommands),
 
     /// Terminal User Interface for wallets, contracts, and transactions
     #[cfg(feature = "ui")]
@@ -245,7 +268,11 @@ fn main() {
 
 #[tokio::main]
 async fn run() {
-    let cli = Cli::parse();
+    // ADR 0007: rewrite deprecated top-level spellings to noun-verb paths
+    // before clap sees them, warning on stderr.
+    let mut argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    commands::deprecations::rewrite_argv(&mut argv);
+    let cli = Cli::parse_from(argv);
 
     // Handle --help-all: show information about progressive disclosure
     if cli.help_all {
@@ -347,8 +374,12 @@ async fn run() {
         Commands::Config(_) => "config",
         Commands::Project(_) => "project",
         Commands::Tool(_) => "tool",
+        Commands::Asset(_) => "asset",
         Commands::Completions(_) => "completions",
         Commands::Man(_) => "man",
+        Commands::Account(_) => "account",
+        Commands::Dev(_) => "dev",
+        Commands::Alias(_) => "alias",
         Commands::Autocomplete { .. } => "autocomplete",
         Commands::External(_) => "external",
         Commands::Verify(_) => "verify",
@@ -358,6 +389,7 @@ async fn run() {
         Commands::AiSecurityTraining(_) => "ai-security-training",
         Commands::ContractMonitor(_) => "contract-monitor",
         Commands::Alias(_) => "alias",
+        Commands::Agent(_) => "agent",
         #[cfg(feature = "ui")]
         Commands::Ui(_) => "ui",
     }
@@ -404,8 +436,12 @@ async fn run() {
         Commands::Config(cmd) => commands::config::handle(cmd).await,
         Commands::Project(cmd) => commands::project::handle(cmd).await,
         Commands::Tool(cmd) => commands::tree::handle_tool(cmd).await,
+        Commands::Asset(cmd) => commands::asset::handle(cmd).await,
         Commands::Completions(shell) => commands::completions::handle(shell).await,
         Commands::Man(cmd) => commands::man::handle(cmd).await,
+        Commands::Account(cmd) => commands::account::handle(cmd).await,
+        Commands::Dev(args) => commands::dev::handle(args).await,
+        Commands::Alias(cmd) => commands::alias::handle(cmd).await,
         Commands::Autocomplete {
             suggest,
             record,
@@ -429,6 +465,7 @@ async fn run() {
         Commands::AiSecurityTraining(cmd) => commands::ai_security_training::handle(cmd).await,
         Commands::ContractMonitor(cmd) => commands::contract_monitor::handle(cmd).await,
         Commands::Alias(cmd) => commands::alias::handle(cmd).await,
+        Commands::Agent(cmd) => commands::agent::handle(cmd).await,
         #[cfg(feature = "ui")]
         Commands::Ui(args) => commands::ui::handle(args).await,
     };

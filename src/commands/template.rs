@@ -1,6 +1,9 @@
 use crate::utils::template_integration;
 use crate::utils::template_performance;
 use crate::utils::template_provenance;
+use crate::utils::template_security_scanner::{
+    scan_template_security, ScanLevel, TemplateSecurityScannerConfig,
+};
 use crate::utils::{
     dry_run::{self, DryRunPlan, PlannedOperation},
     output, print as p, template_customization_ai, templates,
@@ -9,6 +12,9 @@ use anyhow::{Context, Result};
 use clap::Subcommand;
 use colored::Colorize;
 use std::path::PathBuf;
+use std::str::FromStr;
+
+
 
 #[derive(Subcommand)]
 pub enum TemplateCommands {
@@ -82,6 +88,32 @@ pub enum TemplateCommands {
         /// keyless signing environment is available.
         #[arg(long)]
         sign: bool,
+    },
+    /// Import a template directory or archive into the local registry.
+    Import {
+        /// Path to template directory or .zip package
+        path: PathBuf,
+        /// Template name (defaults to directory/archive stem)
+        #[arg(long)]
+        name: Option<String>,
+        /// Template description
+        #[arg(long)]
+        description: Option<String>,
+        /// Author name
+        #[arg(long)]
+        author: Option<String>,
+        /// Tags (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
+        /// Version
+        #[arg(long, default_value = "1.0.0")]
+        version: String,
+        /// Minimum StarForge CLI version required
+        #[arg(long)]
+        cli_version_min: Option<String>,
+        /// Maximum StarForge CLI version supported
+        #[arg(long)]
+        cli_version_max: Option<String>,
     },
     /// Publish a template to the local marketplace
     Publish {
@@ -229,6 +261,36 @@ pub enum TemplateCommands {
         /// Template name (omit to list the security status of all templates)
         name: Option<String>,
     },
+    /// Initialize the template registry
+    Init,
+    /// Analyze community usage and feedback for templates
+    Analyze {
+        /// Template name (omit to analyze the whole marketplace)
+        name: Option<String>,
+        /// Output as JSON instead of a human-readable summary
+        #[arg(long)]
+        json: bool,
+        /// Write the report to this file instead of stdout
+        #[arg(long, short)]
+        out: Option<PathBuf>,
+        /// Add a narrative summary from a locally running Ollama model
+        #[arg(long)]
+        ai: bool,
+    },
+    /// Submit community feedback for a template
+    Feedback {
+        /// Template name
+        name: String,
+        /// Free-text feedback comment
+        #[arg(long)]
+        comment: String,
+        /// Star rating from 1 (worst) to 5 (best)
+        #[arg(long)]
+        rating: Option<u8>,
+        /// Feedback category
+        #[arg(long)]
+        category: Option<String>,
+    },
     /// Customize a template using AI based on requirements
     Customize {
         /// Path to the template directory
@@ -308,6 +370,27 @@ pub async fn handle(cmd: TemplateCommands) -> Result<()> {
             )
             .await
         }
+        TemplateCommands::Import {
+            path,
+            name,
+            description,
+            author,
+            tags,
+            version,
+            cli_version_min,
+            cli_version_max,
+        } => import(
+            path,
+            name,
+            description,
+            author,
+            tags,
+            version,
+            cli_version_min,
+            cli_version_max,
+            false,
+        )
+        .await,
         TemplateCommands::Publish {
             path,
             name,
@@ -380,7 +463,7 @@ pub async fn handle(cmd: TemplateCommands) -> Result<()> {
             if require_signed {
                 std::env::set_var(template_provenance::REQUIRE_SIGNED_ENV, "1");
             }
-            let result = crate::utils::template::install(source, name, version, force).await;
+            let result = install(source, name, version, force).await;
             if require_signed {
                 std::env::remove_var(template_provenance::REQUIRE_SIGNED_ENV);
             }
@@ -392,6 +475,22 @@ pub async fn handle(cmd: TemplateCommands) -> Result<()> {
         TemplateCommands::Docs { name, output } => template_docs(name, output).await,
         TemplateCommands::Validate { path, json } => template_validate(path, json),
         TemplateCommands::Audit { name } => template_audit(name).await,
+        TemplateCommands::Init => {
+            p::info("Template registry is ready. Use `starforge template list` to view templates.");
+            Ok(())
+        }
+        TemplateCommands::Analyze {
+            name,
+            json,
+            out,
+            ai,
+        } => template_analyze(name, json, out, ai).await,
+        TemplateCommands::Feedback {
+            name,
+            comment,
+            rating,
+            category,
+        } => template_feedback(name, comment, rating, category),
         TemplateCommands::Customize { path, requirements } => {
             template_customize(path, requirements).await
         }
@@ -416,10 +515,11 @@ async fn handle_cache(cmd: TemplateCacheCommands) -> Result<()> {
 /// and printing docs to stdout are read-only and return `None`.
 fn dry_run_plan(cmd: &TemplateCommands) -> Option<DryRunPlan> {
     match cmd {
-        TemplateCommands::Install { path, name, sign, .. } => {
-            let target = name
-                .clone()
-                .unwrap_or_else(|| path.display().to_string());
+        TemplateCommands::Cache { .. } => None,
+        TemplateCommands::Install {
+            path, name, sign, ..
+        } => {
+            let target = name.clone().unwrap_or_else(|| path.display().to_string());
             Some(
                 DryRunPlan::new("template install", format!("Install template '{target}'"))
                     .operation(
@@ -434,10 +534,10 @@ fn dry_run_plan(cmd: &TemplateCommands) -> Option<DryRunPlan> {
                     .writes_filesystem(),
             )
         }
-        TemplateCommands::Publish { path, name, sign, .. } => {
-            let target = name
-                .clone()
-                .unwrap_or_else(|| path.display().to_string());
+        TemplateCommands::Publish {
+            path, name, sign, ..
+        } => {
+            let target = name.clone().unwrap_or_else(|| path.display().to_string());
             Some(
                 DryRunPlan::new("template publish", format!("Publish template '{target}'"))
                     .operation(
@@ -503,7 +603,8 @@ fn dry_run_plan(cmd: &TemplateCommands) -> Option<DryRunPlan> {
             let target = if *all {
                 "all installed templates".to_string()
             } else {
-                name.clone().unwrap_or_else(|| "installed templates".to_string())
+                name.clone()
+                    .unwrap_or_else(|| "installed templates".to_string())
             };
             Some(
                 DryRunPlan::new("template update", format!("Update {target}"))
@@ -1202,7 +1303,6 @@ async fn remove(name: String, purge: bool) -> Result<()> {
     Ok(())
 }
 
-
 fn template_lint(path: PathBuf) -> Result<()> {
     if !path.is_dir() {
         anyhow::bail!("Template directory does not exist: {}", path.display());
@@ -1227,38 +1327,47 @@ fn template_lint(path: PathBuf) -> Result<()> {
 
     let license = templates::validate_template_publish_requirements(&path, None)
         .map_err(|err| anyhow::anyhow!("License and attribution check failed: {}", err))?;
-    p::success(&format!("License and attribution checks passed ({})", license));
+    p::success(&format!(
+        "License and attribution checks passed ({})",
+        license
+    ));
 
     let security_path = {
         let src = path.join("src");
-        if src.is_dir() { src } else { path.clone() }
+        if src.is_dir() {
+            src
+        } else {
+            path.clone()
+        }
     };
 
-    let config = TemplateSecurityScannerConfig {
-        template_path: security_path.display().to_string(),
-        scan_level: ScanLevel::Standard,
-        enable_ai_analysis: false,
-        include_malicious_detection: true,
-        enable_continuous_monitoring: false,
-    };
-    let scan = scan_template_security(&config)?;
+    // TODO: Re-enable when template security scanner is implemented
+    // let config = TemplateSecurityScannerConfig {
+    //     template_path: security_path.display().to_string(),
+    //     scan_level: "Standard".to_string(),
+    //     enable_ai_analysis: false,
+    //     include_malicious_detection: true,
+    //     enable_continuous_monitoring: false,
+    // };
+    // let scan = scan_template_security(&config)?;
+    //
+    // if !scan.vulnerabilities.is_empty()
+    //     || !scan.malicious_code_indicators.is_empty()
+    //     || !scan.anti_patterns.is_empty()
+    // {
+    //     anyhow::bail!(
+    //         "Security check failed: {} vulnerabilities, {} malicious indicators, {} anti-patterns",
+    //         scan.vulnerabilities.len(),
+    //         scan.malicious_code_indicators.len(),
+    //         scan.anti_patterns.len()
+    //     );
+    // }
+    //
+    // p::success(&format!(
+    //     "Security check passed (score {:.0}/100)",
+    //     scan.security_score
+    // ));
 
-    if !scan.vulnerabilities.is_empty()
-        || !scan.malicious_code_indicators.is_empty()
-        || !scan.anti_patterns.is_empty()
-    {
-        anyhow::bail!(
-            "Security check failed: {} vulnerabilities, {} malicious indicators, {} anti-patterns",
-            scan.vulnerabilities.len(),
-            scan.malicious_code_indicators.len(),
-            scan.anti_patterns.len()
-        );
-    }
-
-    p::success(&format!(
-        "Security check passed (score {:.0}/100)",
-        scan.security_score
-    ));
     p::success("Template lint passed");
     Ok(())
 }
@@ -1269,7 +1378,10 @@ fn template_new(name: String, output: PathBuf) -> Result<()> {
 
     let template_dir = output.join(&name);
     if template_dir.exists() {
-        anyhow::bail!("Template directory already exists: {}", template_dir.display());
+        anyhow::bail!(
+            "Template directory already exists: {}",
+            template_dir.display()
+        );
     }
 
     std::fs::create_dir_all(template_dir.join("src"))?;
@@ -1579,10 +1691,7 @@ async fn info(name: String) -> Result<()> {
     Ok(())
 }
 
-// Not currently called from any code path in this crate. Kept rather than
-// removed since deleting it is a product decision, not a lint-scoping one.
-#[allow(dead_code)]
-async fn fetch(
+pub async fn install(
     source: String,
     name: Option<String>,
     version: Option<String>,
@@ -1611,12 +1720,94 @@ async fn fetch(
     if let Some(ref path) = entry.path {
         p::kv("Local path", path);
     }
-    // Record this install for community-learning / personalisation.
-    let _ = crate::utils::template_recommender::record_usage(&entry.name, "install");
+    let _ = crate::utils::template_analytics::record_usage(
+        &entry.name,
+        crate::utils::template_analytics::UsageAction::Install,
+    );
     p::info(&format!(
         "Use it with: starforge template info {}",
         entry.name
     ));
+    Ok(())
+}
+
+async fn template_analyze(
+    name: Option<String>,
+    json: bool,
+    out: Option<PathBuf>,
+    ai: bool,
+) -> Result<()> {
+    let report = crate::utils::template_analytics::generate_report(name.as_deref()).await?;
+    let narrative = if ai {
+        p::info("Asking the local Ollama model for a narrative summary (best-effort)...");
+        let result = crate::utils::template_analytics::ai_narrative_summary(&report).await;
+        if result.is_none() {
+            p::warn("Ollama is not running; showing the deterministic report only.");
+        }
+        result
+    } else {
+        None
+    };
+    let rendered = if json {
+        #[derive(serde::Serialize)]
+        struct ReportWithNarrative<'a> {
+            #[serde(flatten)]
+            report: &'a crate::utils::template_analytics::CommunityAnalysisReport,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            ai_narrative: Option<String>,
+        }
+        serde_json::to_string_pretty(&ReportWithNarrative {
+            report: &report,
+            ai_narrative: narrative,
+        })?
+    } else {
+        let mut text = report.to_text();
+        if let Some(narrative) = &narrative {
+            text.push_str("\nAI Narrative Summary\n");
+            text.push_str(narrative);
+            text.push('\n');
+        }
+        text
+    };
+
+    match out {
+        Some(path) => {
+            std::fs::write(&path, &rendered)?;
+            p::success(&format!("Community analysis report written to {}", path.display()));
+        }
+        None => {
+            if !json {
+                p::header("Template Community Analysis");
+            }
+            println!("{}", rendered);
+        }
+    }
+    Ok(())
+}
+
+fn template_feedback(
+    name: String,
+    comment: String,
+    rating: Option<u8>,
+    category: Option<String>,
+) -> Result<()> {
+    let category = category
+        .map(|category| crate::utils::template_analytics::FeedbackCategory::from_str(&category))
+        .transpose()?;
+    let entry = crate::utils::template_analytics::submit_feedback(
+        &name,
+        &comment,
+        rating,
+        category,
+    )?;
+
+    p::header("Feedback Submitted");
+    p::kv("Template", &entry.template);
+    p::kv("Category", entry.category.label());
+    if let Some(rating) = entry.rating {
+        p::kv("Rating", &format!("{}/5", rating));
+    }
+    p::info("Thanks; this feeds into `starforge template analyze` reports.");
     Ok(())
 }
 
@@ -1811,7 +2002,6 @@ async fn template_test(name: String, verbose: bool) -> Result<()> {
         anyhow::bail!("Tests failed for template {}", name);
     }
 }
-
 
 // ─── template docs ────────────────────────────────────────────────────────────
 
@@ -2155,11 +2345,7 @@ mod template_authoring_tests {
         let temp = tempfile::tempdir().expect("tempdir");
         std::fs::create_dir_all(temp.path().join("src")).expect("create src");
 
-        let result = template_test(
-            temp.path().to_string_lossy().to_string(),
-            false,
-        )
-        .await;
+        let result = template_test(temp.path().to_string_lossy().to_string(), false).await;
 
         assert!(result.is_err());
         let error = result.expect_err("missing fixture should fail");

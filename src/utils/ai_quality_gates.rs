@@ -379,7 +379,10 @@ fn push_max(
         gate: redact_secrets(gate),
         passed,
         actual: redact_secrets(&format!("{actual:.2}")),
-        expected: redact_secrets(&format!("{} {threshold:.2}", if minimum { ">=" } else { "<=" })),
+        expected: redact_secrets(&format!(
+            "{} {threshold:.2}",
+            if minimum { ">=" } else { "<=" }
+        )),
         remediation: redact_secrets(remediation),
     });
 }
@@ -572,13 +575,19 @@ mod tests {
         };
 
         redact_report(&mut report);
-        assert!(!report.results[0].actual.contains("SDJ34K5N6P7Q2R3S4T5U2V3W4X5Y6Z7A2B3C4D5E2F3G4H5I6J7K2L3M"));
+        assert!(!report.results[0]
+            .actual
+            .contains("SDJ34K5N6P7Q2R3S4T5U2V3W4X5Y6Z7A2B3C4D5E2F3G4H5I6J7K2L3M"));
         assert!(report.results[0].actual.contains("[REDACTED]"));
-        assert!(!report.results[0].remediation.contains("ghp_1234567890abcdef"));
+        assert!(!report.results[0]
+            .remediation
+            .contains("ghp_1234567890abcdef"));
 
         let annotations = format_github_annotations(&report);
         assert_eq!(annotations.len(), 1);
-        assert!(!annotations[0].contains("SDJ34K5N6P7Q2R3S4T5U2V3W4X5Y6Z7A2B3C4D5E2F3G4H5I6J7K2L3M"));
+        assert!(
+            !annotations[0].contains("SDJ34K5N6P7Q2R3S4T5U2V3W4X5Y6Z7A2B3C4D5E2F3G4H5I6J7K2L3M")
+        );
         assert!(annotations[0].contains("::error file="));
         assert!(annotations[0].contains("[REDACTED]"));
     }

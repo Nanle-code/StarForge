@@ -4,6 +4,7 @@
 templates, encrypted wallets and deployment safety checks for Stellar.**
 
 [![CI](https://github.com/Nanle-code/StarForge/actions/workflows/ci.yml/badge.svg)](https://github.com/Nanle-code/StarForge/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/Nanle-code/StarForge/branch/master/graph/badge.svg)](https://codecov.io/gh/Nanle-code/StarForge)
 ![License: MIT](https://img.shields.io/badge/License-MIT-cyan.svg)
 ![Status: beta](https://img.shields.io/badge/status-beta-yellow.svg)
 ![Stellar Wave](https://img.shields.io/badge/Stellar-Wave%20Program-blueviolet.svg)
@@ -612,6 +613,7 @@ StarForge has comprehensive documentation covering all aspects of the project:
 ### ?? Examples
 - **[examples/template_marketplace_usage.md](examples/template_marketplace_usage.md)** - Practical examples
 - **[tutorials/hello-world/](tutorials/hello-world/)** - Beginner tutorial
+- **[15-minute onboarding tutorial](tutorials/onboarding-15-minute/)** - Offline-first tutorial with verified install, wallet, scaffold, and simulation checkpoints
 
 **Total**: 17 documentation files with 7,700+ lines covering architecture, development, API reference, and examples.
 

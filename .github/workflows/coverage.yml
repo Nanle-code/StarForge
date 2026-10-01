@@ -6,9 +6,13 @@
 # / function totals are also written to the job summary so reviewers can see
 # them without downloading anything.
 #
-# Gating: the job fails if the tests fail. A minimum coverage percentage is
-# enforced only when the repository variable COVERAGE_THRESHOLD is set
-# (Settings -> Secrets and variables -> Actions -> Variables), e.g. "60".
+# Gating:
+#   1. Tests must pass.
+#   2. Global ratchet (`coverage-ratchet.toml`): line coverage may not drop
+#      more than `tolerance_percent` below `lines_percent_min`.
+#   3. Critical-path floors for crypto / wallet / config modules.
+#   4. Optional `COVERAGE_THRESHOLD` repository variable (fail-under-lines).
+#   5. Codecov project/patch/component status via `codecov.yml`.
 #
 # Local equivalent: scripts/coverage.sh, or
 #   cargo llvm-cov --locked --html -- --test-threads=1
@@ -23,6 +27,8 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'tests/**'
+      - 'coverage-ratchet.toml'
+      - 'codecov.yml'
       - '.github/workflows/coverage.yml'
   pull_request:
     paths:
@@ -30,6 +36,8 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'tests/**'
+      - 'coverage-ratchet.toml'
+      - 'codecov.yml'
       - '.github/workflows/coverage.yml'
   workflow_dispatch:
 
@@ -50,8 +58,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      # Exposed via env so steps can test for it (the `secrets` context is not
-      # allowed in step-level `if:` expressions).
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
       COVERAGE_THRESHOLD: ${{ vars.COVERAGE_THRESHOLD }}
     steps:
@@ -72,7 +78,6 @@ jobs:
         with:
           tool: cargo-llvm-cov
 
-      # Same test invocation as the `Build and Test` CI job, instrumented.
       - name: Run tests with coverage instrumentation
         run: cargo llvm-cov --locked --no-report -- --test-threads=1
 
@@ -80,6 +85,7 @@ jobs:
         run: |
           mkdir -p coverage
           cargo llvm-cov report --lcov --output-path coverage/lcov.info
+          cargo llvm-cov report --json --output-path coverage/coverage.json
           cargo llvm-cov report --json --summary-only --output-path coverage/coverage-summary.json
           cargo llvm-cov report --html --output-dir coverage
           cargo llvm-cov report --summary-only | tee coverage/summary.txt
@@ -99,7 +105,50 @@ jobs:
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fh:
               fh.write("\n".join(lines))
 
-      - name: Enforce minimum line coverage
+      - name: Enforce coverage ratchet and critical-path floors
+        shell: python3 {0}
+        run: |
+          import json, sys, tomllib
+          from pathlib import Path
+
+          ratchet = tomllib.loads(Path("coverage-ratchet.toml").read_text())
+          summary = json.load(open("coverage/coverage-summary.json"))
+          full = json.load(open("coverage/coverage.json"))
+          totals = summary["data"][0]["totals"]
+          line_pct = float(totals["lines"]["percent"])
+          floor = float(ratchet["lines_percent_min"]) - float(ratchet["tolerance_percent"])
+          print(f"Line coverage: {line_pct:.2f}% (ratchet floor {floor:.2f}%)")
+          failed = False
+          if line_pct + 1e-9 < floor:
+              print(f"::error::Coverage {line_pct:.2f}% dropped below ratchet floor {floor:.2f}%")
+              failed = True
+
+          files = {}
+          for f in full["data"][0].get("files", []):
+              name = f.get("filename") or f.get("file", "")
+              files[name] = f
+          for path, min_pct in ratchet.get("critical_paths", {}).items():
+              entry = files.get(path)
+              if entry is None:
+                  entry = next((v for k, v in files.items() if k.endswith(path)), None)
+              if entry is None:
+                  print(f"::warning::No coverage data for critical path {path}; skipping floor check")
+                  continue
+              summary_block = entry.get("summary") or entry
+              lines_block = summary_block.get("lines") or summary_block.get("totals", {}).get("lines")
+              if not lines_block:
+                  print(f"::warning::Unexpected coverage JSON shape for {path}; skipping")
+                  continue
+              pct = float(lines_block["percent"])
+              print(f"{path}: {pct:.2f}% (floor {min_pct}%)")
+              if pct + 1e-9 < float(min_pct):
+                  print(f"::error::{path} coverage {pct:.2f}% is below floor {min_pct}%")
+                  failed = True
+
+          if failed:
+              sys.exit(1)
+
+      - name: Enforce minimum line coverage (optional repo variable)
         if: env.COVERAGE_THRESHOLD != ''
         run: cargo llvm-cov report --fail-under-lines "$COVERAGE_THRESHOLD"
 
@@ -112,8 +161,6 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
-      # Optional: only runs when a CODECOV_TOKEN secret is configured, and never
-      # fails the job (Codecov outages / fork PRs without the secret).
       - name: Upload coverage to Codecov
         if: env.CODECOV_TOKEN != ''
         continue-on-error: true
@@ -122,4 +169,5 @@ jobs:
           files: coverage/lcov.info
           name: starforge-coverage
           token: ${{ env.CODECOV_TOKEN }}
+          flags: rust
           fail_ci_if_error: false
