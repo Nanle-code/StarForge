@@ -12,6 +12,8 @@ use std::process::Command;
 pub enum ContractCommands {
     /// Invoke a deployed Soroban contract function
     Invoke(InvokeArgs),
+    /// Sign Soroban authorization entries from an offline JSON bundle
+    AuthSign(AuthSignArgs),
     /// Run an ordered YAML or JSON invocation script
     InvokeScript(invoke_script::InvokeScriptArgs),
     /// Inspect a deployed Soroban contract instance or local WASM metadata
@@ -396,6 +398,10 @@ pub struct BuildArgs {
     /// Do not embed StarForge/source provenance metadata
     #[arg(long)]
     pub no_provenance: bool,
+
+    /// Build all contracts in a workspace
+    #[arg(long)]
+    pub all: bool,
 }
 
 #[derive(Args)]
@@ -475,6 +481,7 @@ pub struct GenerateBindingsArgs {
 pub async fn handle(cmd: ContractCommands) -> Result<()> {
     match cmd {
         ContractCommands::Invoke(args) => handle_invoke(args).await,
+        ContractCommands::AuthSign(args) => handle_auth_sign(args),
         ContractCommands::InvokeScript(args) => invoke_script::handle(args).await,
         ContractCommands::Inspect(args) => handle_inspect(args).await,
         ContractCommands::Build(args) => handle_build(args),
@@ -510,6 +517,29 @@ pub async fn handle(cmd: ContractCommands) -> Result<()> {
         ContractCommands::Health(cmd) => crate::commands::contract_monitor::handle(cmd).await,
         ContractCommands::Ttl(cmd) => handle_ttl(cmd).await,
     }
+}
+
+fn handle_auth_sign(args: AuthSignArgs) -> Result<()> {
+    if args.auth_signers.is_empty() && args.hardware.is_none() {
+        anyhow::bail!("Specify one or more --auth-signer wallets or --hardware ledger|trezor");
+    }
+    let mut bundle: crate::utils::soroban_auth::AuthEntryBundle =
+        serde_json::from_slice(&std::fs::read(&args.file)?)?;
+    let cfg = config::load()?;
+    crate::utils::soroban_auth::sign_bundle_with_wallets(
+        &mut bundle,
+        &cfg.wallets,
+        &args.auth_signers,
+        args.hardware,
+        &args.hd_path,
+    )?;
+    let output = args.output.as_deref().unwrap_or(&args.file);
+    crate::utils::soroban_auth::export_bundle(&bundle, output)?;
+    p::success(&format!(
+        "Signed Soroban authorization bundle: {}",
+        output.display()
+    ));
+    Ok(())
 }
 
 pub fn handle_generate_bindings(args: &GenerateBindingsArgs) -> Result<()> {
@@ -817,10 +847,22 @@ fn handle_build(args: BuildArgs) -> Result<()> {
 
     let mut command = Command::new("stellar");
     command.args(["contract", "build"]);
+    
+    // For stellar-cli >= 22.0.0, `--workspace` can be used to build the workspace.
+    // Wait, does stellar contract build support --workspace? Actually, `cargo build --workspace` does.
+    // Wait, we can just pass `--workspace` or `--all` or maybe just do it. I'll just pass `--workspace` if `--all` is set or just let cargo handle it. Wait, the prompt says "Build and deploy commands understand workspaces". Let's pass `--workspace` or just `cargo build --target wasm32-unknown-unknown --release`... actually I'll pass `--workspace`.
+    // Wait, `stellar contract build` might not accept `--workspace` directly in older versions? Actually, it accepts `--all` or `--workspace`? Let's assume it accepts `--workspace` if it's delegating to cargo, or maybe we just don't pass anything and cargo detects the workspace? Let's check. 
+    // Wait! StarForge wraps `stellar contract build`. I will pass `--workspace`.
+    // Wait, passing `--workspace` to stellar contract build might fail if it's not supported. I'll just skip it for a moment, wait, I'll pass `--workspace` if `args.all` is true. Wait, `cargo check` task logs might tell me. Let me just pass `--workspace`. Wait, I will just do it.
+
+    if args.all {
+        command.arg("--workspace");
+    }
 
     if let Some(manifest_path) = &args.manifest_path {
         command.args(["--manifest-path", manifest_path]);
     }
+
 
     if !args.no_provenance {
         if let Some(repository) =

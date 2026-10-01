@@ -57,7 +57,7 @@ fn list() -> Result<()> {
         );
     }
     p::separator();
-    p::info("Start with: starforge tutorial start hello-world (or add --demo for offline mode)");
+    p::info("Start with: starforge tool tutorial start hello-world (or add --demo for offline mode)");
     Ok(())
 }
 
@@ -83,8 +83,8 @@ fn start(slug: String, demo: bool) -> Result<()> {
     }
     p::separator();
     print_current_step(&tutorial, &status);
-    p::info("Advance with: starforge tutorial next");
-    p::info("Track progress with: starforge tutorial status");
+    p::info("Advance with: starforge tool tutorial next");
+    p::info("Track progress with: starforge tool tutorial status");
     Ok(())
 }
 
@@ -92,9 +92,27 @@ fn next() -> Result<()> {
     let root = repo_root()?;
     let mut status = tutorial_engine::load_status()?;
     let slug = status.active.clone().ok_or_else(|| {
-        anyhow::anyhow!("No active tutorial. Run starforge tutorial start <slug>")
+        anyhow::anyhow!("No active tutorial. Run starforge tool tutorial start <slug>")
     })?;
     let tutorial = tutorial_engine::load_tutorial(&root, &slug)?;
+    let step = tutorial.steps.get(status.current_step).ok_or_else(|| {
+        anyhow::anyhow!("Tutorial progress is invalid; restart with starforge tool tutorial start {}", slug)
+    })?;
+
+    if let Some(checkpoint) = &step.checkpoint {
+        if let Err(error) = tutorial_engine::verify_checkpoint(checkpoint, &root) {
+            let repair_hint = step
+                .repair_hint
+                .as_deref()
+                .unwrap_or("Complete the command shown for this step, then retry.");
+            anyhow::bail!(
+                "Checkpoint '{}' failed: {}\nRepair hint: {}",
+                step.title,
+                error,
+                repair_hint
+            );
+        }
+    }
 
     if !status.completed_steps.contains(&status.current_step) {
         status.completed_steps.push(status.current_step);
@@ -105,6 +123,9 @@ fn next() -> Result<()> {
             println!("{}", tutorial_engine::DEMO_MODE_BANNER.yellow().bold());
         }
         p::success("Tutorial complete! You reached the final milestone.");
+        if let Some(elapsed) = elapsed_seconds(&status) {
+            p::kv("Elapsed", &format_elapsed(elapsed));
+        }
         status.active = None;
         status.current_step = 0;
         tutorial_engine::save_status(&status)?;
@@ -120,7 +141,7 @@ fn next() -> Result<()> {
 
     p::header(&format!("Tutorial: {}", tutorial.title));
     print_current_step(&tutorial, &status);
-    p::info("Run the suggested command in your terminal, then `starforge tutorial next` again.");
+    p::info("Run the suggested command in your terminal, then `starforge tool tutorial next` again.");
     Ok(())
 }
 
@@ -147,6 +168,9 @@ fn status() -> Result<()> {
             if let Some(ts) = &status.started_at {
                 p::kv("Started", ts);
             }
+            if let Some(elapsed) = elapsed_seconds(&status) {
+                p::kv("Elapsed", &format_elapsed(elapsed));
+            }
             p::kv(
                 "Progress",
                 &format!(
@@ -162,11 +186,25 @@ fn status() -> Result<()> {
         None => {
             p::info(&format!(
                 "No active tutorial. Start one with: {}",
-                "starforge tutorial start hello-world".cyan()
+                "starforge tool tutorial start hello-world".cyan()
             ));
         }
     }
     Ok(())
+}
+
+fn elapsed_seconds(status: &tutorial_engine::TutorialStatus) -> Option<i64> {
+    let started_at = chrono::DateTime::parse_from_rfc3339(status.started_at.as_deref()?).ok()?;
+    Some(
+        chrono::Utc::now()
+            .signed_duration_since(started_at.with_timezone(&chrono::Utc))
+            .num_seconds()
+            .max(0),
+    )
+}
+
+fn format_elapsed(seconds: i64) -> String {
+    format!("{}m {:02}s", seconds / 60, seconds % 60)
 }
 
 fn print_current_step(

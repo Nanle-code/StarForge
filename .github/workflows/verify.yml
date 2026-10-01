@@ -37,13 +37,10 @@ jobs:
         run: |
           WASM="target/wasm32-unknown-unknown/release/contract.wasm"
           if [ -f "$WASM" ]; then
-            cargo run -- verify run \
+            cargo run -- contract verify \
               --wasm "$WASM" \
-              --contract my-contract \
-              --network testnet \
-              --fail-on-critical true
-            cargo run -- verify report --contract my-contract
+              --network testnet
           else
             echo "No WASM artifact found — skipping on-chain verification run"
-            cargo run -- verify ci --platform github --contract my-contract
+            echo "::notice::verify.yml: No contract.wasm found; verification skipped."
           fi

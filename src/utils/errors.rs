@@ -289,6 +289,7 @@ impl ErrorCode {
             ExitCode::Execution => Self::GeneralExecutionFailure,
             ExitCode::Environment => Self::GeneralEnvironmentFailure,
             ExitCode::BreakingChange => Self::GeneralBreakingChange,
+            ExitCode::SmokeTestFailure => Self::GeneralFailure,
         }
     }
 

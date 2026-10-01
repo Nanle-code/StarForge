@@ -1,6 +1,8 @@
 use crate::utils::{
-    audit, config, confirmation, crypto, hardware_wallet, horizon, keychain, mnemonic, multisig,
-    output, print as p, stellar_cli_identity,
+    audit, config, confirmation, crypto,
+    dry_run::{self, DryRunPlan, PlannedOperation},
+    hardware_wallet, horizon, keychain, mnemonic, multisig, output, print as p,
+    stellar_cli_identity,
 };
 use anyhow::{Context, Result};
 use bip39::{Language, Mnemonic};

@@ -310,11 +310,15 @@ pub fn stellar_toml_url(home_domain: &str) -> String {
 /// them is reported as "SEP-10 is not supported" before any challenge is
 /// requested.
 pub async fn fetch_stellar_toml(home_domain: &str) -> Result<Sep10Server> {
-    let client = reqwest::Client::builder()
-        .timeout(HTTP_TIMEOUT)
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .context("failed to build the SEP-1 discovery HTTP client")?;
+    // #902: the shared factory owns proxy, custom CA bundle and user agent;
+    // redirects stay un-followed because the challenge response is signed with
+    // a credential the server must not be able to re-route.
+    let client = crate::utils::http_client::client_for(
+        crate::utils::http_client::HttpClientSettings::from_env()
+            .with_timeout(HTTP_TIMEOUT)
+            .without_redirects(),
+    )
+    .context("failed to build the SEP-1 discovery HTTP client")?;
     fetch_stellar_toml_with_client(&client, home_domain).await
 }
 
@@ -484,11 +488,14 @@ impl Sep10Client {
     /// the server names. SEP-10 endpoints are required to answer directly, so a
     /// redirect is reported as an error instead of being chased.
     pub fn new(server: Sep10Server) -> Result<Self> {
-        let http = reqwest::Client::builder()
-            .timeout(HTTP_TIMEOUT)
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .context("failed to build the SEP-10 HTTP client")?;
+        // #902: shared factory (proxy, custom CA bundle, user agent), no
+        // redirects.
+        let http = crate::utils::http_client::client_for(
+            crate::utils::http_client::HttpClientSettings::from_env()
+                .with_timeout(HTTP_TIMEOUT)
+                .without_redirects(),
+        )
+        .context("failed to build the SEP-10 HTTP client")?;
         Ok(Self { server, http })
     }
 

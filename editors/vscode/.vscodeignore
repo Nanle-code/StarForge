@@ -1,0 +1,17 @@
+# Source (bundled by esbuild into dist/extension.js)
+src/
+tsconfig.json
+tsconfig.test.json
+.eslintrc.json
+
+# Dev dependencies
+node_modules/
+
+# Build artifacts not needed in the VSIX
+dist/test/
+**/*.map
+
+# Misc
+.gitignore
+.vscode/
+*.vsix

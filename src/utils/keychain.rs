@@ -250,6 +250,7 @@ impl SecretBackend for FileBackend {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct OsKeychainBackend;
 
+#[cfg(feature = "keychain")]
 impl SecretBackend for OsKeychainBackend {
     fn kind(&self) -> BackendKind {
         BackendKind::OsKeychain

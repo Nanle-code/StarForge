@@ -1,0 +1,11 @@
+    pub fn pause(env: soroban_sdk::Env, admin: soroban_sdk::Address) {
+        admin.require_auth();
+        env.storage().instance().set(&soroban_sdk::symbol_short!("PAUSED"), &true);
+    }
+    pub fn unpause(env: soroban_sdk::Env, admin: soroban_sdk::Address) {
+        admin.require_auth();
+        env.storage().instance().set(&soroban_sdk::symbol_short!("PAUSED"), &false);
+    }
+    pub fn is_paused(env: soroban_sdk::Env) -> bool {
+        env.storage().instance().get(&soroban_sdk::symbol_short!("PAUSED")).unwrap_or(false)
+    }

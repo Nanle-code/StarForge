@@ -19,7 +19,7 @@ libfuzzer-sys = "0.4"
 arbitrary = { version = "1.3", features = ["derive"] }
 
 # SHA-2 and hex for harnesses that reimplement the WASM hash independently.
-sha2 = "0.11"
+sha2 = "0.10"
 hex  = "0.4"
 
 # JSON assembly for the structured wallet-backup harness.

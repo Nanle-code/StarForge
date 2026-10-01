@@ -9,29 +9,72 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use once_cell::sync::Lazy;
 use reqwest::Client;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use stellar_strkey::{ed25519, Contract};
 use stellar_xdr::curr::{
-    AccountId, ContractDataDurability, ContractExecutable, Hash, LedgerEntryData, LedgerKey,
-    LedgerKeyContractData, PublicKey, ScAddress, ScMap, ScString, ScSymbol, ScVal, Uint256,
+    AccountId, ContractDataDurability, ContractExecutable, DecoratedSignature, ExtensionPoint,
+    Hash, HostFunction, InvokeContractArgs, InvokeHostFunctionOp, LedgerEntryData, LedgerKey,
+    LedgerKeyContractData, Limits, Memo, MuxedAccount, Operation, OperationBody, Preconditions,
+    PublicKey, ScAddress, ScMap, ScString, ScSymbol, ScVal, SequenceNumber, Signature,
+    SignatureHint, SorobanAuthorizationEntry, SorobanResources, SorobanTransactionData,
+    Transaction, TransactionEnvelope, TransactionExt, TransactionSignaturePayload,
+    TransactionSignaturePayloadTaggedTransaction, TransactionV1Envelope, Uint256, VecM, WriteXdr,
 };
 
-fn build_http_client(timeout: Duration) -> Result<Client> {
-    Client::builder()
-        .timeout(timeout)
-        .pool_max_idle_per_host(10)
-        .build()
-        .context("Failed to create Soroban HTTP client")
+fn build_http_client(timeout: Duration) -> Client {
+    // #902: the central factory owns proxy, custom CA bundle and user agent.
+    crate::utils::http_client::client_with_timeout(timeout)
 }
 
-static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
-    build_http_client(Duration::from_secs(30)).expect("Failed to create shared Soroban HTTP client")
-});
+static HTTP_CLIENT: Lazy<Client> =
+    Lazy::new(|| build_http_client(Duration::from_secs(30)));
 
 /// Global RPC budget manager (thread-safe for concurrent access).
 static RPC_BUDGET_MANAGER: Lazy<Mutex<RpcBudgetManager>> =
     Lazy::new(|| Mutex::new(RpcBudgetManager::new()));
+
+const PROTOCOL_VERSION_CACHE_TTL: Duration = Duration::from_secs(60);
+static PROTOCOL_VERSION_CACHE: Lazy<Mutex<HashMap<String, (Instant, u32)>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProtocolFeature {
+    ContractConstructor,
+}
+
+pub const PROTOCOL_FEATURES: &[(ProtocolFeature, u32)] =
+    &[(ProtocolFeature::ContractConstructor, 22)];
+
+pub fn supports(feature: ProtocolFeature, protocol_version: u32) -> bool {
+    PROTOCOL_FEATURES
+        .iter()
+        .find(|(known_feature, _)| *known_feature == feature)
+        .is_some_and(|(_, minimum)| protocol_version >= *minimum)
+}
+
+pub fn require_feature(feature: ProtocolFeature, protocol_version: u32) -> Result<()> {
+    if supports(feature, protocol_version) {
+        return Ok(());
+    }
+
+    let minimum = PROTOCOL_FEATURES
+        .iter()
+        .find(|(known_feature, _)| *known_feature == feature)
+        .map(|(_, minimum)| *minimum)
+        .expect("all protocol features have a minimum version");
+    let capability = match feature {
+        ProtocolFeature::ContractConstructor => "contract constructor (create_contract_with_constructor)",
+    };
+
+    anyhow::bail!(
+        "The {} capability requires Stellar protocol {} or later; detected protocol {}.",
+        capability,
+        minimum,
+        protocol_version
+    )
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthNode {
@@ -57,6 +100,9 @@ pub struct SimulationResult {
     #[serde(default)]
     pub resources: Option<SimulationResources>,
     #[serde(default)]
+    pub authorization: Option<crate::utils::soroban_auth::AuthEntryBundle>,
+    #[serde(default)]
+    pub transaction_data: Option<String>,
     pub auth: Vec<AuthNode>,
 }
 
@@ -181,135 +227,29 @@ pub async fn invoke_contract(
     network: &str,
     wallet: Option<&WalletEntry>,
     signing: Option<&SigningRequest>,
+    auth_signers: &[String],
+    auth_export: Option<&std::path::Path>,
+    auth_import: Option<&std::path::Path>,
 ) -> Result<InvokeOutcome> {
-    invoke_contract_with_options(
+    let source_wallet = match wallet {
+        Some(wallet) => wallet.clone(),
+        None => config::load()?
+            .wallets
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("Simulation needs a source wallet; add one with `starforge wallet create`"))?,
+    };
+    let mut simulation = simulate_transaction_from(
         contract_id,
         function,
         args,
         arg_types,
         network,
-        wallet,
-        signing,
-        InvokeOptions {
-            submit: wallet.is_some(),
-            ..InvokeOptions::default()
-        },
+        &source_wallet,
     )
-    .await
-}
-
-pub async fn invoke_contract_with_options(
-    contract_id: &str,
-    function: &str,
-    args: &[String],
-    arg_types: &[String],
-    network: &str,
-    wallet: Option<&WalletEntry>,
-    signing: Option<&SigningRequest>,
-    options: InvokeOptions,
-) -> Result<InvokeOutcome> {
-    let mut simulation =
-        simulate_transaction(contract_id, function, args, arg_types, network).await?;
-    let mut restored = false;
-    let mut restore_fee_stroops = None;
-    let mut restore_tx_hash = None;
-
-    if let Some(resources) = simulation.resources.as_ref() {
-        if resources.requires_restore() {
-            restore_fee_stroops = resources.restore_fee_stroops;
-            let tx_data = resources.restore_transaction_data.clone();
-            let fee = resources.restore_fee_stroops.unwrap_or(0);
-
-            match options.restore {
-                RestoreMode::Never => {}
-                RestoreMode::Prompt | RestoreMode::Auto => {
-                    let wallet = wallet.ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "Simulation requires restoring archived ledger entries \
-                             (restore fee ~{fee} stroops). Provide a wallet and \
-                             --auto-restore / confirm to restore, then re-invoke."
-                        )
-                    })?;
-                    let signing = signing.ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "A signing configuration is required to submit the restore transaction."
-                        )
-                    })?;
-                    let tx_data = tx_data.ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "restorePreamble is missing transactionData; cannot build RestoreFootprintOp."
-                        )
-                    })?;
-
-                    let should_restore = match options.restore {
-                        RestoreMode::Auto => true,
-                        RestoreMode::Never => false,
-                        RestoreMode::Prompt => {
-                            if options.yes {
-                                true
-                            } else {
-                                use crate::utils::confirmation::{
-                                    confirm_operation, ConfirmationConfig, OperationSummary,
-                                    RiskLevel,
-                                };
-                                let summary = OperationSummary::new(
-                                    "Restore Archived Ledger Entries".to_string(),
-                                    network.to_string(),
-                                    if network == "mainnet" {
-                                        RiskLevel::High
-                                    } else {
-                                        RiskLevel::Medium
-                                    },
-                                )
-                                .add("Contract ID", contract_id)
-                                .add(
-                                    "Restore fee",
-                                    format!("{fee} stroops ({:.7} XLM)", fee as f64 / 10_000_000.0),
-                                );
-                                let cfg = ConfirmationConfig {
-                                    risk_level: if network == "mainnet" {
-                                        RiskLevel::High
-                                    } else {
-                                        RiskLevel::Medium
-                                    },
-                                    network: network.to_string(),
-                                    skip_confirm: false,
-                                    dry_run: false,
-                                    prompt: Some(
-                                        "Submit restore transaction before invoke?".to_string(),
-                                    ),
-                                    require_type_confirmation: network == "mainnet",
-                                    ..Default::default()
-                                };
-                                confirm_operation(&summary, &cfg)?
-                            }
-                        }
-                    };
-
-                    if !should_restore {
-                        anyhow::bail!("Restore cancelled; invoke aborted.");
-                    }
-
-                    let hash = crate::utils::contract_ttl::restore_from_preamble(
-                        network, wallet, signing, &tx_data, fee,
-                    )
-                    .await?;
-                    restored = true;
-                    restore_tx_hash = Some(hash);
-
-                    simulation =
-                        simulate_transaction(contract_id, function, args, arg_types, network)
-                            .await?;
-                }
-            }
-        }
-    }
-
-    let transaction = if options.submit {
-        let w = wallet.ok_or_else(|| {
-            anyhow::anyhow!("submit requested but no wallet was provided for signing")
-        })?;
-        Some(
+    .await?;
+    let transaction = match wallet {
+        Some(w) => Some(
             submit_transaction(
                 contract_id,
                 function,
@@ -341,18 +281,48 @@ pub async fn simulate_transaction(
     arg_types: &[String],
     network: &str,
 ) -> Result<SimulationResult> {
+    let wallet = config::load()?
+        .wallets
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("Simulation needs a source wallet; add one with `starforge wallet create`"))?;
+    simulate_transaction_from(contract_id, function, args, arg_types, network, &wallet).await
+}
+
+async fn simulate_transaction_from(
+    contract_id: &str,
+    function: &str,
+    args: &[String],
+    arg_types: &[String],
+    network: &str,
+    source: &WalletEntry,
+) -> Result<SimulationResult> {
     let rpc_url = get_rpc_url(network)?;
-
-    // Convert arguments to XDR ScVal format
     let xdr_args = encode_arguments(args, arg_types)?;
+    let account = crate::utils::horizon::fetch_account(&source.public_key, network).await?;
+    let sequence = account
+        .sequence
+        .parse::<i64>()
+        .context("Horizon returned an invalid source account sequence")?
+        .checked_add(1)
+        .context("Source account sequence overflow")?;
+    let transaction = build_invoke_envelope_xdr(
+        contract_id,
+        function,
+        &xdr_args,
+        source,
+        sequence,
+        100,
+        TransactionExt::V0,
+        &[],
+    )?;
 
-    // Build the simulation request
     let request = SorobanRpcRequest {
         jsonrpc: "2.0".to_string(),
         id: 1,
         method: "simulateTransaction".to_string(),
         params: serde_json::json!({
-            "transaction": build_transaction_xdr(contract_id, function, &xdr_args)?,
+            "transaction": transaction,
         }),
     };
 
@@ -362,7 +332,7 @@ pub async fn simulate_transaction(
         .context("Simulation request failed")?;
 
     // Parse the simulation result (resources, fee, events, errors).
-    build_simulation_result(&result)
+    build_simulation_result(&result, network)
 }
 
 /// Runs `simulateTransaction` against an envelope exactly as supplied.
@@ -406,7 +376,7 @@ pub async fn simulate_deploy_transaction(
         .await
         .context("Deploy simulation request failed")?;
 
-    build_simulation_result(&result)
+    build_simulation_result(&result, network)
 }
 
 pub async fn submit_transaction(
@@ -422,7 +392,6 @@ pub async fn submit_transaction(
     crate::utils::network_guard::verify(network).await?;
     let rpc_url = get_rpc_url(network)?;
 
-    // Convert arguments to XDR ScVal format
     let xdr_args = encode_arguments(args, arg_types)?;
 
     // Build and sign the transaction
@@ -539,6 +508,54 @@ fn get_rpc_url(network: &str) -> Result<String> {
 
 pub fn rpc_url(network: &str) -> Result<String> {
     get_rpc_url(network)
+}
+
+#[derive(Debug, Deserialize)]
+struct GetNetworkResult {
+    #[serde(rename = "protocolVersion")]
+    protocol_version: serde_json::Value,
+}
+
+pub async fn get_protocol_version(network: &str) -> Result<u32> {
+    get_protocol_version_for_url(&get_rpc_url(network)?).await
+}
+
+pub async fn get_protocol_version_for_url(rpc_url: &str) -> Result<u32> {
+    if let Some((cached_at, protocol_version)) = PROTOCOL_VERSION_CACHE
+        .lock()
+        .unwrap()
+        .get(rpc_url)
+        .copied()
+    {
+        if cached_at.elapsed() < PROTOCOL_VERSION_CACHE_TTL {
+            return Ok(protocol_version);
+        }
+    }
+
+    let request = SorobanRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: 1,
+        method: "getNetwork".to_string(),
+        params: serde_json::json!({}),
+    };
+    let result: GetNetworkResult = rpc_request_with_url(rpc_url, request)
+        .await
+        .context("Failed to detect Soroban protocol version from getNetwork")?;
+    let protocol_version = result
+        .protocol_version
+        .as_u64()
+        .and_then(|version| u32::try_from(version).ok())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Soroban RPC getNetwork result.protocolVersion must be a non-negative 32-bit integer"
+            )
+        })?;
+
+    PROTOCOL_VERSION_CACHE
+        .lock()
+        .unwrap()
+        .insert(rpc_url.to_string(), (Instant::now(), protocol_version));
+    Ok(protocol_version)
 }
 
 /// Returns true when the Soroban RPC endpoint for `network` responds to `getHealth`.
@@ -817,7 +834,7 @@ fn extract_fee(resources: Option<&SimulationResources>) -> u64 {
 }
 
 /// Assemble a [`SimulationResult`] from a raw RPC response.
-fn build_simulation_result(result: &serde_json::Value) -> Result<SimulationResult> {
+fn build_simulation_result(result: &serde_json::Value, network: &str) -> Result<SimulationResult> {
     let mut errors = extract_simulation_errors(result);
 
     let resources = match extract_resources(result) {
@@ -1142,10 +1159,9 @@ pub async fn poll_transaction_status(
     config: &PollConfig,
 ) -> Result<TxStatusResult> {
     let rpc_url = get_rpc_url(network)?;
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .context("Failed to build HTTP client for transaction polling")?;
+    // #902: same factory as the rest of the CLI, so the proxy and the custom CA
+    // bundle apply to polling too.
+    let client = crate::utils::http_client::client_with_timeout(std::time::Duration::from_secs(30));
 
     let mut not_found_streak = 0u32;
 
@@ -1331,7 +1347,7 @@ mod tests {
             serde_json::from_str(&fixture).expect("failed to deserialize simulate_success.json");
         let result = response.result.expect("missing result in response");
 
-        let simulation = build_simulation_result(&result).unwrap();
+        let simulation = build_simulation_result(&result, "testnet").unwrap();
 
         assert_eq!(simulation.fee, 58_181);
         let resources = simulation.resources.as_ref().expect("resources parsed");
@@ -1354,7 +1370,7 @@ mod tests {
         // A response from a non-Soroban endpoint: no minResourceFee, no
         // transactionData. The fee must fall back rather than be invented.
         let result = serde_json::json!({ "returnValue": "ok", "events": [] });
-        let simulation = build_simulation_result(&result).unwrap();
+        let simulation = build_simulation_result(&result, "testnet").unwrap();
 
         assert_eq!(simulation.fee, FALLBACK_FEE_STROOPS);
         assert!(simulation.resources.is_none());
@@ -1370,7 +1386,7 @@ mod tests {
             "error": "HostError: Error(Budget, ExceededLimit)",
             "events": [],
         });
-        let simulation = build_simulation_result(&result).unwrap();
+        let simulation = build_simulation_result(&result, "testnet").unwrap();
 
         assert!(simulation.resources.is_none());
         assert!(simulation.fee_plan(20).is_none());
@@ -1599,5 +1615,77 @@ mod tests {
 
         assert!(!check_soroban_rpc_url(&server.url()).await);
         mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn get_protocol_version_parses_and_caches_get_network_result() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/")
+            .match_body(mockito::Matcher::Json(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getNetwork",
+                "params": {}
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":22}}"#)
+            .expect(1)
+            .create_async()
+            .await;
+
+        assert_eq!(get_protocol_version_for_url(&server.url()).await.unwrap(), 22);
+        assert_eq!(get_protocol_version_for_url(&server.url()).await.unwrap(), 22);
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn get_protocol_version_rejects_missing_protocol_version() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"jsonrpc":"2.0","id":1,"result":{}}"#)
+            .expect(2)
+            .create_async()
+            .await;
+
+        for _ in 0..2 {
+            let error = get_protocol_version_for_url(&server.url())
+                .await
+                .unwrap_err();
+            assert!(format!("{error:#}").contains("protocolVersion"));
+        }
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn get_protocol_version_rejects_non_integer_protocol_version() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"22"}}"#)
+            .create_async()
+            .await;
+
+        let error = get_protocol_version_for_url(&server.url())
+            .await
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("protocolVersion"));
+        mock.assert_async().await;
+    }
+
+    #[test]
+    fn constructor_feature_requires_protocol_22() {
+        assert!(!supports(ProtocolFeature::ContractConstructor, 21));
+        assert!(supports(ProtocolFeature::ContractConstructor, 22));
+        assert!(require_feature(ProtocolFeature::ContractConstructor, 21)
+            .unwrap_err()
+            .to_string()
+            .contains("protocol 22"));
     }
 }
