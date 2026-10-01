@@ -723,7 +723,8 @@ fn execute_script_step(
                     simulator.create_account_with_key(&key, 1_000.0);
                     key
                 });
-            let outcome = simulator.simulate_invoke(contract_id, function, args, &source_account)?;
+            let outcome =
+                simulator.simulate_invoke(contract_id, function, args, &source_account)?;
             if let Some(expected) = expected_return {
                 if outcome.return_value != *expected {
                     return Err(format!(
@@ -755,10 +756,9 @@ fn execute_script_step(
                         }
                         ScriptFailureMode::None => unreachable!(),
                     };
-                    simulator.failure_injector.add_rule(FailureRule::new(
-                        "scripted-failure",
-                        injected,
-                    ));
+                    simulator
+                        .failure_injector
+                        .add_rule(FailureRule::new("scripted-failure", injected));
                     simulator.failure_injector.enable();
                 }
             }

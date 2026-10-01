@@ -7,7 +7,6 @@
 /// | `status`    | Shows uptime, loaded keys, and per-key TTL. |
 /// | `add`       | Loads an additional wallet into a running agent. |
 /// | `remove`    | Removes a single wallet key from a running agent. |
-
 use crate::agent::client;
 use crate::agent::keystore::DEFAULT_TIMEOUT_SECS;
 use crate::agent::server;
@@ -210,7 +209,11 @@ async fn handle_start(args: StartArgs) -> Result<()> {
         if let Err(e) = client::add_key(name, pubkey, secret, ttl).await {
             p::warn(&format!("Failed to load wallet '{}': {}", name, e));
         } else if !emit_json {
-            p::success(&format!("Loaded wallet '{}' (TTL: {} s)", name.cyan(), args.timeout));
+            p::success(&format!(
+                "Loaded wallet '{}' (TTL: {} s)",
+                name.cyan(),
+                args.timeout
+            ));
         }
     }
 
@@ -252,8 +255,12 @@ async fn handle_stop() -> Result<()> {
     if !client::is_running() {
         if emit_json {
             #[derive(serde::Serialize)]
-            struct R { status: &'static str }
-            return output::print_json(&R { status: "not_running" });
+            struct R {
+                status: &'static str,
+            }
+            return output::print_json(&R {
+                status: "not_running",
+            });
         }
         p::warn("No signing agent is running.");
         return Ok(());
@@ -264,7 +271,9 @@ async fn handle_stop() -> Result<()> {
 
     if emit_json {
         #[derive(serde::Serialize)]
-        struct R { status: &'static str }
+        struct R {
+            status: &'static str,
+        }
         output::print_json(&R { status: "stopped" })?;
     } else {
         p::success("Signing agent stopped — all keys zeroized.");
@@ -282,7 +291,9 @@ async fn handle_status() -> Result<()> {
     if !client::is_running() {
         if emit_json {
             #[derive(serde::Serialize)]
-            struct R { running: bool }
+            struct R {
+                running: bool,
+            }
             return output::print_json(&R { running: false });
         }
         p::info("Signing agent: not running");
@@ -299,11 +310,11 @@ async fn handle_status() -> Result<()> {
     p::header("StarForge Signing Agent — Status");
     p::kv("PID", &status.pid.to_string());
     p::kv("Uptime", &format_duration(status.uptime_secs));
-    p::kv("Default timeout", &format!("{} s", status.default_timeout_secs));
     p::kv(
-        "Loaded wallets",
-        &status.loaded_keys.len().to_string(),
+        "Default timeout",
+        &format!("{} s", status.default_timeout_secs),
     );
+    p::kv("Loaded wallets", &status.loaded_keys.len().to_string());
 
     if status.loaded_keys.is_empty() {
         println!("  (no wallets loaded)");
@@ -334,9 +345,7 @@ async fn handle_add(args: AddArgs) -> Result<()> {
     let emit_json = output::is_json_mode_enabled();
 
     if !client::is_running() {
-        anyhow::bail!(
-            "No signing agent is running. Start one with: starforge agent start"
-        );
+        anyhow::bail!("No signing agent is running. Start one with: starforge agent start");
     }
 
     let cfg = config::load()?;
@@ -349,18 +358,16 @@ async fn handle_add(args: AddArgs) -> Result<()> {
     p::info(&format!("Unlocking wallet '{}'…", args.wallet.cyan()));
     let secret = crate::utils::wallet_signer::resolve_local_secret(wallet, &args.wallet)?;
 
-    client::add_key(
-        &args.wallet,
-        &wallet.public_key,
-        &secret,
-        args.ttl,
-    )
-    .await?;
+    client::add_key(&args.wallet, &wallet.public_key, &secret, args.ttl).await?;
 
     if emit_json {
         #[derive(serde::Serialize)]
-        struct R<'a> { wallet: &'a str }
-        output::print_json(&R { wallet: &args.wallet })?;
+        struct R<'a> {
+            wallet: &'a str,
+        }
+        output::print_json(&R {
+            wallet: &args.wallet,
+        })?;
     } else {
         p::success(&format!(
             "Wallet '{}' loaded into agent{}",
@@ -381,17 +388,19 @@ async fn handle_remove(args: RemoveArgs) -> Result<()> {
     let emit_json = output::is_json_mode_enabled();
 
     if !client::is_running() {
-        anyhow::bail!(
-            "No signing agent is running. Start one with: starforge agent start"
-        );
+        anyhow::bail!("No signing agent is running. Start one with: starforge agent start");
     }
 
     client::remove_key(&args.wallet).await?;
 
     if emit_json {
         #[derive(serde::Serialize)]
-        struct R<'a> { wallet: &'a str }
-        output::print_json(&R { wallet: &args.wallet })?;
+        struct R<'a> {
+            wallet: &'a str,
+        }
+        output::print_json(&R {
+            wallet: &args.wallet,
+        })?;
     } else {
         p::success(&format!(
             "Wallet '{}' removed from agent and zeroized.",

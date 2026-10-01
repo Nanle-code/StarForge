@@ -92,9 +92,15 @@ pub enum CliChange {
     /// A command was renamed from `old` to `new`.
     CommandRenamed { old: String, new: String },
     /// A command was removed with no replacement.
-    CommandRemoved { command: String, description: String },
+    CommandRemoved {
+        command: String,
+        description: String,
+    },
     /// A command was added.
-    CommandAdded { command: String, description: String },
+    CommandAdded {
+        command: String,
+        description: String,
+    },
     /// A required flag was renamed on a specific command.
     FlagRenamed {
         command: String,
@@ -146,10 +152,16 @@ pub fn diff_snapshots(before: &CliSnapshot, after: &CliSnapshot) -> Vec<CliChang
 
     // ── Command-level diff ────────────────────────────────────────────────────
 
-    let before_cmds: std::collections::HashMap<&str, &CliCommandSnapshot> =
-        before.commands.iter().map(|c| (c.command.as_str(), c)).collect();
-    let after_cmds: std::collections::HashMap<&str, &CliCommandSnapshot> =
-        after.commands.iter().map(|c| (c.command.as_str(), c)).collect();
+    let before_cmds: std::collections::HashMap<&str, &CliCommandSnapshot> = before
+        .commands
+        .iter()
+        .map(|c| (c.command.as_str(), c))
+        .collect();
+    let after_cmds: std::collections::HashMap<&str, &CliCommandSnapshot> = after
+        .commands
+        .iter()
+        .map(|c| (c.command.as_str(), c))
+        .collect();
 
     // Find candidates: commands removed in before and added in after.
     let removed_cmds: Vec<&CliCommandSnapshot> = before
@@ -165,16 +177,13 @@ pub fn diff_snapshots(before: &CliSnapshot, after: &CliSnapshot) -> Vec<CliChang
         .collect();
 
     // Pair by identical description (rename heuristic).
-    let mut rename_matched_old: std::collections::HashSet<&str> =
-        std::collections::HashSet::new();
-    let mut rename_matched_new: std::collections::HashSet<&str> =
-        std::collections::HashSet::new();
+    let mut rename_matched_old: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut rename_matched_new: std::collections::HashSet<&str> = std::collections::HashSet::new();
 
     for old_cmd in &removed_cmds {
-        if let Some(new_cmd) = added_cmds
-            .iter()
-            .find(|a| a.description == old_cmd.description && !rename_matched_new.contains(a.command.as_str()))
-        {
+        if let Some(new_cmd) = added_cmds.iter().find(|a| {
+            a.description == old_cmd.description && !rename_matched_new.contains(a.command.as_str())
+        }) {
             changes.push(CliChange::CommandRenamed {
                 old: old_cmd.command.clone(),
                 new: new_cmd.command.clone(),
@@ -212,10 +221,16 @@ pub fn diff_snapshots(before: &CliSnapshot, after: &CliSnapshot) -> Vec<CliChang
 
     // ── Config key diff ───────────────────────────────────────────────────────
 
-    let before_keys: std::collections::HashMap<&str, &ConfigKeySnapshot> =
-        before.config_keys.iter().map(|k| (k.key.as_str(), k)).collect();
-    let after_keys: std::collections::HashMap<&str, &ConfigKeySnapshot> =
-        after.config_keys.iter().map(|k| (k.key.as_str(), k)).collect();
+    let before_keys: std::collections::HashMap<&str, &ConfigKeySnapshot> = before
+        .config_keys
+        .iter()
+        .map(|k| (k.key.as_str(), k))
+        .collect();
+    let after_keys: std::collections::HashMap<&str, &ConfigKeySnapshot> = after
+        .config_keys
+        .iter()
+        .map(|k| (k.key.as_str(), k))
+        .collect();
 
     let removed_keys: Vec<&ConfigKeySnapshot> = before
         .config_keys
@@ -290,10 +305,16 @@ fn diff_flags(
     after_cmd: &CliCommandSnapshot,
     changes: &mut Vec<CliChange>,
 ) {
-    let before_flags: std::collections::HashMap<&str, &CliFlag> =
-        before_cmd.flags.iter().map(|f| (f.name.as_str(), f)).collect();
-    let after_flags: std::collections::HashMap<&str, &CliFlag> =
-        after_cmd.flags.iter().map(|f| (f.name.as_str(), f)).collect();
+    let before_flags: std::collections::HashMap<&str, &CliFlag> = before_cmd
+        .flags
+        .iter()
+        .map(|f| (f.name.as_str(), f))
+        .collect();
+    let after_flags: std::collections::HashMap<&str, &CliFlag> = after_cmd
+        .flags
+        .iter()
+        .map(|f| (f.name.as_str(), f))
+        .collect();
 
     let removed_flags: Vec<&CliFlag> = before_cmd
         .flags
@@ -396,7 +417,11 @@ pub fn render_migration_notes(
     let cmd_removed: Vec<_> = changes
         .iter()
         .filter_map(|c| {
-            if let CliChange::CommandRemoved { command, description } = c {
+            if let CliChange::CommandRemoved {
+                command,
+                description,
+            } = c
+            {
                 Some((command, description))
             } else {
                 None
@@ -407,7 +432,12 @@ pub fn render_migration_notes(
     let flag_renames: Vec<_> = changes
         .iter()
         .filter_map(|c| {
-            if let CliChange::FlagRenamed { command, old_flag, new_flag } = c {
+            if let CliChange::FlagRenamed {
+                command,
+                old_flag,
+                new_flag,
+            } = c
+            {
                 Some((command, old_flag, new_flag))
             } else {
                 None
@@ -418,7 +448,12 @@ pub fn render_migration_notes(
     let flag_removed: Vec<_> = changes
         .iter()
         .filter_map(|c| {
-            if let CliChange::FlagRemoved { command, flag, description } = c {
+            if let CliChange::FlagRemoved {
+                command,
+                flag,
+                description,
+            } = c
+            {
                 Some((command, flag, description))
             } else {
                 None
@@ -429,7 +464,12 @@ pub fn render_migration_notes(
     let flag_required: Vec<_> = changes
         .iter()
         .filter_map(|c| {
-            if let CliChange::FlagBecameRequired { command, flag, description } = c {
+            if let CliChange::FlagBecameRequired {
+                command,
+                flag,
+                description,
+            } = c
+            {
                 Some((command, flag, description))
             } else {
                 None
@@ -462,7 +502,12 @@ pub fn render_migration_notes(
     let key_type_changes: Vec<_> = changes
         .iter()
         .filter_map(|c| {
-            if let CliChange::ConfigKeyTypeChanged { key, old_type, new_type } = c {
+            if let CliChange::ConfigKeyTypeChanged {
+                key,
+                old_type,
+                new_type,
+            } = c
+            {
                 Some((key, old_type, new_type))
             } else {
                 None
@@ -473,7 +518,9 @@ pub fn render_migration_notes(
     // ── Section: Renamed Commands ─────────────────────────────────────────────
     if !cmd_renames.is_empty() {
         doc.push_str("## Renamed Commands\n\n");
-        doc.push_str("Update any scripts, aliases, or CI pipelines that reference these commands.\n\n");
+        doc.push_str(
+            "Update any scripts, aliases, or CI pipelines that reference these commands.\n\n",
+        );
         doc.push_str("| Before | After |\n");
         doc.push_str("|--------|-------|\n");
         for (old, new) in &cmd_renames {
@@ -534,9 +581,7 @@ pub fn render_migration_notes(
     // ── Section: Config Key Renames ───────────────────────────────────────────
     if !key_renames.is_empty() {
         doc.push_str("## Config Key Renames\n\n");
-        doc.push_str(
-            "Update your `starforge.toml` (or equivalent config file) accordingly.\n\n",
-        );
+        doc.push_str("Update your `starforge.toml` (or equivalent config file) accordingly.\n\n");
         doc.push_str("| Before | After |\n");
         doc.push_str("|--------|-------|\n");
         for (old, new) in &key_renames {
@@ -561,7 +606,10 @@ pub fn render_migration_notes(
         doc.push_str("| Key | Old Type | New Type |\n");
         doc.push_str("|-----|----------|----------|\n");
         for (key, old_type, new_type) in &key_type_changes {
-            doc.push_str(&format!("| `{}` | `{}` | `{}` |\n", key, old_type, new_type));
+            doc.push_str(&format!(
+                "| `{}` | `{}` | `{}` |\n",
+                key, old_type, new_type
+            ));
         }
         doc.push('\n');
     }

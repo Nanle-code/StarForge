@@ -33,13 +33,19 @@ pub fn verify_checkpoint(checkpoint: &TutorialCheckpoint, working_dir: &Path) ->
         TutorialCheckpoint::CliInstalled => {
             let executable = std::env::current_exe()?;
             if !executable.is_file() {
-                anyhow::bail!("StarForge executable was not found at {}", executable.display());
+                anyhow::bail!(
+                    "StarForge executable was not found at {}",
+                    executable.display()
+                );
             }
         }
         TutorialCheckpoint::WalletExists { name } => {
             let config = crate::utils::config::load()?;
             if !config.wallets.iter().any(|wallet| wallet.name == *name) {
-                anyhow::bail!("Wallet '{}' is not saved in the local StarForge configuration", name);
+                anyhow::bail!(
+                    "Wallet '{}' is not saved in the local StarForge configuration",
+                    name
+                );
             }
         }
         TutorialCheckpoint::ContractProjectExists { path } => {
@@ -54,14 +60,14 @@ pub fn verify_checkpoint(checkpoint: &TutorialCheckpoint, working_dir: &Path) ->
             }
         }
         TutorialCheckpoint::SimulationRuns => {
-            use crate::utils::network_simulator::scenarios::{
-                BuiltInScenario, ScenarioRunner,
-            };
+            use crate::utils::network_simulator::scenarios::{BuiltInScenario, ScenarioRunner};
 
             let scenario = ScenarioRunner::load_built_in(BuiltInScenario::SimpleCounter, 42);
             let (_, result) = ScenarioRunner::run(scenario);
             if result.accounts.is_empty() || result.contracts.is_empty() {
-                anyhow::bail!("The local simple-counter simulation returned no accounts or contracts");
+                anyhow::bail!(
+                    "The local simple-counter simulation returned no accounts or contracts"
+                );
             }
         }
     }
@@ -299,11 +305,7 @@ mod tests {
 
     #[test]
     fn local_simulation_checkpoint_runs_without_network() {
-        assert!(verify_checkpoint(
-            &TutorialCheckpoint::SimulationRuns,
-            Path::new(".")
-        )
-        .is_ok());
+        assert!(verify_checkpoint(&TutorialCheckpoint::SimulationRuns, Path::new(".")).is_ok());
     }
 
     #[test]

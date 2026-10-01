@@ -131,7 +131,8 @@ fn test_missing_signer_error_includes_address() {
         }],
     };
 
-    let result = soroban_auth::sign_bundle_with_wallets(&mut bundle, &[], &[], None, "m/44'/148'/0'");
+    let result =
+        soroban_auth::sign_bundle_with_wallets(&mut bundle, &[], &[], None, "m/44'/148'/0'");
 
     assert!(result.is_err());
     let error_msg = result.unwrap_err().to_string();
@@ -271,7 +272,8 @@ fn test_missing_signer_error_includes_address() {
         }],
     };
 
-    let result = soroban_auth::sign_bundle_with_wallets(&mut bundle, &[], &[], None, "m/44'/148'/0'");
+    let result =
+        soroban_auth::sign_bundle_with_wallets(&mut bundle, &[], &[], None, "m/44'/148'/0'");
 
     assert!(result.is_err());
     let error_msg = result.unwrap_err().to_string();

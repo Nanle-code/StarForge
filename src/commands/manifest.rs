@@ -59,7 +59,10 @@ fn validate_cmd(path: Option<PathBuf>) -> Result<()> {
         }
     };
 
-    p::header(&format!("Validating project manifest: {}", target.display()));
+    p::header(&format!(
+        "Validating project manifest: {}",
+        target.display()
+    ));
     let manifest = load_manifest(&target)?;
     manifest.validate()?;
 
@@ -121,8 +124,9 @@ fn init_cmd(name: Option<String>) -> Result<()> {
 
 fn show_cmd(json: bool) -> Result<()> {
     let cwd = std::env::current_dir().context("Failed to get current directory")?;
-    let (path, manifest) = find_and_load_manifest(&cwd)?
-        .ok_or_else(|| anyhow::anyhow!("No starforge.toml found in current directory or ancestors."))?;
+    let (path, manifest) = find_and_load_manifest(&cwd)?.ok_or_else(|| {
+        anyhow::anyhow!("No starforge.toml found in current directory or ancestors.")
+    })?;
 
     if json {
         let json_val = serde_json::to_string_pretty(&manifest)?;
@@ -146,7 +150,10 @@ fn show_cmd(json: bool) -> Result<()> {
         }
         println!("\n{}", "Deploy Targets:".bold());
         for (name, d) in &manifest.deploy {
-            println!("  • {}: network={:?}, contracts={:?}", name, d.network, d.contracts);
+            println!(
+                "  • {}: network={:?}, contracts={:?}",
+                name, d.network, d.contracts
+            );
         }
         println!("\n{}", "Scripts:".bold());
         for (name, script) in &manifest.scripts {

@@ -14,8 +14,6 @@ use colored::Colorize;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-
-
 #[derive(Subcommand)]
 pub enum TemplateCommands {
     /// Search for templates in the marketplace
@@ -379,18 +377,20 @@ pub async fn handle(cmd: TemplateCommands) -> Result<()> {
             version,
             cli_version_min,
             cli_version_max,
-        } => import(
-            path,
-            name,
-            description,
-            author,
-            tags,
-            version,
-            cli_version_min,
-            cli_version_max,
-            false,
-        )
-        .await,
+        } => {
+            import(
+                path,
+                name,
+                description,
+                author,
+                tags,
+                version,
+                cli_version_min,
+                cli_version_max,
+                false,
+            )
+            .await
+        }
         TemplateCommands::Publish {
             path,
             name,
@@ -1773,7 +1773,10 @@ async fn template_analyze(
     match out {
         Some(path) => {
             std::fs::write(&path, &rendered)?;
-            p::success(&format!("Community analysis report written to {}", path.display()));
+            p::success(&format!(
+                "Community analysis report written to {}",
+                path.display()
+            ));
         }
         None => {
             if !json {
@@ -1794,12 +1797,8 @@ fn template_feedback(
     let category = category
         .map(|category| crate::utils::template_analytics::FeedbackCategory::from_str(&category))
         .transpose()?;
-    let entry = crate::utils::template_analytics::submit_feedback(
-        &name,
-        &comment,
-        rating,
-        category,
-    )?;
+    let entry =
+        crate::utils::template_analytics::submit_feedback(&name, &comment, rating, category)?;
 
     p::header("Feedback Submitted");
     p::kv("Template", &entry.template);

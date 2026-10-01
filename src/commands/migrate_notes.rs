@@ -125,16 +125,15 @@ fn handle_generate(args: GenerateArgs) -> Result<()> {
     }
 
     // render_migration_notes unconditionally prepends HUMAN_REVIEW_BANNER.
-    let notes = cli_migration_notes::render_migration_notes(&before.version, &after.version, &changes);
+    let notes =
+        cli_migration_notes::render_migration_notes(&before.version, &after.version, &changes);
 
     match &args.output {
         Some(path) => {
             std::fs::write(path, &notes)
                 .with_context(|| format!("Writing notes to {}", path.display()))?;
             p::success(&format!("Migration notes written to {}", path.display()));
-            p::warn(
-                "⚠️  These notes are AI-generated — review and edit before publishing.",
-            );
+            p::warn("⚠️  These notes are AI-generated — review and edit before publishing.");
         }
         None => {
             println!("{}", notes);
@@ -160,7 +159,10 @@ fn handle_snapshot(args: SnapshotArgs) -> Result<()> {
     p::success(&format!("Snapshot written to {}", args.output.display()));
     p::kv("Version", &args.version);
     p::kv("Commands captured", &snapshot.commands.len().to_string());
-    p::kv("Config keys captured", &snapshot.config_keys.len().to_string());
+    p::kv(
+        "Config keys captured",
+        &snapshot.config_keys.len().to_string(),
+    );
     Ok(())
 }
 
@@ -269,8 +271,15 @@ fn describe_change(change: &CliChange) -> String {
         CliChange::CommandAdded { command, .. } => {
             format!("[ADD]     command  {}", command)
         }
-        CliChange::FlagRenamed { command, old_flag, new_flag } => {
-            format!("[RENAME]  flag     {} --{} → --{}", command, old_flag, new_flag)
+        CliChange::FlagRenamed {
+            command,
+            old_flag,
+            new_flag,
+        } => {
+            format!(
+                "[RENAME]  flag     {} --{} → --{}",
+                command, old_flag, new_flag
+            )
         }
         CliChange::FlagRemoved { command, flag, .. } => {
             format!("[REMOVE]  flag     {} --{}", command, flag)
@@ -287,8 +296,15 @@ fn describe_change(change: &CliChange) -> String {
         CliChange::ConfigKeyAdded { key, .. } => {
             format!("[ADD]     config   {}", key)
         }
-        CliChange::ConfigKeyTypeChanged { key, old_type, new_type } => {
-            format!("[CHANGE]  config   {} type {} → {}", key, old_type, new_type)
+        CliChange::ConfigKeyTypeChanged {
+            key,
+            old_type,
+            new_type,
+        } => {
+            format!(
+                "[CHANGE]  config   {} type {} → {}",
+                key, old_type, new_type
+            )
         }
     }
 }
@@ -303,48 +319,126 @@ pub fn build_current_snapshot(version: &str) -> CliSnapshot {
     CliSnapshot {
         version: version.to_string(),
         commands: vec![
-            cmd("wallet create", "Create a new test wallet", vec![
-                flag("name", Some("n"), true, None, "Wallet name"),
-                flag("network", None, false, Some("testnet"), "Target network"),
-            ]),
+            cmd(
+                "wallet create",
+                "Create a new test wallet",
+                vec![
+                    flag("name", Some("n"), true, None, "Wallet name"),
+                    flag("network", None, false, Some("testnet"), "Target network"),
+                ],
+            ),
             cmd("wallet list", "List all local wallets", vec![]),
-            cmd("wallet fund", "Fund a wallet via Friendbot (testnet only)", vec![
-                flag("name", Some("n"), true, None, "Wallet name"),
-            ]),
-            cmd("wallet show", "Show wallet details", vec![
-                flag("name", Some("n"), true, None, "Wallet name"),
-            ]),
-            cmd("wallet remove", "Remove a local wallet", vec![
-                flag("name", Some("n"), true, None, "Wallet name"),
-            ]),
-            cmd("deploy", "Deploy a compiled Soroban contract (.wasm)", vec![
-                flag("wasm", None, true, None, "Path to the compiled .wasm file"),
-                flag("network", None, false, Some("testnet"), "Target network"),
-                flag("simulate", None, false, None, "Simulate deployment without submitting"),
-                flag("execute", None, false, None, "Execute the deployment"),
-            ]),
+            cmd(
+                "wallet fund",
+                "Fund a wallet via Friendbot (testnet only)",
+                vec![flag("name", Some("n"), true, None, "Wallet name")],
+            ),
+            cmd(
+                "wallet show",
+                "Show wallet details",
+                vec![flag("name", Some("n"), true, None, "Wallet name")],
+            ),
+            cmd(
+                "wallet remove",
+                "Remove a local wallet",
+                vec![flag("name", Some("n"), true, None, "Wallet name")],
+            ),
+            cmd(
+                "deploy",
+                "Deploy a compiled Soroban contract (.wasm)",
+                vec![
+                    flag("wasm", None, true, None, "Path to the compiled .wasm file"),
+                    flag("network", None, false, Some("testnet"), "Target network"),
+                    flag(
+                        "simulate",
+                        None,
+                        false,
+                        None,
+                        "Simulate deployment without submitting",
+                    ),
+                    flag("execute", None, false, None, "Execute the deployment"),
+                ],
+            ),
             cmd("network show", "Show active network configuration", vec![]),
-            cmd("network switch", "Switch the active network", vec![
-                flag("name", None, true, None, "Network name (testnet or mainnet)"),
-            ]),
+            cmd(
+                "network switch",
+                "Switch the active network",
+                vec![flag(
+                    "name",
+                    None,
+                    true,
+                    None,
+                    "Network name (testnet or mainnet)",
+                )],
+            ),
             cmd("template list", "List available contract templates", vec![]),
-            cmd("template use", "Scaffold from a template", vec![
-                flag("name", Some("n"), true, None, "Template name"),
-                flag("output", Some("o"), false, None, "Output directory"),
-            ]),
-            cmd("generate", "Generate a Soroban contract from a natural language prompt", vec![
-                flag("prompt", Some("p"), true, None, "Natural language description"),
-                flag("output", Some("o"), false, Some("contract.rs"), "Output file"),
-            ]),
+            cmd(
+                "template use",
+                "Scaffold from a template",
+                vec![
+                    flag("name", Some("n"), true, None, "Template name"),
+                    flag("output", Some("o"), false, None, "Output directory"),
+                ],
+            ),
+            cmd(
+                "generate",
+                "Generate a Soroban contract from a natural language prompt",
+                vec![
+                    flag(
+                        "prompt",
+                        Some("p"),
+                        true,
+                        None,
+                        "Natural language description",
+                    ),
+                    flag(
+                        "output",
+                        Some("o"),
+                        false,
+                        Some("contract.rs"),
+                        "Output file",
+                    ),
+                ],
+            ),
             cmd("info", "Show environment and version information", vec![]),
         ],
         config_keys: vec![
-            config_key("network.default", "string", Some("testnet"), "Default network for all commands"),
-            config_key("telemetry.enabled", "bool", Some("true"), "Whether to send anonymous usage telemetry"),
-            config_key("ai.model", "string", Some("codellama:7b"), "Default Ollama model for AI commands"),
-            config_key("ai.ollama_url", "string", Some("http://localhost:11434"), "Ollama base URL"),
-            config_key("wallet.storage_dir", "string", None, "Directory where wallet files are stored"),
-            config_key("deploy.default_network", "string", Some("testnet"), "Default network for deploy command"),
+            config_key(
+                "network.default",
+                "string",
+                Some("testnet"),
+                "Default network for all commands",
+            ),
+            config_key(
+                "telemetry.enabled",
+                "bool",
+                Some("true"),
+                "Whether to send anonymous usage telemetry",
+            ),
+            config_key(
+                "ai.model",
+                "string",
+                Some("codellama:7b"),
+                "Default Ollama model for AI commands",
+            ),
+            config_key(
+                "ai.ollama_url",
+                "string",
+                Some("http://localhost:11434"),
+                "Ollama base URL",
+            ),
+            config_key(
+                "wallet.storage_dir",
+                "string",
+                None,
+                "Directory where wallet files are stored",
+            ),
+            config_key(
+                "deploy.default_network",
+                "string",
+                Some("testnet"),
+                "Default network for deploy command",
+            ),
         ],
     }
 }

@@ -2,7 +2,6 @@
 ///
 /// Unix  : `~/.starforge/agent.sock`  (0600 permissions, cleaned up on exit)
 /// Windows: `\\.\pipe\starforge-agent-<username>`
-
 use anyhow::{Context, Result};
 use std::path::PathBuf;
 
@@ -67,8 +66,7 @@ pub fn agent_pid_path() -> Result<PathBuf> {
     let base = dirs::home_dir()
         .context("Cannot determine home directory")?
         .join(".starforge");
-    std::fs::create_dir_all(&base)
-        .with_context(|| format!("Cannot create {}", base.display()))?;
+    std::fs::create_dir_all(&base).with_context(|| format!("Cannot create {}", base.display()))?;
     Ok(base.join("agent.pid"))
 }
 

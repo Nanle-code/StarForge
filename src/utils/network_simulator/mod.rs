@@ -23,8 +23,8 @@
 //! // Deploy a contract, invoke it, inspect state…
 //! ```
 
-pub mod deterministic;
 pub mod compat;
+pub mod deterministic;
 pub mod failure;
 pub mod scenarios;
 pub mod simulator;
@@ -33,19 +33,17 @@ pub mod time;
 
 // ── Re-exports for convenience ────────────────────────────────────────────────
 
-pub use deterministic::{DeterministicConfig, SeededRng};
 pub use compat::{
-    FailureMode as LegacyFailureMode, SimContract, SimEvent, SimInvokeResult,
-    SimLedgerState, SimScenario as LegacySimScenario,
-    SimScenarioResult as LegacySimScenarioResult,
-    SimScenarioStep as LegacySimScenarioStep,
-    NetworkSimulator as LegacyNetworkSimulator,
+    FailureMode as LegacyFailureMode, NetworkSimulator as LegacyNetworkSimulator, SimContract,
+    SimEvent, SimInvokeResult, SimLedgerState, SimScenario as LegacySimScenario,
+    SimScenarioResult as LegacySimScenarioResult, SimScenarioStep as LegacySimScenarioStep,
 };
+pub use deterministic::{DeterministicConfig, SeededRng};
 pub use failure::{FailureInjector, FailureMode, FailureRule};
 pub use scenarios::{
-    builtin_scenarios, load_scenario, save_scenario, sim_data_dir, BuiltInScenario,
-    Scenario, ScenarioResult, ScenarioRunner, ScriptFailureMode, SimScenario,
-    SimScenarioResult, SimScenarioStep,
+    builtin_scenarios, load_scenario, save_scenario, sim_data_dir, BuiltInScenario, Scenario,
+    ScenarioResult, ScenarioRunner, ScriptFailureMode, SimScenario, SimScenarioResult,
+    SimScenarioStep,
 };
 pub use simulator::{
     AccountInfo, ContractInstance, LedgerInfo, NetworkSimulator, SimulationOutcome,

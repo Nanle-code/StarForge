@@ -30,7 +30,6 @@
 /// - `server`    — tokio listener that drives the keystore
 /// - `client`    — lightweight client used by the signing path
 /// - `socket`    — platform-specific socket path helpers
-
 pub mod client;
 pub mod keystore;
 pub mod proto;
