@@ -23,7 +23,7 @@ StarForge automatically persists deployment progress to disk, enabling deploymen
 When running deployment automation:
 
 ```bash norun
-starforge deployment-automate run --wasm ./target/wasm32-unknown-unknown/release/my_contract.wasm --network testnet
+starforge deployment-automate run --wasm ./target/wasm32v1-none/release/my_contract.wasm --network testnet
 ```
 
 If the run is interrupted at step 3, simply re-run the exact same command. StarForge will output:

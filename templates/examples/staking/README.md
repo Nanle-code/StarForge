@@ -24,7 +24,7 @@ Reward formula: `stake × ledger_diff × reward_rate / (10_000 × 1_000)`
 starforge new contract my-staking --template staking
 
 # Build
-cargo build --target wasm32-unknown-unknown --release
+cargo build --target wasm32v1-none --release
 
 # Test
 cargo test

@@ -744,7 +744,7 @@ Projects are generated as Rust crates using the Soroban SDK.",
         title: "StarForge Deployment",
         url: "https://github.com/Nanle-code/StarForge",
         content: "To deploy a Soroban contract with StarForge, first compile the contract to WASM \
-(cargo build --target wasm32-unknown-unknown --release), then run starforge deploy with the \
+(starforge contract build), then run starforge deploy with the \
 compiled .wasm file. You must have a funded wallet configured (starforge wallet create) and select \
 a network (starforge network or --network testnet). Deployment uploads the WASM and creates a \
 contract instance. Deployment history, verification, and rollback are available through \

@@ -34,8 +34,7 @@ Map your contracts and WASM build outputs under `[contracts]`:
 ```toml
 [contracts.my_contract]
 path = "contracts/my_contract"
-wasm = "target/wasm32-unknown-unknown/release/my_contract.wasm"
-build = "cargo build --target wasm32-unknown-unknown --release"
+build = "starforge contract build"
 ```
 
 ### Step 3: Define Custom Networks and Deploy Targets

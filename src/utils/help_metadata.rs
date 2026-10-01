@@ -86,7 +86,7 @@ pub const HELP_REGISTRY: &[CommandHelpInfo] = &[
         ],
         examples: &[
             ExampleHelp {
-                command: "starforge deploy run --wasm target/wasm32-unknown-unknown/release/hello.wasm",
+                command: "starforge deploy run --wasm target/<selected-target>/release/hello.wasm",
                 description: "Deploy a freshly built contract to the active network",
             },
             ExampleHelp {
@@ -94,7 +94,7 @@ pub const HELP_REGISTRY: &[CommandHelpInfo] = &[
                 description: "Target testnet with a specific deployer wallet",
             },
             ExampleHelp {
-                command: "cargo build --target wasm32-unknown-unknown --release && starforge deploy run --wasm target/wasm32-unknown-unknown/release/hello.wasm",
+                command: "starforge contract build && starforge deploy run --wasm target/<selected-target>/release/hello.wasm",
                 description: "Rebuild first, then deploy the rebuilt wasm — avoids shipping a stale binary",
             },
         ],
@@ -194,7 +194,7 @@ pub const HELP_REGISTRY: &[CommandHelpInfo] = &[
             FlagHelp { flag: "--name <filter>", purpose: "Run only tests whose name matches" },
         ],
         examples: &[
-            ExampleHelp { command: "starforge contract test --wasm target/wasm32-unknown-unknown/release/hello.wasm",
+            ExampleHelp { command: "starforge contract test --wasm target/<selected-target>/release/hello.wasm",
                 description: "Run all unit tests embedded in the WASM" },
         ],
         workflows: &["first-contract"],
@@ -328,7 +328,7 @@ pub const WORKFLOWS: &[Workflow] = &[
             "starforge network show                       # confirm active network is testnet",
             "starforge project new contract hello         # scaffold a contract (or use your own)",
             "cd hello && stellar contract build           # build the WASM",
-            "starforge deploy run --wasm target/wasm32-unknown-unknown/release/hello.wasm --wallet deployer",
+            "starforge deploy run --wasm target/<selected-target>/release/hello.wasm --wallet deployer",
             "starforge contract invoke --id <printed-id> --function hello --args '[]'",
         ],
     },

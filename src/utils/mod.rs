@@ -194,6 +194,7 @@ pub mod wasm_hash;
 pub mod workflow_guidance;
 
 pub mod wasm_preflight;
+pub mod wasm_target;
 
 // Contract monitoring and alerting (#374)
 pub mod contract_health_monitor;

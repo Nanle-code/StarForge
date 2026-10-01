@@ -26,7 +26,7 @@ Negative amounts are rejected, balance arithmetic is checked, and
 starforge new contract my-token --template sep41-token
 
 # Build
-cargo build --target wasm32-unknown-unknown --release
+cargo build --target wasm32v1-none --release
 
 # Test
 cargo test

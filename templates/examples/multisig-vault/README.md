@@ -31,7 +31,7 @@ cargo test
 
 ```bash
 starforge deploy \
-  --wasm target/wasm32-unknown-unknown/release/{{PROJECT_NAME_SNAKE}}.wasm \
+  --wasm target/wasm32v1-none/release/{{PROJECT_NAME_SNAKE}}.wasm \
   --network testnet
 ```
 

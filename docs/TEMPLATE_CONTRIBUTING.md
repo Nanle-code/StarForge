@@ -9,7 +9,7 @@ This document covers every step from writing your template to getting it accepte
 
 Before opening a pull request, confirm each item:
 
-- [ ] Template compiles with `cargo build` targeting `wasm32-unknown-unknown`
+- [ ] Template compiles for `wasm32v1-none` on stable and `wasm32-unknown-unknown` on the Rust 1.80 MSRV
 - [ ] Template passes its own test suite (`cargo test`)
 - [ ] Template source uses `{{PROJECT_NAME_PASCAL}}` as the contract struct name
 - [ ] A `README.md` is included describing the contract and its public functions

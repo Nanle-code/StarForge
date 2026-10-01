@@ -26,6 +26,10 @@ pub struct ProjectManifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package: Option<PackageConfig>,
 
+    /// Soroban WASM target override; defaults according to the active Rust toolchain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wasm_target: Option<String>,
+
     /// Contract definitions mapped by contract name.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub contracts: BTreeMap<String, ContractConfig>,
@@ -113,12 +117,9 @@ impl ProjectManifest {
             project_name.to_string(),
             ContractConfig {
                 path: Some(".".to_string()),
-                wasm: Some(format!(
-                    "target/wasm32-unknown-unknown/release/{}.wasm",
-                    project_name
-                )),
+                wasm: None,
                 init_args: None,
-                build: Some("cargo build --target wasm32-unknown-unknown --release".to_string()),
+                build: Some("starforge contract build".to_string()),
             },
         );
 
@@ -148,7 +149,7 @@ impl ProjectManifest {
         let mut scripts = BTreeMap::new();
         scripts.insert(
             "build".to_string(),
-            "cargo build --target wasm32-unknown-unknown --release".to_string(),
+            "starforge contract build".to_string(),
         );
         scripts.insert("test".to_string(), "cargo test".to_string());
 
@@ -161,6 +162,7 @@ impl ProjectManifest {
                 authors: Some(vec![]),
                 license: Some("MIT".to_string()),
             }),
+            wasm_target: None,
             contracts,
             networks,
             deploy,
@@ -176,6 +178,10 @@ impl ProjectManifest {
                 self.version,
                 SUPPORTED_MANIFEST_VERSION
             );
+        }
+
+        if let Some(target) = &self.wasm_target {
+            crate::utils::wasm_target::resolve_target(Some(target))?;
         }
 
         if let Some(ref pkg) = self.package {
@@ -228,6 +234,22 @@ impl ProjectManifest {
         Ok(())
     }
 
+    /// Resolve a contract's configured or toolchain-default WASM output path.
+    pub fn wasm_path_for_contract(&self, name: &str, project_dir: &Path) -> Result<Option<PathBuf>> {
+        let Some(contract) = self.contracts.get(name) else {
+            return Ok(None);
+        };
+        if let Some(wasm) = &contract.wasm {
+            return Ok(Some(project_dir.join(wasm)));
+        }
+        let target = crate::utils::wasm_target::resolve_target(self.wasm_target.as_deref())?;
+        Ok(Some(crate::utils::wasm_target::artifact_path(
+            project_dir,
+            name,
+            &target,
+        )))
+    }
+
     /// Generates the JSON Schema for `starforge.toml`.
     pub fn json_schema() -> serde_json::Value {
         serde_json::json!({
@@ -257,6 +279,14 @@ impl ProjectManifest {
                         "license": { "type": "string", "description": "SPDX License identifier" }
                     },
                     "additionalProperties": false
+                },
+                "wasm_target": {
+                    "type": "string",
+                    "enum": [
+                        crate::utils::wasm_target::LEGACY_WASM_TARGET,
+                        crate::utils::wasm_target::V1_WASM_TARGET
+                    ],
+                    "description": "Optional Soroban WASM target override"
                 },
                 "contracts": {
                     "type": "object",
@@ -366,6 +396,30 @@ mod tests {
     fn starter_manifest_validates_cleanly() {
         let manifest = ProjectManifest::default_starter("my_contract");
         assert!(manifest.validate().is_ok());
+        assert!(manifest
+            .wasm_path_for_contract("my_contract", Path::new("project"))
+            .unwrap()
+            .unwrap()
+            .to_string_lossy()
+            .contains("/release/my_contract.wasm"));
+    }
+
+    #[test]
+    fn manifest_target_override_controls_wasm_path() {
+        let mut manifest = ProjectManifest::default_starter("my_contract");
+        manifest.wasm_target = Some(crate::utils::wasm_target::LEGACY_WASM_TARGET.to_string());
+        assert_eq!(
+            manifest
+                .wasm_path_for_contract("my_contract", Path::new("project"))
+                .unwrap(),
+            Some(
+                PathBuf::from("project")
+                    .join("target")
+                    .join(crate::utils::wasm_target::LEGACY_WASM_TARGET)
+                    .join("release")
+                    .join("my_contract.wasm")
+            )
+        );
     }
 
     #[test]
@@ -379,7 +433,6 @@ version = "0.1.0"
 
 [contracts.token_contract]
 path = "contracts/token"
-wasm = "target/wasm32-unknown-unknown/release/token.wasm"
 
 [networks.testnet]
 horizon_url = "https://horizon-testnet.stellar.org"

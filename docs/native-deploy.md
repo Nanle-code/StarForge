@@ -10,7 +10,7 @@ entirely over Soroban RPC:
 5. `CreateContract` / `CreateContractV2` (with `--constructor-arg` when needed)
 
 ```bash
-starforge deploy run --wasm target/wasm32-unknown-unknown/release/hello.wasm \
+starforge deploy run --wasm target/wasm32v1-none/release/hello.wasm \
   --wallet deployer --network testnet --execute
 
 # Machine-readable contract id
