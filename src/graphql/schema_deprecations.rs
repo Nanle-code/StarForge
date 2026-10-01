@@ -6,7 +6,7 @@
 //! Rules (see `GRAPHQL_SCHEMA_VERSIONING.md` for the full policy):
 //!
 //! - `deprecated_since`: ISO 8601 date the deprecation PR merged to `master`.
-//! - `earliest_removal`: must be ≥ `deprecated_since` + 90 days.
+//! - `earliest_removal`: must be >= `deprecated_since` + 90 days.
 //! - `replacement`: name the successor field/type so clients know what to use.
 //!
 //! The CI job `GraphQL Schema Lint` (`.github/workflows/graphql-schema-lint.yml`)
