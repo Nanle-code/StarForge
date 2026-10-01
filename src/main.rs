@@ -89,28 +89,82 @@ enum Commands {
     Contract(commands::contract::ContractCommands),
 
     /// Deploy a compiled Soroban contract and manage the deployment lifecycle
-    #[command(subcommand)]
-    Deploy(commands::tree::DeployTree),
+    Deploy(commands::deploy::DeployArgs),
 
     /// View or switch the active network, run a local node, simulate, snapshot
     #[command(subcommand)]
     Network(commands::network::NetworkCommands),
 
-    /// Manage community contract templates, versions, and the registry
+    /// On-chain account lifecycle with sponsored reserves (CAP-33)
     #[command(subcommand)]
-    Template(commands::template::TemplateCommands),
+    Account(commands::account::AccountCommands),
+    /// Natural language command interface
+    Nl(commands::nl::NlArgs),
+
+    /// Scaffold a new contract or Stellar dApp
+    #[command(subcommand)]
+    New(commands::new::NewCommands),
+
+    /// Add a reusable feature to an existing Soroban contract
+    Add(commands::add::AddCommands),
 
     /// Manage third-party plugins
     #[command(subcommand)]
     Plugin(commands::plugin::PluginCommands),
 
-    /// AI-assisted development: local assistant, audits, tests, search, planning
+    /// Generate smart contracts from natural language prompts
+    #[command(subcommand)]
+    Generate(commands::generate::GenerateCommands),
+    /// Smart contract completion assistant
+    #[command(subcommand)]
+    Complete(commands::complete::CompleteCommands),
+    /// External plugins
+    #[command(external_subcommand)]
+    External(Vec<String>),
+    /// Debug Soroban contracts with breakpoints, stepping, and inspection
+    #[command(subcommand)]
+    Debug(commands::debug::DebugCommands),
+    /// Deep contract storage inspection (state, key, storage)
+    #[command(subcommand)]
+    Inspect(commands::inspect::InspectCommands),
+    /// Watch contract sources and rebuild/redeploy on save
+    Dev(commands::dev::DevArgs),
+    /// Deployment history, rollback, verification, and dashboard
+    #[command(subcommand)]
+    Deployments(commands::deployments::DeploymentsCommands),
+    /// Manage deployment environments (dev/staging/production): configuration, promotion, isolation, and a dashboard
+    #[command(subcommand)]
+    Environment(commands::environment::EnvironmentCommands),
+    /// Show starforge config and environment info
+    Info,
+    /// Manage AI prompt templates and versioning
+    #[command(subcommand)]
+    Prompts(commands::prompts::PromptsCommands),
+    /// Analyze and explain smart contract code using AI
     #[command(subcommand)]
     Ai(commands::tree::AiTree),
 
-    /// Manage starforge configuration, telemetry, feature flags, and privacy
+    #[command(subcommand)]
+    Explain(commands::explain::ExplainCommands),
     #[command(subcommand)]
     Config(commands::config::ConfigCommands),
+    #[command(subcommand)]
+    Telemetry(commands::telemetry::TelemetryCommands),
+    Tx(commands::tx::TxArgs),
+    Sep10(commands::sep::Sep10Args),
+    #[command(subcommand)]
+    Template(commands::template::TemplateCommands),
+    #[command(subcommand)]
+    Verify(commands::verify::VerifyCommands),
+    Help(commands::help::HelpArgs),
+    #[command(subcommand)]
+    AiTelemetry(commands::ai_telemetry::AiTelemetryCommands),
+    #[command(subcommand)]
+    Optimize(commands::optimize::OptimizeCommands),
+    #[command(subcommand)]
+    AiSecurityTraining(commands::ai_security_training::AiSecurityTrainingCommands),
+    #[command(subcommand)]
+    ContractMonitor(commands::contract_monitor::ContractMonitorCommands),
 
     /// Project scaffolding and AI-driven project management
     #[command(subcommand)]
@@ -166,10 +220,6 @@ enum Commands {
         #[arg(long)]
         stats: bool,
     },
-
-    /// External plugins
-    #[command(external_subcommand)]
-    External(Vec<String>),
 
     /// Manage per-network contract and account aliases
     #[command(subcommand)]
@@ -304,7 +354,19 @@ async fn run() {
     let command_name = match &cli.command {
         Commands::Wallet(_) => "wallet",
         Commands::Contract(_) => "contract",
+        Commands::New(_) => "new",
+        Commands::Add(_) => "add",
         Commands::Deploy(_) => "deploy",
+        Commands::Dev(_) => "dev",
+        Commands::Deployments(_) => "deployments",
+        Commands::Environment(_) => "environment",
+        Commands::Info => "info",
+        Commands::BugReport(_) => "bug-report",
+        Commands::Prompts(_) => "prompts",
+        Commands::Explain(_) => "explain",
+        Commands::Telemetry(_) => "telemetry",
+        Commands::Tx(_) => "tx",
+        Commands::Sep10(_) => "sep10",
         Commands::Network(_) => "network",
         Commands::Template(_) => "template",
         Commands::Plugin(_) => "plugin",
@@ -348,8 +410,25 @@ async fn run() {
         // Every handler lives in the module that owns the command; the noun
         // enums added by ADR 0007 forward to those modules unchanged.
         Commands::Wallet(cmd) => commands::wallet::handle(cmd).await,
+        Commands::Account(cmd) => commands::account::handle(cmd).await,
+        Commands::Nl(args) => commands::nl::handle(args).await,
+        Commands::New(cmd) => commands::new::handle(cmd).await,
+        Commands::Add(cmd) => commands::add::handle(cmd, dry_run_requested),
+        Commands::Generate(cmd) => commands::generate::handle(&cmd).await,
         Commands::Contract(cmd) => commands::contract::handle(cmd).await,
-        Commands::Deploy(cmd) => commands::tree::handle_deploy(cmd).await,
+        Commands::Inspect(cmd) => commands::inspect::handle(cmd).await,
+        Commands::Debug(cmd) => commands::debug::handle(cmd).await,
+        Commands::Deploy(args) => commands::deploy::handle(args).await,
+        Commands::Dev(args) => commands::dev::handle(args).await,
+        Commands::Deployments(cmd) => commands::deployments::handle(cmd).await,
+        Commands::Environment(cmd) => commands::environment::handle(cmd),
+        Commands::Info => commands::info::handle().await,
+        Commands::BugReport(args) => commands::bug_report::handle(args).await,
+        Commands::Prompts(cmd) => commands::prompts::handle(&cmd).await,
+        Commands::Explain(ref cmd) => commands::explain::handle(cmd).await,
+        Commands::Telemetry(cmd) => commands::telemetry::handle(cmd).await,
+        Commands::Tx(args) => commands::tx::handle(args).await,
+        Commands::Sep10(args) => commands::sep::handle(args).await,
         Commands::Network(cmd) => commands::network::handle(cmd).await,
         Commands::Template(cmd) => commands::template::handle(cmd).await,
         Commands::Plugin(cmd) => commands::plugin::handle(cmd).await,

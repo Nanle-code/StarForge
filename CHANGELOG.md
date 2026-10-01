@@ -16,6 +16,7 @@ as described in [STABILITY.md](./STABILITY.md).
 
 ### Added
 
+- `starforge add` command for ownable, access-control, pausable, and upgradeable Soroban contract components, with listing, path targeting, conflict checks, and dry-run diffs.
 - Deployment annotations (#750) — `starforge deploy` accepts optional
   `--note` and `--changelog` flags that persist with the deployment history
   record. `starforge deployments history` shows a Note column, and the new

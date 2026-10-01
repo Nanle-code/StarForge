@@ -29,13 +29,21 @@ struct Cli {
 /// they cannot drift from a hand-written list. Per-subcommand detail lives in
 /// [`MAJOR_SUBCOMMANDS`]; keep the two in sync when commands change. The
 /// top-level budget asserted in `main` below is the regression guard for the
-/// 20-command limit from issue #936.
+/// top-level command budget from issue #936.
 #[derive(Subcommand)]
 enum Commands {
     // Mirrors the noun-verb tree from `src/main.rs` (ADR 0007). Only names and
     // `about` text are needed here: this copy drives the generated cheat sheet,
     // the shell completions, and the man pages. The top-level budget check in
     // `main()` below keeps it honest about the command count.
+    #[command(about = "AI-driven performance profiling commands")]
+    AiProfile,
+    #[command(about = "AI-powered IDE integration commands")]
+    AiIde,
+    #[command(about = "AI-driven test maintenance commands")]
+    AiTestMaintain,
+    #[command(about = "AI-driven deployment testing commands")]
+    AiDeploymentTest,
     #[command(about = "Manage test wallets (create, list, fund, show, remove)")]
     Wallet,
     #[command(about = "On-chain account lifecycle with sponsored reserves (CAP-33)")]
@@ -44,6 +52,8 @@ enum Commands {
     Nl,
     #[command(about = "Generate Soroban project boilerplate")]
     New,
+    #[command(about = "Add reusable features to an existing Soroban contract")]
+    Add,
     #[command(about = "Contract operations (invoke, inspect, etc.)")]
     Contract,
     #[command(about = "Deploy a compiled Soroban contract and manage the deployment lifecycle")]
@@ -82,7 +92,7 @@ enum Commands {
 /// The acceptance criterion from issue #936: top-level `--help` shows at most
 /// this many commands. Keeping it here means a future top-level addition fails
 /// the build instead of quietly regressing discoverability.
-const MAX_TOP_LEVEL_COMMANDS: usize = 30;
+const MAX_TOP_LEVEL_COMMANDS: usize = 25;
 
 /// Internal / developer-only top-level commands that are excluded from the
 /// generated cheat sheet. Hidden commands (`#[command(hide)]`) are excluded

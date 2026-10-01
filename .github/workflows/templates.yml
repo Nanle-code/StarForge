@@ -6,6 +6,8 @@ on:
       - "templates/**"
       - "src/utils/templates.rs"
       - "src/commands/new.rs"
+      - "src/commands/add.rs"
+      - "templates/components/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "scripts/discover-templates.py"
@@ -16,6 +18,8 @@ on:
       - "templates/**"
       - "src/utils/templates.rs"
       - "src/commands/new.rs"
+      - "src/commands/add.rs"
+      - "templates/components/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "scripts/discover-templates.py"
@@ -148,10 +152,52 @@ jobs:
                   summary.write('\nNo WASM size artifacts were produced.\n')
           PY
 
+  component-matrix:
+    name: Add ${{ matrix.component }} to ${{ matrix.template }}
+    needs: build-cli
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        template: [hello-world, token, nft, voting]
+        component: [ownable, access-control, pausable, upgradeable]
+    env:
+      CARGO_TERM_COLOR: always
+      STARFORGE_NON_INTERACTIVE: "1"
+      CARGO_TARGET_DIR: ${{ github.workspace }}/component-project/target
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+      - uses: actions/download-artifact@v4
+        with:
+          name: starforge-cli
+          path: .ci-bin
+      - name: Scaffold built-in project and apply component
+        env:
+          TEMPLATE_NAME: ${{ matrix.template }}
+          COMPONENT_NAME: ${{ matrix.component }}
+        run: |
+          chmod +x .ci-bin/starforge
+          .ci-bin/starforge --non-interactive --quiet new contract component-project --template "$TEMPLATE_NAME"
+          .ci-bin/starforge --quiet add "$COMPONENT_NAME" --path component-project
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: component-${{ matrix.template }}-${{ matrix.component }}
+          workspaces: component-project -> component-project/target
+      - name: Test modified contract
+        working-directory: component-project
+        run: cargo test
+      - name: Build modified contract for WASM
+        working-directory: component-project
+        run: cargo build --target wasm32-unknown-unknown --release
+
   templates-ok:
     name: templates-ok
     if: always()
-    needs: [discover, build-cli, validate, report]
+    needs: [discover, build-cli, validate, report, component-matrix]
     runs-on: ubuntu-24.04
     steps:
       - name: Require discovery, CLI build, all template builds, and report
@@ -160,8 +206,10 @@ jobs:
           CLI_RESULT: ${{ needs.build-cli.result }}
           VALIDATE_RESULT: ${{ needs.validate.result }}
           REPORT_RESULT: ${{ needs.report.result }}
+          COMPONENT_RESULT: ${{ needs.component-matrix.result }}
         run: |
           test "$DISCOVER_RESULT" = success
           test "$CLI_RESULT" = success
           test "$VALIDATE_RESULT" = success
           test "$REPORT_RESULT" = success
+          test "$COMPONENT_RESULT" = success
