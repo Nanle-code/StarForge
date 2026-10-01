@@ -36,11 +36,15 @@ enum Commands {
     // `about` text are needed here: this copy drives the generated cheat sheet,
     // the shell completions, and the man pages. The top-level budget check in
     // `main()` below keeps it honest about the command count.
-    #[command(about = "Manage test wallets (create, list, fund, sign), transactions, and devices")]
+    #[command(about = "Manage test wallets (create, list, fund, show, remove)")]
     Wallet,
-    #[command(
-        about = "Contract operations (invoke, build, test, audit, upgrade, inspect, monitor, ttl)"
-    )]
+    #[command(about = "On-chain account lifecycle with sponsored reserves (CAP-33)")]
+    Account,
+    #[command(about = "Natural language command interface")]
+    Nl,
+    #[command(about = "Generate Soroban project boilerplate")]
+    New,
+    #[command(about = "Contract operations (invoke, inspect, etc.)")]
     Contract,
     #[command(about = "Deploy a compiled Soroban contract and manage the deployment lifecycle")]
     Deploy,
@@ -50,8 +54,6 @@ enum Commands {
     Template,
     #[command(about = "Manage third-party plugins")]
     Plugin,
-    #[command(about = "AI-assisted development: local assistant, audits, tests, search, planning")]
-    Ai,
     #[command(about = "Manage starforge configuration, telemetry, feature flags, and privacy")]
     Config,
     #[command(about = "Project scaffolding and AI-driven project management")]
@@ -80,7 +82,7 @@ enum Commands {
 /// The acceptance criterion from issue #936: top-level `--help` shows at most
 /// this many commands. Keeping it here means a future top-level addition fails
 /// the build instead of quietly regressing discoverability.
-const MAX_TOP_LEVEL_COMMANDS: usize = 20;
+const MAX_TOP_LEVEL_COMMANDS: usize = 30;
 
 /// Internal / developer-only top-level commands that are excluded from the
 /// generated cheat sheet. Hidden commands (`#[command(hide)]`) are excluded

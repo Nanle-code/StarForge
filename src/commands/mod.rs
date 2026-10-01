@@ -1,4 +1,4 @@
-pub mod account;
+pub mod agent;
 pub mod ai;
 pub mod ai_accessibility;
 pub mod ai_audit;
@@ -113,3 +113,4 @@ pub mod upgrade;
 pub mod upgrade_auto;
 pub mod verify;
 pub mod wallet;
+pub mod global_flags;
