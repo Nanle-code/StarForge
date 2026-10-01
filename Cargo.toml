@@ -135,7 +135,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"]
 tracing-appender = "0.2"
 bip39 = { version = "3", features = ["rand", "std"] }
 hmac = "0.12"
-rustyline = "13.0"
+rustyline = "18.0"
 zip = "2.3"
 tempfile = "3.8"
 wasm-bindgen = "0.2"
