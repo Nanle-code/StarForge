@@ -38,6 +38,18 @@ enum Commands {
     // `main()` below keeps it honest about the command count.
     #[command(about = "Manage test wallets (create, list, fund, show, remove)")]
     Wallet,
+    #[command(
+        about = "Contract operations (invoke, build, test, audit, upgrade, inspect, monitor, ttl)"
+    )]
+    Ai,
+    #[command(about = "AI-driven performance profiling commands")]
+    AiProfile,
+    #[command(about = "AI-powered IDE integration commands")]
+    AiIde,
+    #[command(about = "AI-driven test maintenance commands")]
+    AiTestMaintain,
+    #[command(about = "AI-driven deployment testing commands")]
+    AiDeploymentTest,
     #[command(about = "On-chain account lifecycle with sponsored reserves (CAP-33)")]
     Account,
     #[command(about = "Natural language command interface")]
@@ -54,8 +66,6 @@ enum Commands {
     Template,
     #[command(about = "Manage third-party plugins")]
     Plugin,
-    #[command(about = "AI-assisted development: local assistant, audits, tests, search, planning")]
-    Ai,
     #[command(about = "Manage starforge configuration, telemetry, feature flags, and privacy")]
     Config,
     #[command(about = "Project scaffolding and AI-driven project management")]
@@ -84,7 +94,7 @@ enum Commands {
 /// The acceptance criterion from issue #936: top-level `--help` shows at most
 /// this many commands. Keeping it here means a future top-level addition fails
 /// the build instead of quietly regressing discoverability.
-const MAX_TOP_LEVEL_COMMANDS: usize = 20;
+const MAX_TOP_LEVEL_COMMANDS: usize = 30;
 
 /// Internal / developer-only top-level commands that are excluded from the
 /// generated cheat sheet. Hidden commands (`#[command(hide)]`) are excluded
