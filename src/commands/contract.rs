@@ -32,6 +32,8 @@ pub enum ContractCommands {
     Deps(DepsArgs),
     /// Track contract versions, resolve conflicts, and manage migrations
     Version(VersionArgs),
+    /// Predict a contract ID from deployer and salt
+    Id(ContractIdArgs),
 
     // ── Commands moved under `contract` by ADR 0007 ──────────────────────
     // Each moved command keeps its own argument struct, so no flag definition
@@ -237,6 +239,31 @@ pub struct DepsGraphArgs {
 pub struct VersionArgs {
     #[command(subcommand)]
     pub cmd: VersionCommands,
+}
+
+#[derive(Args)]
+pub struct ContractIdArgs {
+    /// Deployer public key (StrKey starting with 'G')
+    #[arg(long)]
+    pub deployer: String,
+    /// 32-byte salt as hex string (64 hex chars, or shorter with left-padding)
+    #[arg(long)]
+    pub salt: String,
+    /// WASM hash as hex string (64 hex chars) - required for full contract ID prediction
+    #[arg(long)]
+    pub wasm_hash: Option<String>,
+    /// Network to use for derivation (testnet, mainnet, futurenet)
+    #[arg(long, default_value = "testnet", value_parser = ["testnet", "mainnet", "futurenet"])]
+    pub network: String,
+    /// Wallet name to use for deployer (alternative to --deployer)
+    #[arg(long, conflicts_with = "deployer")]
+    pub wallet: Option<String>,
+    /// Show the derivation preimage components
+    #[arg(long, default_value = "false")]
+    pub verbose: bool,
+    /// Output as JSON
+    #[arg(long, default_value = "false")]
+    pub json: bool,
 }
 
 #[derive(Subcommand)]
@@ -490,6 +517,7 @@ pub async fn handle(cmd: ContractCommands) -> Result<()> {
         ContractCommands::CallGraph(args) => handle_call_graph(args),
         ContractCommands::Deps(args) => handle_deps(args),
         ContractCommands::Version(args) => handle_version(args).await,
+        ContractCommands::Id(args) => handle_contract_id(args).await,
 
         // ADR 0007: forward the commands that moved under `contract`.
         ContractCommands::Storage(cmd) => crate::commands::inspect::handle(cmd).await,
@@ -1560,6 +1588,91 @@ async fn handle_ttl_extend(args: TtlExtendArgs) -> Result<()> {
 }
 
 async fn handle_version(_args: crate::commands::contract::VersionArgs) -> Result<()> {
+    Ok(())
+}
+
+async fn handle_contract_id(args: ContractIdArgs) -> Result<()> {
+    use crate::utils::config;
+    use crate::utils::contract_id::{derive_contract_id, derive_contract_id_preimage, get_deployer_public_key, parse_deployer, parse_salt, parse_wasm_hash};
+
+    // Get deployer public key
+    let deployer_public_key = if let Some(wallet_name) = &args.wallet {
+        let cfg = config::load()?;
+        let wallet = cfg.wallets.iter().find(|w| &w.name == wallet_name)
+            .ok_or_else(|| anyhow::anyhow!("Wallet '{}' not found. Run `starforge wallet list`", wallet_name))?;
+        get_deployer_public_key(wallet)?
+    } else {
+        parse_deployer(&args.deployer)?
+    };
+
+    // Parse salt
+    let salt = parse_salt(&args.salt)?;
+
+    // If verbose, show the preimage components
+    if args.verbose {
+        let preimage = derive_contract_id_preimage(&deployer_public_key, &salt, &args.network)?;
+
+        if args.json {
+            let output = serde_json::json!({
+                "network_passphrase": preimage.network_passphrase,
+                "network_id": preimage.network_id_hex,
+                "deployer_address": preimage.deployer_address,
+                "salt": preimage.salt_hex,
+                "contract_id_preimage_type": preimage.contract_id_preimage_type,
+            });
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        } else {
+            p::header("Contract ID Preimage Components");
+            p::separator();
+            p::kv("Network Passphrase", &preimage.network_passphrase);
+            p::kv("Network ID (SHA-256)", &preimage.network_id_hex);
+            p::kv("Deployer Address", &preimage.deployer_address);
+            p::kv("Salt (hex)", &preimage.salt_hex);
+            p::kv("Preimage Type", &preimage.contract_id_preimage_type);
+            p::separator();
+        }
+    }
+
+    // If WASM hash provided, compute full contract ID
+    if let Some(wasm_hash_str) = args.wasm_hash {
+        let wasm_hash = parse_wasm_hash(&wasm_hash_str)?;
+        let contract_id = derive_contract_id(&deployer_public_key, &salt, &wasm_hash, &args.network)?;
+
+        if args.json {
+            let output = serde_json::json!({
+                "contract_id": contract_id,
+                "deployer": args.deployer,
+                "salt": args.salt,
+                "wasm_hash": wasm_hash_str,
+                "network": args.network,
+            });
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        } else {
+            p::header("Predicted Contract ID");
+            p::separator();
+            p::kv_accent("Contract ID", &contract_id);
+            p::kv("Deployer", &args.deployer);
+            p::kv("Salt", &args.salt);
+            p::kv("WASM Hash", &wasm_hash_str);
+            p::kv("Network", &args.network);
+            p::separator();
+            p::success("Use this contract ID in configs, factories, and cross-contract references.");
+            p::info("Deploy with the same --salt to get this exact contract ID.");
+        }
+    } else {
+        // Show preimage only - explain that WASM hash is needed for full prediction
+        if !args.verbose {
+            p::header("Contract ID Preimage (WASM hash required for full prediction)");
+            p::separator();
+            p::kv("Deployer", &args.deployer);
+            p::kv("Salt", &args.salt);
+            p::kv("Network", &args.network);
+            p::separator();
+            p::info("Provide --wasm-hash to compute the full predicted contract ID.");
+            p::info("Use --verbose to see the full derivation preimage components.");
+        }
+    }
+
     Ok(())
 }
 
