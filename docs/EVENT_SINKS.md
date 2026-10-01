@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS events (
 
 CREATE TABLE IF NOT EXISTS event_cursors (
     sink_id TEXT PRIMARY KEY,
-    cursor_id TEXT NOT NULL
+    last_ledger BIGINT NOT NULL DEFAULT 0,
+    cursor_id TEXT
 );
 `
 
@@ -56,6 +57,24 @@ file_path = "events.ndjson"
 cursor_file = "events.cursor" # Optional
 `
 
-## At-Least-Once Delivery and Cursors
+## Filtered subscriptions, cursors, and delivery semantics
 
-All sinks guarantee at-least-once delivery with durable cursors. When you run starforge monitor, the CLI reads the highest cursor stored across all configured sinks and automatically resumes the stream from that ledger point, ensuring no events are missed across restarts.
+`starforge monitor <CONTRACT>` subscribes to that contract's events. Use `--topic`
+to restrict the RPC subscription by topic, with `--event-type` and `--value`
+providing additional filters. Cursors are the opaque pagination tokens returned
+by Soroban RPC; they are not ledger numbers or event IDs. File cursors are stored
+as versioned JSON with a SHA-256 integrity checksum and replaced atomically.
+Malformed or modified cursor files fail with an explicit error. Postgres stores
+the same opaque token in `cursor_id`.
+
+On restart the monitor resumes from the stored token. If multiple sinks are
+configured, their stored cursors must match; the monitor refuses to choose an
+arbitrary token when they differ. Keep a cursor store with the same contract
+and subscription filters: the cursor is not portable across changed filters or
+RPC providers.
+
+Delivery is **at least once**. A crash after a sink accepts a batch but before
+the cursor is saved can replay that batch. Consumers should deduplicate using
+the event `id`. Exactly-once delivery is not guaranteed: sink writes and local
+cursor persistence are not one atomic transaction. RPC retention limits may
+also prevent resuming a cursor that has expired.

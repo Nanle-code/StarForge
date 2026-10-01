@@ -3,12 +3,69 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+const ONBOARDING_TUTORIAL_SLUG: &str = "onboarding-15-minute";
+const ONBOARDING_TUTORIAL_JSON: &str =
+    include_str!("../../tutorials/onboarding-15-minute/tutorial.json");
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TutorialStep {
     pub title: String,
     pub description: String,
     #[serde(default)]
     pub command: Option<String>,
+    #[serde(default)]
+    pub checkpoint: Option<TutorialCheckpoint>,
+    #[serde(default)]
+    pub repair_hint: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TutorialCheckpoint {
+    CliInstalled,
+    WalletExists { name: String },
+    ContractProjectExists { path: PathBuf },
+    SimulationRuns,
+}
+
+pub fn verify_checkpoint(checkpoint: &TutorialCheckpoint, working_dir: &Path) -> Result<()> {
+    match checkpoint {
+        TutorialCheckpoint::CliInstalled => {
+            let executable = std::env::current_exe()?;
+            if !executable.is_file() {
+                anyhow::bail!("StarForge executable was not found at {}", executable.display());
+            }
+        }
+        TutorialCheckpoint::WalletExists { name } => {
+            let config = crate::utils::config::load()?;
+            if !config.wallets.iter().any(|wallet| wallet.name == *name) {
+                anyhow::bail!("Wallet '{}' is not saved in the local StarForge configuration", name);
+            }
+        }
+        TutorialCheckpoint::ContractProjectExists { path } => {
+            let project_dir = working_dir.join(path);
+            if !project_dir.join("Cargo.toml").is_file()
+                || !project_dir.join("src/lib.rs").is_file()
+            {
+                anyhow::bail!(
+                    "Contract project is incomplete at {} (expected Cargo.toml and src/lib.rs)",
+                    project_dir.display()
+                );
+            }
+        }
+        TutorialCheckpoint::SimulationRuns => {
+            use crate::utils::network_simulator::scenarios::{
+                BuiltInScenario, ScenarioRunner,
+            };
+
+            let scenario = ScenarioRunner::load_built_in(BuiltInScenario::SimpleCounter, 42);
+            let (_, result) = ScenarioRunner::run(scenario);
+            if result.accounts.is_empty() || result.contracts.is_empty() {
+                anyhow::bail!("The local simple-counter simulation returned no accounts or contracts");
+            }
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -131,14 +188,18 @@ pub fn tutorial_manifest_path(repo_root: &Path, slug: &str) -> PathBuf {
 
 pub fn load_tutorial(repo_root: &Path, slug: &str) -> Result<TutorialDefinition> {
     let path = tutorial_manifest_path(repo_root, slug);
-    if !path.exists() {
+    let mut definition: TutorialDefinition = if path.exists() {
+        let bytes =
+            fs::read(&path).with_context(|| format!("Failed to read {}", path.display()))?;
+        serde_json::from_slice(&bytes)?
+    } else if slug == ONBOARDING_TUTORIAL_SLUG {
+        serde_json::from_str(ONBOARDING_TUTORIAL_JSON)?
+    } else {
         anyhow::bail!(
             "Tutorial manifest missing at {}. Add tutorial.json for structured steps.",
             path.display()
         );
-    }
-    let bytes = fs::read(&path).with_context(|| format!("Failed to read {}", path.display()))?;
-    let mut definition: TutorialDefinition = serde_json::from_slice(&bytes)?;
+    };
     if definition.slug.is_empty() {
         definition.slug = slug.to_string();
     }
@@ -150,15 +211,17 @@ pub fn load_tutorial(repo_root: &Path, slug: &str) -> Result<TutorialDefinition>
 
 pub fn list_tutorial_slugs(repo_root: &Path) -> Result<Vec<String>> {
     let dir = tutorials_dir(repo_root);
-    if !dir.exists() {
-        return Ok(Vec::new());
-    }
     let mut slugs = Vec::new();
-    for entry in fs::read_dir(&dir)? {
-        let entry = entry?;
-        if entry.path().is_dir() {
-            slugs.push(entry.file_name().to_string_lossy().to_string());
+    if dir.exists() {
+        for entry in fs::read_dir(&dir)? {
+            let entry = entry?;
+            if entry.path().is_dir() {
+                slugs.push(entry.file_name().to_string_lossy().to_string());
+            }
         }
+    }
+    if !slugs.iter().any(|slug| slug == ONBOARDING_TUTORIAL_SLUG) {
+        slugs.push(ONBOARDING_TUTORIAL_SLUG.to_string());
     }
     slugs.sort();
     Ok(slugs)
@@ -185,10 +248,62 @@ mod tests {
             title: "Check environment".into(),
             description: "Run info".into(),
             command: Some("starforge info".into()),
+            checkpoint: None,
+            repair_hint: None,
         };
         let rendered = render_step(&step, 0, 3);
         assert!(rendered.contains("Step 1/3"));
         assert!(rendered.contains("starforge info"));
+    }
+
+    #[test]
+    fn old_tutorial_steps_default_checkpoint_fields() {
+        let step: TutorialStep = serde_json::from_str(
+            r#"{"title":"Old step","description":"Legacy","command":"starforge info"}"#,
+        )
+        .unwrap();
+
+        assert!(step.checkpoint.is_none());
+        assert!(step.repair_hint.is_none());
+    }
+
+    #[test]
+    fn embedded_onboarding_is_listed_and_loads_outside_checkout() {
+        let directory = tempfile::tempdir().unwrap();
+        let slugs = list_tutorial_slugs(directory.path()).unwrap();
+        assert!(slugs.iter().any(|slug| slug == ONBOARDING_TUTORIAL_SLUG));
+
+        let tutorial = load_tutorial(directory.path(), ONBOARDING_TUTORIAL_SLUG).unwrap();
+        assert_eq!(tutorial.steps.len(), 4);
+    }
+
+    #[test]
+    fn cli_installed_checkpoint_accepts_running_executable() {
+        assert!(verify_checkpoint(&TutorialCheckpoint::CliInstalled, Path::new(".")).is_ok());
+    }
+
+    #[test]
+    fn contract_project_checkpoint_requires_expected_files() {
+        let directory = tempfile::tempdir().unwrap();
+        let checkpoint = TutorialCheckpoint::ContractProjectExists {
+            path: PathBuf::from("contract"),
+        };
+        assert!(verify_checkpoint(&checkpoint, directory.path()).is_err());
+
+        let project = directory.path().join("contract");
+        fs::create_dir_all(project.join("src")).unwrap();
+        fs::write(project.join("Cargo.toml"), "[package]").unwrap();
+        fs::write(project.join("src/lib.rs"), "").unwrap();
+        assert!(verify_checkpoint(&checkpoint, directory.path()).is_ok());
+    }
+
+    #[test]
+    fn local_simulation_checkpoint_runs_without_network() {
+        assert!(verify_checkpoint(
+            &TutorialCheckpoint::SimulationRuns,
+            Path::new(".")
+        )
+        .is_ok());
     }
 
     #[test]

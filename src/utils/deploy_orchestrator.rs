@@ -484,7 +484,10 @@ pub fn execute_plan_parallel(
                 reporter.failed(
                     idx + 1,
                     state.steps[idx].contract_id.clone(),
-                    state.steps[idx].error.clone().unwrap_or_else(|| "worker failed".into()),
+                    state.steps[idx]
+                        .error
+                        .clone()
+                        .unwrap_or_else(|| "worker failed".into()),
                 );
             } else {
                 state.steps[idx].status = DeployStepStatus::Running;

@@ -38,7 +38,19 @@ Welcome to StarForge! This guide will help you get started contributing to the p
 
 ### Rust
 
-StarForge requires **Rust 1.80 or later**. 
+StarForge requires **Rust 1.80 or later** (`rust-version` in `Cargo.toml`).
+
+#### MSRV policy
+
+- The Minimum Supported Rust Version (MSRV) tracks approximately **N−3** stable
+  releases (today: 1.80 while latest stable is ~1.83+).
+- MSRV bumps happen only in **minor** StarForge releases, never in patch releases.
+- Exact dependency pins (`=x.y.z`) are avoided unless a justification comment sits
+  next to the pin (usually an MSRV or API-stability hold). Prefer caret ranges and
+  rely on `.cargo/config.toml` `incompatible-rust-versions = "fallback"` plus the
+  weekly `latest-deps` CI job to catch drift.
+- When raising MSRV, update `Cargo.toml` `rust-version`, the `MSRV (Rust …)` CI
+  job, `CONTRIBUTING.md`, and `docs/BRANCH_PROTECTION.md` in the same PR.
 
 #### Install Rust
 
@@ -874,3 +886,4 @@ or a linked tracking issue.
 Contributors are recognized in the project and may participate in the [Stellar Wave Program](https://www.drips.network/wave/stellar) for monetary rewards.
 
 Thank you for contributing to StarForge! 🚀
+.....

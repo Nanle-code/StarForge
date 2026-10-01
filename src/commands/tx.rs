@@ -7,6 +7,7 @@ use stellar_xdr::curr::TransactionEnvelope;
 use crate::utils::confirmation;
 use crate::utils::hardware_wallet::{self, HardwareWalletKind};
 use crate::utils::horizon::FeeStats;
+use crate::utils::tx_xdr;
 use crate::utils::{config, fee_payer, horizon, print as p, tx_batch, tx_builder, wallet_signer};
 
 #[derive(Args)]

@@ -114,7 +114,7 @@ pub fn map_signing_error(err: anyhow::Error, kind: HardwareWalletKind) -> anyhow
     } else if message.contains("status") || message.contains("apdu") {
         "Close other wallet apps, reopen the Stellar app on the device, and retry the operation."
     } else {
-        "Verify connectivity, unlock the device, open the Stellar app, and retry. Run `starforge diagnostics --wallet ledger|trezor` for a live probe."
+        "Verify connectivity, unlock the device, open the Stellar app, and retry. Run `starforge wallet diagnostics --wallet ledger` or `starforge wallet diagnostics --wallet trezor` for a live probe."
     };
 
     anyhow::anyhow!(

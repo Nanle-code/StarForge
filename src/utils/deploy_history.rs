@@ -546,7 +546,10 @@ mod tests {
         let stored = get_record(&id)
             .expect("load history")
             .expect("record persisted");
-        assert_eq!(stored.note.as_deref(), Some("Release 1.2.0: payout cap fix"));
+        assert_eq!(
+            stored.note.as_deref(),
+            Some("Release 1.2.0: payout cap fix")
+        );
         assert_eq!(
             stored.changelog.as_deref(),
             Some("- payouts: cap weekly withdrawal at 10k")
@@ -565,10 +568,7 @@ mod tests {
         // file) and confirm the annotation is what comes back.
         let reloaded = load_history().expect("reload history");
         let stored = reloaded.iter().find(|r| r.id == id).expect("record");
-        assert_eq!(
-            stored.note.as_deref(),
-            Some("Audit-required prod rollout")
-        );
+        assert_eq!(stored.note.as_deref(), Some("Audit-required prod rollout"));
         assert!(stored.changelog.is_none());
     }
 
@@ -580,7 +580,9 @@ mod tests {
             .with_annotation(Some("Fix rounding in fee calc".to_string()), None);
         let id = record_deployment(record).expect("record deployment");
 
-        let found = annotation(&id[..8]).expect("annotation lookup").expect("found");
+        let found = annotation(&id[..8])
+            .expect("annotation lookup")
+            .expect("found");
         assert_eq!(found.deployment_id, id);
         assert_eq!(found.note.as_deref(), Some("Fix rounding in fee calc"));
         assert!(found.changelog.is_none());
@@ -602,11 +604,9 @@ mod tests {
     fn annotation_is_none_for_unknown_ids() {
         let (_home, _guard) = isolated_home();
 
-        assert!(
-            annotation("does-not-exist")
-                .expect("annotation lookup")
-                .is_none()
-        );
+        assert!(annotation("does-not-exist")
+            .expect("annotation lookup")
+            .is_none());
     }
 
     #[test]

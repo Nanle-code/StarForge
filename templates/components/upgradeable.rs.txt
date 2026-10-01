@@ -1,0 +1,8 @@
+    pub fn version(env: soroban_sdk::Env) -> u32 {
+        env.storage().instance().get(&soroban_sdk::symbol_short!("VERSION")).unwrap_or(1)
+    }
+    pub fn upgrade(env: soroban_sdk::Env, admin: soroban_sdk::Address, wasm_hash: soroban_sdk::BytesN<32>) {
+        admin.require_auth();
+        env.deployer().update_current_contract_wasm(wasm_hash);
+        env.storage().instance().set(&soroban_sdk::symbol_short!("VERSION"), &Self::version(env.clone()) + 1);
+    }

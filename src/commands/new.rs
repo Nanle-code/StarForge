@@ -306,13 +306,12 @@ async fn scaffold_contract(
         "token" => token_template(&name),
         "voting" => voting_template(&name),
         "nft" => nft_template(&name),
+        "hello-world" => hello_world_template(&name, storage, include_tests),
         _ => {
             if let Some(custom) =
                 templates::template_source_content(&template, force_refresh).await?
             {
                 custom
-            } else if template == "hello-world" {
-                hello_world_template(&name, storage, include_tests)
             } else {
                 anyhow::bail!(
                     "Unknown template '{}'. Search available templates with `starforge new contract --search <query>`.",

@@ -1,6 +1,8 @@
 use crate::utils::{
-    audit, config, confirmation, crypto, hardware_wallet, horizon, keychain, mnemonic, multisig,
-    output, print as p, stellar_cli_identity,
+    audit, config, confirmation, crypto,
+    dry_run::{self, DryRunPlan, PlannedOperation},
+    hardware_wallet, horizon, keychain, mnemonic, multisig, output, print as p,
+    stellar_cli_identity,
 };
 use anyhow::{Context, Result};
 use bip39::{Language, Mnemonic};
@@ -102,6 +104,20 @@ pub enum WalletCommands {
         /// Emit a machine-readable JSON object instead of the human-readable table
         #[arg(long)]
         json: bool,
+    },
+    /// Add a watch-only wallet (public key only — cannot sign)
+    Watch {
+        /// Local alias for this address
+        name: String,
+        /// Stellar public key (G...)
+        #[arg(long)]
+        address: String,
+        /// Network to associate with this wallet
+        #[arg(long, value_parser = ["testnet", "mainnet"])]
+        network: Option<String>,
+        /// Also register the address in the per-network alias book
+        #[arg(long, default_value = "false")]
+        alias: bool,
     },
     /// Show details of a saved wallet including live balance
     Show {
@@ -463,6 +479,12 @@ pub async fn handle(cmd: WalletCommands) -> Result<()> {
             .await
         }
         WalletCommands::List { json } => list(json),
+        WalletCommands::Watch {
+            name,
+            address,
+            network,
+            alias,
+        } => watch_wallet(name, address, network, alias),
         WalletCommands::Show { name, reveal } => show(name, reveal).await,
         WalletCommands::Fund { name } => fund_wallet(name).await,
         WalletCommands::Remove { name } => remove(name),
@@ -530,20 +552,23 @@ pub async fn handle(cmd: WalletCommands) -> Result<()> {
             hardware,
             hd_path,
             accounts,
-        } => import_wallet(
-            name,
-            file,
-            from_mnemonic,
-            key,
-            from_stellar_cli,
-            account_index,
-            network,
-            encrypt,
-            strict,
-            hardware,
-            hd_path,
-            accounts,
-        ).await,
+        } => {
+            import_wallet(
+                name,
+                file,
+                from_mnemonic,
+                key,
+                from_stellar_cli,
+                account_index,
+                network,
+                encrypt,
+                strict,
+                hardware,
+                hd_path,
+                accounts,
+            )
+            .await
+        }
         WalletCommands::ImportShares { shares, output } => import_shares(shares, output),
         WalletCommands::Connect { device, timeout } => connect_hardware(device, &timeout),
         WalletCommands::HwAddress { device, path } => hw_address(device, &path),
@@ -609,23 +634,31 @@ fn dry_run_plan(cmd: &WalletCommands) -> Option<DryRunPlan> {
             })
         }
         WalletCommands::Fund { name } => Some(
-            DryRunPlan::new("wallet fund", format!("Fund wallet '{name}' via the network faucet"))
-                .operation(PlannedOperation::new(
-                    "wallet.funding",
-                    name.clone(),
-                    format!("would request testnet funds for '{name}' and submit the funding transaction"),
-                ))
-                .submits_transactions(),
+            DryRunPlan::new(
+                "wallet fund",
+                format!("Fund wallet '{name}' via the network faucet"),
+            )
+            .operation(PlannedOperation::new(
+                "wallet.funding",
+                name.clone(),
+                format!(
+                    "would request testnet funds for '{name}' and submit the funding transaction"
+                ),
+            ))
+            .submits_transactions(),
         ),
         WalletCommands::Remove { name } => Some(
-            DryRunPlan::new("wallet remove", format!("Remove wallet '{name}' from local storage"))
-                .operation(PlannedOperation::new(
-                    "wallet.remove",
-                    name.clone(),
-                    format!("would delete the stored key material for '{name}'"),
-                ))
-                .writes_filesystem()
-                .warn("Removing a wallet is irreversible"),
+            DryRunPlan::new(
+                "wallet remove",
+                format!("Remove wallet '{name}' from local storage"),
+            )
+            .operation(PlannedOperation::new(
+                "wallet.remove",
+                name.clone(),
+                format!("would delete the stored key material for '{name}'"),
+            ))
+            .writes_filesystem()
+            .warn("Removing a wallet is irreversible"),
         ),
         WalletCommands::Rename { old_name, new_name } => Some(
             DryRunPlan::new(
@@ -646,21 +679,18 @@ fn dry_run_plan(cmd: &WalletCommands) -> Option<DryRunPlan> {
             remove_local,
             ..
         } => Some(
-            DryRunPlan::new(
-                "wallet merge",
-                format!("Merge wallet '{from}' into '{to}'"),
-            )
-            .maybe_network(network.clone())
-            .operation(
-                PlannedOperation::new(
-                    "wallet.merge",
-                    from.clone(),
-                    format!("would close account '{from}' and send its XLM balance to '{to}'"),
+            DryRunPlan::new("wallet merge", format!("Merge wallet '{from}' into '{to}'"))
+                .maybe_network(network.clone())
+                .operation(
+                    PlannedOperation::new(
+                        "wallet.merge",
+                        from.clone(),
+                        format!("would close account '{from}' and send its XLM balance to '{to}'"),
+                    )
+                    .detail("Remove source locally", dry_run::yes_no(*remove_local)),
                 )
-                .detail("Remove source locally", dry_run::yes_no(*remove_local)),
-            )
-            .submits_transactions()
-            .writes_filesystem(),
+                .submits_transactions()
+                .writes_filesystem(),
         ),
         WalletCommands::Rotate {
             name,
@@ -700,7 +730,8 @@ fn dry_run_plan(cmd: &WalletCommands) -> Option<DryRunPlan> {
             let target = if *all {
                 "all wallets".to_string()
             } else {
-                name.clone().unwrap_or_else(|| "selected wallet".to_string())
+                name.clone()
+                    .unwrap_or_else(|| "selected wallet".to_string())
             };
             let mut operation = PlannedOperation::new(
                 "file.write",
@@ -708,10 +739,8 @@ fn dry_run_plan(cmd: &WalletCommands) -> Option<DryRunPlan> {
                 format!("would export {target} to {}", output.display()),
             );
             if let (Some(shares), Some(threshold)) = (shares, threshold) {
-                operation = operation.detail(
-                    "Recovery shares",
-                    format!("{threshold}-of-{shares} split"),
-                );
+                operation =
+                    operation.detail("Recovery shares", format!("{threshold}-of-{shares} split"));
             }
             if let Some(dir) = shares_dir {
                 operation = operation.detail("Shares directory", dir.display().to_string());
@@ -733,7 +762,9 @@ fn dry_run_plan(cmd: &WalletCommands) -> Option<DryRunPlan> {
             hardware,
             ..
         } => {
-            let target = name.clone().unwrap_or_else(|| "imported wallet".to_string());
+            let target = name
+                .clone()
+                .unwrap_or_else(|| "imported wallet".to_string());
             let source = if let Some(file) = file {
                 format!("backup file {}", file.display())
             } else if *mnemonic {
@@ -756,7 +787,10 @@ fn dry_run_plan(cmd: &WalletCommands) -> Option<DryRunPlan> {
                             target.clone(),
                             format!("would import wallet '{target}' from {source}"),
                         )
-                        .detail("Redacts secret material", "yes (values are never shown in a plan)"),
+                        .detail(
+                            "Redacts secret material",
+                            "yes (values are never shown in a plan)",
+                        ),
                     )
                     .writes_filesystem(),
             )
@@ -780,7 +814,9 @@ fn dry_run_plan(cmd: &WalletCommands) -> Option<DryRunPlan> {
             )
             .writes_filesystem(),
         ),
-        WalletCommands::TuneKdf { name, use_global, .. } => Some(
+        WalletCommands::TuneKdf {
+            name, use_global, ..
+        } => Some(
             DryRunPlan::new(
                 "wallet tune-kdf",
                 format!("Update KDF parameters for wallet '{name}'"),
@@ -812,10 +848,13 @@ fn dry_run_plan(cmd: &WalletCommands) -> Option<DryRunPlan> {
                 operation = operation.detail("Setup transaction", path.display().to_string());
             }
             Some(
-                DryRunPlan::new("wallet multisig create", format!("Create multi-sig config for '{name}'"))
-                    .maybe_network(network.clone())
-                    .operation(operation)
-                    .writes_filesystem(),
+                DryRunPlan::new(
+                    "wallet multisig create",
+                    format!("Create multi-sig config for '{name}'"),
+                )
+                .maybe_network(network.clone())
+                .operation(operation)
+                .writes_filesystem(),
             )
         }
         WalletCommands::Multisig(MultisigCommands::Sign {
@@ -870,6 +909,21 @@ fn dry_run_plan(cmd: &WalletCommands) -> Option<DryRunPlan> {
         | WalletCommands::Derive
         | WalletCommands::Multisig(MultisigCommands::List)
         | WalletCommands::Multisig(MultisigCommands::Show { .. }) => None,
+        WalletCommands::Watch {
+            name,
+            address,
+            network,
+            ..
+        } => Some(
+            DryRunPlan::new("wallet watch", format!("Add watch-only wallet '{name}'"))
+                .maybe_network(network.clone())
+                .operation(PlannedOperation::new(
+                    "wallet.write",
+                    name.clone(),
+                    format!("would store watch-only address {address} as '{name}'"),
+                ))
+                .writes_filesystem(),
+        ),
     }
 }
 
@@ -1101,6 +1155,13 @@ fn sign_message(
         .find(|w| w.name == name)
         .ok_or_else(|| anyhow::anyhow!("Wallet '{}' not found", name))?;
 
+    if w.is_watch_only() {
+        anyhow::bail!(
+            "Wallet '{}' is watch-only and cannot sign. Import a secret key or use a signing wallet.",
+            name
+        );
+    }
+
     let sk = w
         .secret_key
         .as_ref()
@@ -1141,8 +1202,12 @@ fn sign_transaction_file(
     config::validate_file_path(&transaction, None)?;
     config::validate_network(&network)?;
 
-    let raw = fs::read_to_string(&transaction)
-        .with_context(|| format!("Failed to read transaction XDR from {}", transaction.display()))?;
+    let raw = fs::read_to_string(&transaction).with_context(|| {
+        format!(
+            "Failed to read transaction XDR from {}",
+            transaction.display()
+        )
+    })?;
     let xdr = raw.trim().to_string();
     if xdr.is_empty() {
         anyhow::bail!("Transaction file '{}' is empty", transaction.display());
@@ -1369,6 +1434,61 @@ async fn create(
     Ok(())
 }
 
+/// Persist a public-key-only wallet for monitoring, aliases, and multisig composition.
+fn watch_wallet(
+    name: String,
+    address: String,
+    network_override: Option<String>,
+    also_alias: bool,
+) -> Result<()> {
+    config::validate_public_key(&address)?;
+    let mut cfg = config::load()?;
+    if cfg.wallets.iter().any(|w| w.name == name) {
+        anyhow::bail!(
+            "Wallet '{}' already exists. Choose another name or remove it first.",
+            name
+        );
+    }
+    let network = network_override.unwrap_or_else(|| cfg.network.clone());
+    config::validate_network(&network)?;
+
+    let entry = config::WalletEntry {
+        name: name.clone(),
+        public_key: address.clone(),
+        secret_key: None,
+        network: network.clone(),
+        created_at: chrono::Utc::now().to_rfc3339(),
+        funded: false,
+        kdf_options: None,
+        rotation_history: Vec::new(),
+        derivation_index: None,
+        derivation_path: None,
+        mnemonic_wallet: None,
+        usage_policy: config::WalletUsagePolicy::default(),
+    };
+    cfg.wallets.push(entry);
+    config::save(&cfg)?;
+
+    if also_alias {
+        let mut book = crate::utils::aliases::AliasBook::load()
+            .map_err(|e| anyhow::anyhow!("alias book: {e}"))?;
+        book.set(&network, &name, &address)
+            .map_err(|e| anyhow::anyhow!("alias set: {e}"))?;
+        book.save()
+            .map_err(|e| anyhow::anyhow!("alias save: {e}"))?;
+    }
+
+    p::success(&format!(
+        "Watch-only wallet '{}' added ({})",
+        name.bold(),
+        "cannot sign".yellow()
+    ));
+    p::kv("Address", &address);
+    p::kv("Network", &network);
+    p::info("Use this wallet for balances, multisig members, and address books — not for signing.");
+    Ok(())
+}
+
 fn list(json: bool) -> Result<()> {
     let cfg = config::load()?;
     let emit_json = json || output::is_json_mode_enabled();
@@ -1388,6 +1508,7 @@ fn list(json: bool) -> Result<()> {
             network: String,
             funded: bool,
             created_at: String,
+            watch_only: bool,
             #[serde(skip_serializing_if = "Option::is_none")]
             derivation_index: Option<u32>,
             #[serde(skip_serializing_if = "Option::is_none")]
@@ -1405,6 +1526,7 @@ fn list(json: bool) -> Result<()> {
                 network: w.network.clone(),
                 funded: w.funded,
                 created_at: w.created_at.clone(),
+                watch_only: w.is_watch_only(),
                 derivation_index: w.derivation_index,
                 derivation_path: w.derivation_path.clone(),
                 mnemonic_wallet: w.mnemonic_wallet.clone(),
@@ -1431,7 +1553,9 @@ fn list(json: bool) -> Result<()> {
     p::separator();
 
     for (i, w) in cfg.wallets.iter().enumerate() {
-        let status = if w.funded {
+        let status = if w.is_watch_only() {
+            "watch-only".yellow()
+        } else if w.funded {
             "funded".green()
         } else {
             "unfunded".dimmed()
@@ -2707,9 +2831,10 @@ fn batch_import_from_mnemonic(
             )
         })?;
         let acct_name = acct_name.trim();
-        let idx: u32 = idx_str.trim().parse().map_err(|_| {
-            anyhow::anyhow!("Invalid account index in '{}'", part)
-        })?;
+        let idx: u32 = idx_str
+            .trim()
+            .parse()
+            .map_err(|_| anyhow::anyhow!("Invalid account index in '{}'", part))?;
         config::validate_wallet_name(acct_name)?;
         if cfg.wallets.iter().any(|w| w.name == acct_name) {
             anyhow::bail!("A wallet named '{}' already exists.", acct_name);
@@ -3272,8 +3397,14 @@ mod tests {
 
         let deserialized: WalletEntry = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.derivation_index, Some(2));
-        assert_eq!(deserialized.derivation_path.as_deref(), Some("m/44'/148'/2'"));
-        assert_eq!(deserialized.mnemonic_wallet.as_deref(), Some("main_mnemonic"));
+        assert_eq!(
+            deserialized.derivation_path.as_deref(),
+            Some("m/44'/148'/2'")
+        );
+        assert_eq!(
+            deserialized.mnemonic_wallet.as_deref(),
+            Some("main_mnemonic")
+        );
     }
 }
 
@@ -3293,9 +3424,8 @@ async fn derive_account(
     let target_name = name.ok_or_else(|| {
         anyhow::anyhow!("--name <DERIVED_WALLET_NAME> is required when deriving an account")
     })?;
-    let target_index = index.ok_or_else(|| {
-        anyhow::anyhow!("--index <N> is required when deriving an account")
-    })?;
+    let target_index =
+        index.ok_or_else(|| anyhow::anyhow!("--index <N> is required when deriving an account"))?;
     let source_wallet = mnemonic_wallet.unwrap_or_else(|| "mnemonic".to_string());
 
     let mut cfg = config::load()?;
@@ -3323,7 +3453,10 @@ async fn derive_account(
         println!();
         let context = [target_name.as_str(), public_key.as_str(), network.as_str()];
         let pwd = crypto::prompt_passphrase_with_inputs(
-            &format!("Set a passphrase to encrypt derived wallet '{}'", target_name),
+            &format!(
+                "Set a passphrase to encrypt derived wallet '{}'",
+                target_name
+            ),
             strict,
             &context,
         )?;

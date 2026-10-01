@@ -27,12 +27,7 @@ below.
 
 **Purpose**: Ensure all Rust code follows standard formatting conventions  
 **Trigger**: Every push and pull request  
-**Status**: ⚠️ Currently non-blocking. `master` still has unformatted code in
-a handful of files, so the job emits a `rustfmt` warning annotation instead of
-failing. Reformatting everything at once would conflict with every open branch;
-once `cargo fmt --all --check` passes on `master`, the step in `ci.yml` should
-be switched back to a hard gate (the comment in the workflow says how). Please
-still run `cargo fmt --all` on the files you touch.
+**Status**: ✅ Required (must pass)
 
 ```bash
 cargo fmt --all --check
@@ -53,6 +48,22 @@ cargo fmt --all --check
 # Auto-format all code
 cargo fmt --all
 ```
+
+---
+
+### Job: Actionlint (Workflow Lint)
+
+**Purpose**: Catch malformed GitHub Actions workflows across the repository  
+**Trigger**: Every push and pull request  
+**Status**: ✅ Required (must pass)
+
+```bash
+actionlint -color
+```
+
+**Local equivalent:** install
+[`actionlint`](https://github.com/rhysd/actionlint) and run it from the repo
+root before pushing workflow changes.
 
 ---
 
@@ -606,11 +617,11 @@ each of those lives:
 
 | Concern | Workflow | Jobs / notes | Blocking? |
 | --- | --- | --- | --- |
-| Formatting, lint | `ci.yml` | Rustfmt, Clippy (`-D warnings`, all features) | Clippy yes; Rustfmt warns only (see above) |
+| Formatting, lint | `ci.yml` | Rustfmt (blocking), Actionlint, Clippy (`-D warnings`, all features) | yes |
 | MSRV | `ci.yml` | `cargo check --locked --workspace` on Rust 1.80.0 | yes |
 | Tests (Linux) | `ci.yml` | Build and Test, Doctests, Secure Defaults Audit, Hardware Wallet, Smoke, Docs Cheat Sheet | yes |
 | Tests (macOS, Windows) | `ci.yml` | macOS CLI Tests, Windows CLI Tests | yes |
-| Code coverage | `coverage.yml` | `cargo llvm-cov` over the whole suite: LCOV + JSON + HTML artifact (`coverage-report`), totals in the job summary, optional Codecov upload | Fails if tests fail; a minimum % is enforced only when the `COVERAGE_THRESHOLD` repository variable is set |
+| Code coverage | `coverage.yml` | `cargo llvm-cov` + artifact + Codecov; enforces `coverage-ratchet.toml` and critical-path floors (`crypto` / `wallet` / `config`); patch/project status via `codecov.yml` | yes (ratchet + optional `COVERAGE_THRESHOLD`) |
 | Property tests, fuzzing, mutation | `fuzzing.yml` | proptest, fuzz harness build, nightly fuzz smoke, weekly cargo-mutants | yes (mutants informational) |
 | Dependency advisories / licenses / sources | `ci.yml` (Cargo Deny), `audit.yml` (Cargo Audit, weekly + PR) | curated exceptions in `deny.toml` / `audit.toml` | yes |
 | Dependency review | `audit.yml` (Dependency Review, PRs only) | GitHub advisory DB diff of the PR | no (`continue-on-error`; cargo-deny/audit are the gate) |

@@ -22,6 +22,7 @@ use crate::utils::config::{
     merge_configs, AiTelemetryConfig, Config, ConfigOverlay, FeatureFlagsConfig, NetworkConfig,
     PluginTrustConfig,
 };
+use crate::utils::deploy_checklist::DeploymentChecklistConfig;
 use crate::utils::smoke_tests::{self, SmokeTest};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -66,6 +67,9 @@ pub struct ProjectLockfile {
     /// Not a config override: it never reaches the merged [`Config`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub smoke_tests: Vec<SmokeTest>,
+    /// Mainnet pre-deploy checks and project-specific thresholds (#749).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deployment_checklist: Option<DeploymentChecklistConfig>,
 }
 
 impl ProjectLockfile {
@@ -102,6 +106,11 @@ pub fn parse_project_lockfile_str(contents: &str) -> Result<ProjectLockfile> {
     let lockfile: ProjectLockfile =
         toml::from_str(contents).context("Invalid project lockfile TOML")?;
     smoke_tests::validate(&lockfile.smoke_tests).context("Invalid project lockfile smoke_tests")?;
+    if let Some(checklist) = &lockfile.deployment_checklist {
+        checklist
+            .validate()
+            .context("Invalid project deployment_checklist")?;
+    }
     Ok(lockfile)
 }
 
@@ -190,6 +199,32 @@ mod tests {
         let lock = parse_project_lockfile_str("network = \"testnet\"").unwrap();
         assert_eq!(lock.network.as_deref(), Some("testnet"));
         assert!(lock.networks.is_empty());
+    }
+
+    #[test]
+    fn deployment_checklist_settings_parse_from_project_lockfile() {
+        let lock = parse_project_lockfile_str(&format!(
+            "[deployment_checklist]\nexpected_wasm_hash = \"{}\"\nminimum_balance_xlm = 3.5\nrequired_checks = [\"balance\", \"network_identity\"]\n",
+            "a".repeat(64)
+        ))
+        .unwrap();
+        let checklist = lock.deployment_checklist.unwrap();
+        let expected_hash = "a".repeat(64);
+        assert_eq!(checklist.minimum_balance_xlm, 3.5);
+        assert_eq!(checklist.required_checks, ["balance", "network_identity"]);
+        assert_eq!(
+            checklist.expected_wasm_hash.as_deref(),
+            Some(expected_hash.as_str())
+        );
+    }
+
+    #[test]
+    fn deployment_checklist_rejects_unknown_required_checks() {
+        let error = parse_project_lockfile_str(
+            "[deployment_checklist]\nrequired_checks = [\"simualtion_success\"]\n",
+        )
+        .unwrap_err();
+        assert!(format!("{error:#}").contains("unknown deployment checklist check"));
     }
 
     #[test]
@@ -384,6 +419,11 @@ timeout_secs = 10
 
     #[test]
     fn sample_project_manifests_are_valid() {
+        let example =
+            parse_project_lockfile_str(include_str!("../../starforge-project.example.toml"))
+                .unwrap();
+        assert!(example.deployment_checklist.is_some());
+
         let passing = parse_project_lockfile_str(include_str!(
             "../../examples/smoke-tests/starforge-project.toml"
         ))

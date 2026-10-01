@@ -1,0 +1,39 @@
+# Latest dependency resolution (scheduled)
+
+# Exercises caret ranges without --locked so MSRV-compatible upgrades surface
+# before Dependabot PRs. See CONTRIBUTING.md "MSRV policy" and issue #903.
+
+name: Latest deps
+
+on:
+  schedule:
+    # Mondays 06:15 UTC
+    - cron: "15 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  latest-deps:
+    name: cargo update + check (no lock)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Update dependencies within caret ranges
+        run: cargo update
+
+      - name: Check workspace against refreshed lockfile
+        run: cargo check --workspace --all-targets
+
+      - name: Run library/unit tests
+        run: cargo test --workspace --lib --bins

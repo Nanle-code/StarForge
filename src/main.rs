@@ -72,6 +72,10 @@ struct Cli {
     /// This is unsafe and should only be used for deliberate legacy operations.
     #[arg(long, global = true)]
     allow_plaintext_mainnet: bool,
+
+    /// Show all help flags, including advanced/power-user options that are hidden by default
+    #[arg(long, global = true)]
+    help_all: bool,
 }
 
 #[derive(Subcommand)]
@@ -85,29 +89,29 @@ enum Commands {
     Contract(commands::contract::ContractCommands),
 
     /// Deploy a compiled Soroban contract and manage the deployment lifecycle
-    #[command(subcommand)]
-    Deploy(commands::tree::DeployTree),
+    Deploy(commands::deploy::DeployArgs),
 
     /// View or switch the active network, run a local node, simulate, snapshot
     #[command(subcommand)]
     Network(commands::network::NetworkCommands),
 
-    /// Manage community contract templates, versions, and the registry
-    #[command(subcommand)]
-    Wallet(commands::wallet::WalletCommands),
     /// On-chain account lifecycle with sponsored reserves (CAP-33)
     #[command(subcommand)]
     Account(commands::account::AccountCommands),
     /// Natural language command interface
     Nl(commands::nl::NlArgs),
 
+    /// Scaffold a new contract or Stellar dApp
+    #[command(subcommand)]
+    New(commands::new::NewCommands),
+
+    /// Add a reusable feature to an existing Soroban contract
+    Add(commands::add::AddCommands),
+
     /// Manage third-party plugins
     #[command(subcommand)]
     Plugin(commands::plugin::PluginCommands),
 
-    /// Contract operations (invoke, inspect, etc.)
-    #[command(subcommand)]
-    Contract(commands::contract::ContractCommands),
     /// Generate smart contracts from natural language prompts
     #[command(subcommand)]
     Generate(commands::generate::GenerateCommands),
@@ -123,8 +127,6 @@ enum Commands {
     /// Deep contract storage inspection (state, key, storage)
     #[command(subcommand)]
     Inspect(commands::inspect::InspectCommands),
-    /// Deploy a compiled Soroban contract (.wasm)
-    Deploy(commands::deploy::DeployArgs),
     /// Watch contract sources and rebuild/redeploy on save
     Dev(commands::dev::DevArgs),
     /// Deployment history, rollback, verification, and dashboard
@@ -142,9 +144,27 @@ enum Commands {
     #[command(subcommand)]
     Ai(commands::tree::AiTree),
 
-    /// Manage starforge configuration, telemetry, feature flags, and privacy
+    #[command(subcommand)]
+    Explain(commands::explain::ExplainCommands),
     #[command(subcommand)]
     Config(commands::config::ConfigCommands),
+    #[command(subcommand)]
+    Telemetry(commands::telemetry::TelemetryCommands),
+    Tx(commands::tx::TxArgs),
+    Sep10(commands::sep::Sep10Args),
+    #[command(subcommand)]
+    Template(commands::template::TemplateCommands),
+    #[command(subcommand)]
+    Verify(commands::verify::VerifyCommands),
+    Help(commands::help::HelpArgs),
+    #[command(subcommand)]
+    AiTelemetry(commands::ai_telemetry::AiTelemetryCommands),
+    #[command(subcommand)]
+    Optimize(commands::optimize::OptimizeCommands),
+    #[command(subcommand)]
+    AiSecurityTraining(commands::ai_security_training::AiSecurityTrainingCommands),
+    #[command(subcommand)]
+    ContractMonitor(commands::contract_monitor::ContractMonitorCommands),
 
     /// Project scaffolding and AI-driven project management
     #[command(subcommand)]
@@ -154,6 +174,10 @@ enum Commands {
     #[command(subcommand)]
     Tool(commands::tree::ToolTree),
 
+    /// Classic Stellar assets: SAC contract id lookup and wrap/deploy
+    #[command(subcommand)]
+    Asset(commands::asset::AssetCommands),
+
     /// Generate shell completions for bash, zsh, fish, and powershell
     #[command(subcommand)]
     Completions(commands::completions::CompletionShell),
@@ -161,6 +185,17 @@ enum Commands {
     /// Generate or install man pages
     #[command(subcommand)]
     Man(commands::man::ManCommand),
+
+    /// On-chain account lifecycle with sponsored reserves (CAP-33)
+    #[command(subcommand)]
+    Account(commands::account::AccountCommands),
+
+    /// Watch contract sources and rebuild/redeploy on save
+    Dev(commands::dev::DevArgs),
+
+    /// Manage per-network contract and account aliases
+    #[command(subcommand)]
+    Alias(commands::alias::AliasCommands),
 
     /// Smart autocomplete — suggest and record commands
     #[command(hide = true)]
@@ -186,13 +221,13 @@ enum Commands {
         stats: bool,
     },
 
-    /// External plugins
-    #[command(external_subcommand)]
-    External(Vec<String>),
-
     /// Manage per-network contract and account aliases
     #[command(subcommand)]
     Alias(commands::alias::AliasCommands),
+
+    /// Signing agent: hold unlocked keys in locked memory with a session timeout
+    #[command(subcommand)]
+    Agent(commands::agent::AgentCommands),
 
     /// Terminal User Interface for wallets, contracts, and transactions
     #[cfg(feature = "ui")]
@@ -233,7 +268,11 @@ fn main() {
 
 #[tokio::main]
 async fn run() {
-    let cli = Cli::parse();
+    // ADR 0007: rewrite deprecated top-level spellings to noun-verb paths
+    // before clap sees them, warning on stderr.
+    let mut argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    commands::deprecations::rewrite_argv(&mut argv);
+    let cli = Cli::parse_from(argv);
 
     // Handle --help-all: show information about progressive disclosure
     if cli.help_all {
@@ -263,8 +302,8 @@ async fn run() {
     // subcommand): record it so every command handler can short-circuit its
     // mutations behind a shared plan. Detection also scans the raw arguments
     // so it does not depend on where clap attached the global value.
-    let dry_run_requested = cli.dry_run
-        || std::env::args_os().any(|arg| arg.to_str() == Some("--dry-run"));
+    let dry_run_requested =
+        cli.dry_run || std::env::args_os().any(|arg| arg.to_str() == Some("--dry-run"));
     utils::dry_run::set_enabled(dry_run_requested);
     if utils::output::is_plain_mode_enabled() {
         // Global override: neutralizes every `colored` call in the codebase,
@@ -315,6 +354,8 @@ async fn run() {
     let command_name = match &cli.command {
         Commands::Wallet(_) => "wallet",
         Commands::Contract(_) => "contract",
+        Commands::New(_) => "new",
+        Commands::Add(_) => "add",
         Commands::Deploy(_) => "deploy",
         Commands::Dev(_) => "dev",
         Commands::Deployments(_) => "deployments",
@@ -323,7 +364,6 @@ async fn run() {
         Commands::BugReport(_) => "bug-report",
         Commands::Prompts(_) => "prompts",
         Commands::Explain(_) => "explain",
-        Commands::Config(_) => "config",
         Commands::Telemetry(_) => "telemetry",
         Commands::Tx(_) => "tx",
         Commands::Sep10(_) => "sep10",
@@ -334,8 +374,12 @@ async fn run() {
         Commands::Config(_) => "config",
         Commands::Project(_) => "project",
         Commands::Tool(_) => "tool",
+        Commands::Asset(_) => "asset",
         Commands::Completions(_) => "completions",
         Commands::Man(_) => "man",
+        Commands::Account(_) => "account",
+        Commands::Dev(_) => "dev",
+        Commands::Alias(_) => "alias",
         Commands::Autocomplete { .. } => "autocomplete",
         Commands::External(_) => "external",
         Commands::Verify(_) => "verify",
@@ -345,6 +389,7 @@ async fn run() {
         Commands::AiSecurityTraining(_) => "ai-security-training",
         Commands::ContractMonitor(_) => "contract-monitor",
         Commands::Alias(_) => "alias",
+        Commands::Agent(_) => "agent",
         #[cfg(feature = "ui")]
         Commands::Ui(_) => "ui",
     }
@@ -368,6 +413,7 @@ async fn run() {
         Commands::Account(cmd) => commands::account::handle(cmd).await,
         Commands::Nl(args) => commands::nl::handle(args).await,
         Commands::New(cmd) => commands::new::handle(cmd).await,
+        Commands::Add(cmd) => commands::add::handle(cmd, dry_run_requested),
         Commands::Generate(cmd) => commands::generate::handle(&cmd).await,
         Commands::Contract(cmd) => commands::contract::handle(cmd).await,
         Commands::Inspect(cmd) => commands::inspect::handle(cmd).await,
@@ -380,7 +426,6 @@ async fn run() {
         Commands::BugReport(args) => commands::bug_report::handle(args).await,
         Commands::Prompts(cmd) => commands::prompts::handle(&cmd).await,
         Commands::Explain(ref cmd) => commands::explain::handle(cmd).await,
-        Commands::Config(cmd) => commands::config::handle(cmd).await,
         Commands::Telemetry(cmd) => commands::telemetry::handle(cmd).await,
         Commands::Tx(args) => commands::tx::handle(args).await,
         Commands::Sep10(args) => commands::sep::handle(args).await,
@@ -391,8 +436,12 @@ async fn run() {
         Commands::Config(cmd) => commands::config::handle(cmd).await,
         Commands::Project(cmd) => commands::project::handle(cmd).await,
         Commands::Tool(cmd) => commands::tree::handle_tool(cmd).await,
+        Commands::Asset(cmd) => commands::asset::handle(cmd).await,
         Commands::Completions(shell) => commands::completions::handle(shell).await,
         Commands::Man(cmd) => commands::man::handle(cmd).await,
+        Commands::Account(cmd) => commands::account::handle(cmd).await,
+        Commands::Dev(args) => commands::dev::handle(args).await,
+        Commands::Alias(cmd) => commands::alias::handle(cmd).await,
         Commands::Autocomplete {
             suggest,
             record,
@@ -416,6 +465,7 @@ async fn run() {
         Commands::AiSecurityTraining(cmd) => commands::ai_security_training::handle(cmd).await,
         Commands::ContractMonitor(cmd) => commands::contract_monitor::handle(cmd).await,
         Commands::Alias(cmd) => commands::alias::handle(cmd).await,
+        Commands::Agent(cmd) => commands::agent::handle(cmd).await,
         #[cfg(feature = "ui")]
         Commands::Ui(args) => commands::ui::handle(args).await,
     };

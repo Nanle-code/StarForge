@@ -213,6 +213,8 @@ impl Database {
         self.conn.execute_batch(SCHEMA)?;
         self.ensure_column("wallets", "secret_key", "TEXT")?;
         self.ensure_column("wallets", "rotation_history", "TEXT NOT NULL DEFAULT '[]'")?;
+        // #902: extra root CAs per network; NULL for every pre-existing row.
+        self.ensure_column("networks", "ca_bundle", "TEXT")?;
 
         // Run migrations if this is not a fresh database.
         //
@@ -565,14 +567,15 @@ impl Database {
     pub fn insert_network(&self, net: &NetworkRow) -> Result<()> {
         self.conn.execute(
             "INSERT OR REPLACE INTO networks \
-             (name, horizon_url, soroban_rpc_url, friendbot_url, passphrase) \
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+             (name, horizon_url, soroban_rpc_url, friendbot_url, passphrase, ca_bundle) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 net.name,
                 net.horizon_url,
                 net.soroban_rpc_url,
                 net.friendbot_url,
                 net.passphrase,
+                net.ca_bundle,
             ],
         )?;
         Ok(())
@@ -580,7 +583,8 @@ impl Database {
 
     pub fn list_networks(&self) -> Result<Vec<NetworkRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT name, horizon_url, soroban_rpc_url, friendbot_url, passphrase FROM networks ORDER BY name",
+            "SELECT name, horizon_url, soroban_rpc_url, friendbot_url, passphrase, ca_bundle \
+             FROM networks ORDER BY name",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(NetworkRow {
@@ -589,6 +593,7 @@ impl Database {
                 soroban_rpc_url: row.get(2)?,
                 friendbot_url: row.get(3)?,
                 passphrase: row.get(4)?,
+                ca_bundle: row.get(5)?,
             })
         })?;
         rows.map(|r| r.map_err(anyhow::Error::from)).collect()
@@ -681,6 +686,7 @@ impl Database {
                         soroban_rpc_url: net.soroban_rpc_url,
                         friendbot_url: net.friendbot_url,
                         passphrase: net.passphrase,
+                        ca_bundle: net.ca_bundle,
                     },
                 )
             })
@@ -751,6 +757,7 @@ impl Database {
                 soroban_rpc_url: net.soroban_rpc_url.clone(),
                 friendbot_url: net.friendbot_url.clone(),
                 passphrase: net.passphrase.clone(),
+                ca_bundle: net.ca_bundle.clone(),
             })?;
         }
 
@@ -1185,7 +1192,8 @@ CREATE TABLE IF NOT EXISTS networks (
     horizon_url     TEXT NOT NULL,
     soroban_rpc_url TEXT,
     friendbot_url   TEXT,
-    passphrase      TEXT
+    passphrase      TEXT,
+    ca_bundle       TEXT
 );
 
 CREATE TABLE IF NOT EXISTS config_kv (
@@ -1258,6 +1266,8 @@ pub struct NetworkRow {
     pub soroban_rpc_url: Option<String>,
     pub friendbot_url: Option<String>,
     pub passphrase: Option<String>,
+    /// PEM bundle of extra root CAs for this network (#902).
+    pub ca_bundle: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

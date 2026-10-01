@@ -1,7 +1,8 @@
+use crate::graphql::auth::{authenticate, AuthConfig};
 use crate::graphql::build_schema;
 use crate::graphql::cost_analysis::{CostAnalysisConfig, QueryCostAnalyzer, QueryCostMetrics};
 use actix_web::http::StatusCode;
-use actix_web::{middleware, web, App, HttpServer};
+use actix_web::{middleware, web, App, HttpRequest, HttpServer};
 use async_graphql_actix_web::{GraphQL, GraphQLRequest, GraphQLResponse};
 
 pub async fn start_graphql_server(port: u16) -> std::io::Result<()> {
@@ -13,9 +14,19 @@ pub async fn start_graphql_server_with_config(
     cost_config: CostAnalysisConfig,
     metrics: Option<QueryCostMetrics>,
 ) -> std::io::Result<()> {
+    let auth_config = AuthConfig::from_env();
+    if auth_config.is_enabled() {
+        println!("GraphQL authentication enabled (STARFORGE_GRAPHQL_TOKEN is set)");
+    } else {
+        println!(
+            "GraphQL authentication disabled: set STARFORGE_GRAPHQL_TOKEN to require a bearer token"
+        );
+    }
+
     let schema = web::Data::new(build_schema());
     let cost_data = web::Data::new(cost_config);
     let metrics_data = web::Data::new(metrics.unwrap_or_default());
+    let auth_data = web::Data::new(auth_config);
 
     println!("GraphQL server running on http://localhost:{}", port);
     println!("GraphQL playground: http://localhost:{}/", port);
@@ -25,6 +36,7 @@ pub async fn start_graphql_server_with_config(
             .app_data(schema.clone())
             .app_data(cost_data.clone())
             .app_data(metrics_data.clone())
+            .app_data(auth_data.clone())
             .wrap(middleware::Logger::default())
             .wrap(middleware::Compress::default())
             .service(
@@ -42,11 +54,19 @@ pub async fn start_graphql_server_with_config(
 }
 
 async fn graphql_handler(
+    http_req: HttpRequest,
     schema: web::Data<crate::graphql::schema::StarforgeSchema>,
     cost_config: web::Data<CostAnalysisConfig>,
     metrics: web::Data<QueryCostMetrics>,
+    auth_config: web::Data<AuthConfig>,
     req: web::Json<async_graphql::Request>,
 ) -> actix_web::HttpResponse {
+    if let Err(auth_err) = authenticate(&http_req, &auth_config) {
+        return actix_web::HttpResponse::Unauthorized().json(serde_json::json!({
+            "errors": [{ "message": auth_err.message() }]
+        }));
+    }
+
     let request = req.into_inner();
     let metrics_ref = if cost_config.enable_metrics {
         Some(metrics.as_ref())

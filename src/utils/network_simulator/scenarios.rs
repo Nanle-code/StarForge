@@ -4,10 +4,14 @@
 //! with realistic contract + account states for reproducible testing.
 
 use crate::utils::network_simulator::deterministic::derive_public_key;
+use crate::utils::network_simulator::deterministic::SeededRng;
+use crate::utils::network_simulator::failure::{FailureMode as InjectedFailureMode, FailureRule};
 use crate::utils::network_simulator::simulator::{NetworkSimulator, SimulatorConfig};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 /// Identifies a built-in scenario.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -485,5 +489,320 @@ mod tests {
         let s2 = ScenarioRunner::load_built_in(BuiltInScenario::SimpleCounter, 42);
         assert_eq!(s1.accounts_to_create.len(), s2.accounts_to_create.len());
         assert_eq!(s1.contracts_to_deploy.len(), s2.contracts_to_deploy.len());
+    }
+}
+
+/// A step-oriented scenario for exercising simulator behavior.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SimScenario {
+    pub name: String,
+    pub description: String,
+    pub seed: u64,
+    pub initial_ledger: u32,
+    pub steps: Vec<SimScenarioStep>,
+}
+
+/// Actions supported by a step-oriented scenario.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum SimScenarioStep {
+    Deploy {
+        contract_id: String,
+        wasm_hash: String,
+    },
+    Invoke {
+        contract_id: String,
+        function: String,
+        args: Vec<String>,
+        expected_return: Option<String>,
+    },
+    AdvanceTime {
+        seconds: u64,
+    },
+    AdvanceLedger {
+        count: u32,
+    },
+    InjectFailure {
+        mode: ScriptFailureMode,
+    },
+    Snapshot {
+        name: String,
+    },
+    Restore {
+        name: String,
+    },
+    FundAccount {
+        address: String,
+        amount: u64,
+    },
+}
+
+/// Failure choices available in a step-oriented scenario.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ScriptFailureMode {
+    None,
+    RpcTimeout,
+    RpcError,
+    InsufficientFee,
+    ContractNotFound,
+    Random { probability_pct: u8 },
+}
+
+/// Outcome of running a step-oriented scenario.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SimScenarioResult {
+    pub scenario: String,
+    pub passed: bool,
+    pub steps_run: usize,
+    pub steps_total: usize,
+    pub errors: Vec<String>,
+    pub final_ledger: u32,
+}
+
+/// Return the default directory for simulator data.
+pub fn sim_data_dir() -> PathBuf {
+    crate::utils::config::config_dir().join("sim")
+}
+
+/// Load a step-oriented scenario from JSON.
+pub fn load_scenario(path: &Path) -> Result<SimScenario> {
+    let data = fs::read_to_string(path)?;
+    Ok(serde_json::from_str(&data)?)
+}
+
+/// Save a step-oriented scenario as JSON.
+pub fn save_scenario(scenario: &SimScenario, path: &Path) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, serde_json::to_string_pretty(scenario)?)?;
+    Ok(())
+}
+
+/// Return the standard scripted smoke scenarios.
+pub fn builtin_scenarios() -> Vec<SimScenario> {
+    vec![
+        SimScenario {
+            name: "basic-deploy-invoke".to_string(),
+            description: "Deploy a contract and invoke a function".to_string(),
+            seed: 42,
+            initial_ledger: 100,
+            steps: vec![
+                SimScenarioStep::Deploy {
+                    contract_id: "C_SIM_COUNTER".to_string(),
+                    wasm_hash: "abc123def456".to_string(),
+                },
+                SimScenarioStep::Invoke {
+                    contract_id: "C_SIM_COUNTER".to_string(),
+                    function: "increment".to_string(),
+                    args: vec![],
+                    expected_return: None,
+                },
+                SimScenarioStep::AdvanceLedger { count: 5 },
+            ],
+        },
+        SimScenario {
+            name: "failure-recovery".to_string(),
+            description: "Inject failure, snapshot, restore, and retry".to_string(),
+            seed: 99,
+            initial_ledger: 200,
+            steps: vec![
+                SimScenarioStep::Deploy {
+                    contract_id: "C_SIM_TOKEN".to_string(),
+                    wasm_hash: "token_wasm_hash".to_string(),
+                },
+                SimScenarioStep::Snapshot {
+                    name: "pre-failure".to_string(),
+                },
+                SimScenarioStep::InjectFailure {
+                    mode: ScriptFailureMode::RpcTimeout,
+                },
+                SimScenarioStep::Restore {
+                    name: "pre-failure".to_string(),
+                },
+                SimScenarioStep::InjectFailure {
+                    mode: ScriptFailureMode::None,
+                },
+                SimScenarioStep::Invoke {
+                    contract_id: "C_SIM_TOKEN".to_string(),
+                    function: "balance".to_string(),
+                    args: vec!["GABC".to_string()],
+                    expected_return: None,
+                },
+            ],
+        },
+        SimScenario {
+            name: "time-travel".to_string(),
+            description: "Advance virtual time and ledger sequence".to_string(),
+            seed: 7,
+            initial_ledger: 1,
+            steps: vec![
+                SimScenarioStep::FundAccount {
+                    address: "GTESTACCOUNT".to_string(),
+                    amount: 10_000_000_000,
+                },
+                SimScenarioStep::AdvanceTime { seconds: 3600 },
+                SimScenarioStep::AdvanceLedger { count: 100 },
+                SimScenarioStep::Deploy {
+                    contract_id: "C_SIM_ESCROW".to_string(),
+                    wasm_hash: "escrow_hash".to_string(),
+                },
+            ],
+        },
+    ]
+}
+
+impl NetworkSimulator {
+    /// Run a step-oriented scenario against this simulator.
+    pub fn run_scenario(&mut self, scenario: &SimScenario) -> SimScenarioResult {
+        self.config.deterministic.seed = scenario.seed;
+        self.rng = SeededRng::new(scenario.seed);
+        self.ledger.sequence = scenario.initial_ledger;
+        self.time_controller.ledger_time.sequence = scenario.initial_ledger;
+        self.failure_injector.clear_rules();
+        self.failure_injector.disable();
+
+        let mut errors = Vec::new();
+        let mut steps_run = 0;
+        let mut snapshots = HashMap::new();
+
+        for step in &scenario.steps {
+            steps_run += 1;
+            if let Err(error) = execute_script_step(self, step, &mut snapshots) {
+                errors.push(format!("Step {}: {}", steps_run, error));
+                break;
+            }
+        }
+
+        SimScenarioResult {
+            scenario: scenario.name.clone(),
+            passed: errors.is_empty(),
+            steps_run,
+            steps_total: scenario.steps.len(),
+            errors,
+            final_ledger: self.current_ledger(),
+        }
+    }
+}
+
+fn execute_script_step(
+    simulator: &mut NetworkSimulator,
+    step: &SimScenarioStep,
+    snapshots: &mut HashMap<String, String>,
+) -> Result<(), String> {
+    match step {
+        SimScenarioStep::Deploy {
+            contract_id,
+            wasm_hash,
+        } => {
+            let deployer = simulator
+                .accounts
+                .keys()
+                .next()
+                .cloned()
+                .unwrap_or_else(|| {
+                    let key = derive_public_key(simulator.config.deterministic.seed, 0);
+                    simulator.create_account_with_key(&key, 1_000.0);
+                    key
+                });
+            simulator.deploy_contract_with_id(contract_id, wasm_hash, &deployer)?;
+        }
+        SimScenarioStep::Invoke {
+            contract_id,
+            function,
+            args,
+            expected_return,
+        } => {
+            let source_account = simulator
+                .accounts
+                .keys()
+                .next()
+                .cloned()
+                .unwrap_or_else(|| {
+                    let key = derive_public_key(simulator.config.deterministic.seed, 0);
+                    simulator.create_account_with_key(&key, 1_000.0);
+                    key
+                });
+            let outcome = simulator.simulate_invoke(contract_id, function, args, &source_account)?;
+            if let Some(expected) = expected_return {
+                if outcome.return_value != *expected {
+                    return Err(format!(
+                        "Expected return '{}', got '{}'",
+                        expected, outcome.return_value
+                    ));
+                }
+            }
+            simulator.advance_ledger();
+        }
+        SimScenarioStep::AdvanceTime { seconds } => simulator.advance_time(*seconds),
+        SimScenarioStep::AdvanceLedger { count } => simulator.advance_ledgers(*count),
+        SimScenarioStep::InjectFailure { mode } => {
+            simulator.failure_injector.clear_rules();
+            match mode {
+                ScriptFailureMode::None => simulator.failure_injector.disable(),
+                mode => {
+                    let injected = match mode {
+                        ScriptFailureMode::RpcTimeout => InjectedFailureMode::RpcTimeout,
+                        ScriptFailureMode::RpcError => {
+                            InjectedFailureMode::RpcError { code: -32603 }
+                        }
+                        ScriptFailureMode::InsufficientFee => InjectedFailureMode::InsufficientFee,
+                        ScriptFailureMode::ContractNotFound => {
+                            InjectedFailureMode::ContractNotFound
+                        }
+                        ScriptFailureMode::Random { probability_pct } => {
+                            InjectedFailureMode::RandomFailure(*probability_pct as f64 / 100.0)
+                        }
+                        ScriptFailureMode::None => unreachable!(),
+                    };
+                    simulator.failure_injector.add_rule(FailureRule::new(
+                        "scripted-failure",
+                        injected,
+                    ));
+                    simulator.failure_injector.enable();
+                }
+            }
+        }
+        SimScenarioStep::Snapshot { name } => {
+            let id = simulator.take_snapshot(name);
+            snapshots.insert(name.clone(), id);
+        }
+        SimScenarioStep::Restore { name } => {
+            let id = snapshots
+                .get(name)
+                .ok_or_else(|| format!("Snapshot '{}' not found", name))?;
+            simulator.restore_snapshot(id)?;
+        }
+        SimScenarioStep::FundAccount { address, amount } => {
+            if simulator.get_account(address).is_none() {
+                simulator.create_account_with_key(address, 0.0);
+            }
+            simulator.fund_account(address, *amount as f64)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod scripted_scenario_tests {
+    use super::*;
+
+    #[test]
+    fn migrated_builtin_scripted_scenarios_run() {
+        for scenario in builtin_scenarios() {
+            let mut simulator = NetworkSimulator::new();
+            let result = simulator.run_scenario(&scenario);
+            assert!(result.passed, "{}: {:?}", scenario.name, result.errors);
+            assert_eq!(result.steps_run, scenario.steps.len());
+        }
+    }
+
+    #[test]
+    fn scripted_scenario_json_round_trips() {
+        let scenario = builtin_scenarios().remove(1);
+        let encoded = serde_json::to_string(&scenario).unwrap();
+        let decoded: SimScenario = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded.name, scenario.name);
+        assert_eq!(decoded.steps.len(), scenario.steps.len());
     }
 }

@@ -197,6 +197,10 @@ pub struct SimulationResources {
     /// Extra resource fee for the restore transaction that must run first when
     /// the footprint touches archived entries.
     pub restore_fee_stroops: Option<u64>,
+    /// Base64 `transactionData` from `restorePreamble`, used to build a
+    /// [`RestoreFootprint`](stellar_xdr::curr::RestoreFootprintOp) transaction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restore_transaction_data: Option<String>,
     /// Non-fatal notes about fields the server did not provide.
     pub warnings: Vec<String>,
 }
@@ -560,13 +564,19 @@ pub fn parse_simulation_resources(value: &Value) -> Result<SimulationResources> 
         None => None,
     };
 
-    let restore_fee_stroops = match obj.get("restorePreamble") {
-        Some(Value::Null) | None => None,
+    let (restore_fee_stroops, restore_transaction_data) = match obj.get("restorePreamble") {
+        Some(Value::Null) | None => (None, None),
         Some(preamble) => {
             let fee = preamble.get("minResourceFee").ok_or_else(|| {
                 SimulationResourceError::MissingField("restorePreamble.minResourceFee".to_string())
             })?;
-            Some(parse_u64_field(fee, "restorePreamble.minResourceFee")?)
+            let fee = Some(parse_u64_field(fee, "restorePreamble.minResourceFee")?);
+            let tx_data = preamble
+                .get("transactionData")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string());
+            (fee, tx_data)
         }
     };
     if restore_fee_stroops.is_some() {
@@ -583,6 +593,7 @@ pub fn parse_simulation_resources(value: &Value) -> Result<SimulationResources> 
         footprint,
         latest_ledger,
         restore_fee_stroops,
+        restore_transaction_data,
         warnings,
     })
 }
@@ -1094,9 +1105,26 @@ mod tests {
         .unwrap();
 
         assert!(res.requires_restore());
+        assert!(res.restore_transaction_data.is_none()); // empty string is ignored
         let plan = plan_fee(&res, 0, 0).unwrap();
         assert_eq!(plan.restore_fee_stroops, 250);
         assert_eq!(plan.recommended_fee_stroops, 1_250);
+    }
+
+    #[test]
+    fn restore_preamble_captures_transaction_data() {
+        let res = parse_simulation_resources(&json!({
+            "minResourceFee": "1000",
+            "restorePreamble": {
+                "minResourceFee": "250",
+                "transactionData": "AAAAAgAAAAA="
+            },
+        }))
+        .unwrap();
+        assert_eq!(
+            res.restore_transaction_data.as_deref(),
+            Some("AAAAAgAAAAA=")
+        );
     }
 
     #[test]
@@ -1285,6 +1313,7 @@ mod tests {
             }),
             latest_ledger: Some(100),
             restore_fee_stroops: None,
+            restore_transaction_data: None,
             warnings: Vec::new(),
         };
         let plan = plan_fee(&resources, 20, 100).unwrap();
@@ -1306,6 +1335,7 @@ mod tests {
             }),
             latest_ledger: Some(100),
             restore_fee_stroops: None,
+            restore_transaction_data: None,
             warnings: Vec::new(),
         };
         let heavy_plan = plan_fee(&heavy_resources, 20, 100).unwrap();

@@ -100,6 +100,9 @@ pub async fn handle(args: InvokeArgs) -> Result<()> {
         network,
         submit_wallet.map(|w| w as &crate::utils::config::WalletEntry),
         None,
+        &[],
+        None,
+        None,
     )
     .await?;
 
