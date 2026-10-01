@@ -1,3 +1,12 @@
+//! Canonical template registry and package operations.
+//!
+//! This module owns template metadata, registry loading, caching, installation,
+//! publishing, and compatibility checks. CLI command parsing and presentation
+//! belong in `crate::commands::template`; specialized template capabilities
+//! remain in their focused `template_*` modules. Consumers should use this
+//! module for the shared registry and package API rather than implementing
+//! another template store.
+
 use crate::utils::http_client;
 use crate::utils::template_provenance::{self, TemplateProvenance};
 use crate::utils::template_schema;

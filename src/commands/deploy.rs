@@ -187,6 +187,18 @@ fn is_wasm_above_size_limit(wasm_size_kb: f64) -> bool {
     wasm_size_kb > SOROBAN_WASM_LIMIT_KB
 }
 
+fn has_constructor_export(exports: &[String]) -> bool {
+    exports.iter().any(|name| name == "__constructor")
+}
+
+async fn require_constructor_protocol(rpc_url: &str) -> Result<()> {
+    let protocol_version = soroban::get_protocol_version_for_url(rpc_url).await?;
+    soroban::require_feature(
+        soroban::ProtocolFeature::ContractConstructor,
+        protocol_version,
+    )
+}
+
 /// Print the CPU / memory / footprint accounting that simulation reported,
 /// plus the fee we recommend actually submitting.
 ///
@@ -765,6 +777,7 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
         }
     }
 
+    let wasm_exports;
     // ── WASM pre-flight policy check (always runs, blocks on violations) ───
     {
         let report = wasm_preflight::validate_wasm_bytes(
@@ -793,6 +806,7 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
         if report.findings.is_empty() {
             completed_checklist.push("wasm_clean_analysis".to_string());
         }
+        wasm_exports = report.exports;
     }
 
     // --dry-run: validate everything and print deployment plan, then exit.
@@ -806,6 +820,10 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
             &args.network,
         )
         .await;
+    }
+
+    if args.execute && has_constructor_export(&wasm_exports) {
+        require_constructor_protocol(&soroban::rpc_url(&args.network)?).await?;
     }
 
     if args.simulate {
@@ -1265,5 +1283,38 @@ mod tests {
     fn wasm_size_limit_boundary() {
         assert!(!is_wasm_above_size_limit(128.0));
         assert!(is_wasm_above_size_limit(128.1));
+    }
+
+    #[tokio::test]
+    async fn constructor_deploy_gate_rejects_protocol_21() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/")
+            .match_body(mockito::Matcher::Json(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getNetwork",
+                "params": {}
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":21}}"#)
+            .create_async()
+            .await;
+
+        let error = require_constructor_protocol(&server.url())
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("detected protocol 21"));
+        assert!(error.contains("protocol 22"));
+        assert!(error.contains("constructor"));
+        mock.assert_async().await;
+    }
+
+    #[test]
+    fn non_constructor_wasm_skips_protocol_gate() {
+        assert!(!has_constructor_export(&["hello".to_string()]));
+        assert!(has_constructor_export(&["__constructor".to_string()]));
     }
 }

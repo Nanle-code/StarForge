@@ -9,8 +9,9 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use once_cell::sync::Lazy;
 use reqwest::Client;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use stellar_strkey::{ed25519, Contract};
 use stellar_xdr::curr::{
     AccountId, ContractDataDurability, ContractExecutable, Hash, LedgerEntryData, LedgerKey,
@@ -32,6 +33,47 @@ static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
 /// Global RPC budget manager (thread-safe for concurrent access).
 static RPC_BUDGET_MANAGER: Lazy<Mutex<RpcBudgetManager>> =
     Lazy::new(|| Mutex::new(RpcBudgetManager::new()));
+
+const PROTOCOL_VERSION_CACHE_TTL: Duration = Duration::from_secs(60);
+static PROTOCOL_VERSION_CACHE: Lazy<Mutex<HashMap<String, (Instant, u32)>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProtocolFeature {
+    ContractConstructor,
+}
+
+pub const PROTOCOL_FEATURES: &[(ProtocolFeature, u32)] =
+    &[(ProtocolFeature::ContractConstructor, 22)];
+
+pub fn supports(feature: ProtocolFeature, protocol_version: u32) -> bool {
+    PROTOCOL_FEATURES
+        .iter()
+        .find(|(known_feature, _)| *known_feature == feature)
+        .is_some_and(|(_, minimum)| protocol_version >= *minimum)
+}
+
+pub fn require_feature(feature: ProtocolFeature, protocol_version: u32) -> Result<()> {
+    if supports(feature, protocol_version) {
+        return Ok(());
+    }
+
+    let minimum = PROTOCOL_FEATURES
+        .iter()
+        .find(|(known_feature, _)| *known_feature == feature)
+        .map(|(_, minimum)| *minimum)
+        .expect("all protocol features have a minimum version");
+    let capability = match feature {
+        ProtocolFeature::ContractConstructor => "contract constructor (create_contract_with_constructor)",
+    };
+
+    anyhow::bail!(
+        "The {} capability requires Stellar protocol {} or later; detected protocol {}.",
+        capability,
+        minimum,
+        protocol_version
+    )
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthNode {
@@ -539,6 +581,54 @@ fn get_rpc_url(network: &str) -> Result<String> {
 
 pub fn rpc_url(network: &str) -> Result<String> {
     get_rpc_url(network)
+}
+
+#[derive(Debug, Deserialize)]
+struct GetNetworkResult {
+    #[serde(rename = "protocolVersion")]
+    protocol_version: serde_json::Value,
+}
+
+pub async fn get_protocol_version(network: &str) -> Result<u32> {
+    get_protocol_version_for_url(&get_rpc_url(network)?).await
+}
+
+pub async fn get_protocol_version_for_url(rpc_url: &str) -> Result<u32> {
+    if let Some((cached_at, protocol_version)) = PROTOCOL_VERSION_CACHE
+        .lock()
+        .unwrap()
+        .get(rpc_url)
+        .copied()
+    {
+        if cached_at.elapsed() < PROTOCOL_VERSION_CACHE_TTL {
+            return Ok(protocol_version);
+        }
+    }
+
+    let request = SorobanRpcRequest {
+        jsonrpc: "2.0".to_string(),
+        id: 1,
+        method: "getNetwork".to_string(),
+        params: serde_json::json!({}),
+    };
+    let result: GetNetworkResult = rpc_request_with_url(rpc_url, request)
+        .await
+        .context("Failed to detect Soroban protocol version from getNetwork")?;
+    let protocol_version = result
+        .protocol_version
+        .as_u64()
+        .and_then(|version| u32::try_from(version).ok())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Soroban RPC getNetwork result.protocolVersion must be a non-negative 32-bit integer"
+            )
+        })?;
+
+    PROTOCOL_VERSION_CACHE
+        .lock()
+        .unwrap()
+        .insert(rpc_url.to_string(), (Instant::now(), protocol_version));
+    Ok(protocol_version)
 }
 
 /// Returns true when the Soroban RPC endpoint for `network` responds to `getHealth`.
@@ -1599,5 +1689,77 @@ mod tests {
 
         assert!(!check_soroban_rpc_url(&server.url()).await);
         mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn get_protocol_version_parses_and_caches_get_network_result() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/")
+            .match_body(mockito::Matcher::Json(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getNetwork",
+                "params": {}
+            })))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":22}}"#)
+            .expect(1)
+            .create_async()
+            .await;
+
+        assert_eq!(get_protocol_version_for_url(&server.url()).await.unwrap(), 22);
+        assert_eq!(get_protocol_version_for_url(&server.url()).await.unwrap(), 22);
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn get_protocol_version_rejects_missing_protocol_version() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"jsonrpc":"2.0","id":1,"result":{}}"#)
+            .expect(2)
+            .create_async()
+            .await;
+
+        for _ in 0..2 {
+            let error = get_protocol_version_for_url(&server.url())
+                .await
+                .unwrap_err();
+            assert!(format!("{error:#}").contains("protocolVersion"));
+        }
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn get_protocol_version_rejects_non_integer_protocol_version() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"22"}}"#)
+            .create_async()
+            .await;
+
+        let error = get_protocol_version_for_url(&server.url())
+            .await
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("protocolVersion"));
+        mock.assert_async().await;
+    }
+
+    #[test]
+    fn constructor_feature_requires_protocol_22() {
+        assert!(!supports(ProtocolFeature::ContractConstructor, 21));
+        assert!(supports(ProtocolFeature::ContractConstructor, 22));
+        assert!(require_feature(ProtocolFeature::ContractConstructor, 21)
+            .unwrap_err()
+            .to_string()
+            .contains("protocol 22"));
     }
 }
