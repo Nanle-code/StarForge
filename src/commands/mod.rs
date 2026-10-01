@@ -1,4 +1,4 @@
-pub mod account;
+pub mod agent;
 pub mod ai;
 pub mod ai_accessibility;
 pub mod ai_audit;

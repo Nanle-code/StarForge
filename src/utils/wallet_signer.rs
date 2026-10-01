@@ -105,6 +105,19 @@ impl SigningRequest {
         }
     }
 
+    /// Build a `SigningRequest` directly from an already-decoded `ed25519_dalek::SigningKey`.
+    ///
+    /// Used by the signing agent's keystore to sign without going through the
+    /// StrKey → seed → `SigningKey` round-trip a second time.
+    pub fn local_secret_raw(
+        signing_key: &ed25519_dalek::SigningKey,
+        network: &str,
+    ) -> Self {
+        use stellar_strkey::ed25519::PrivateKey;
+        let secret_str = PrivateKey::from_bytes(signing_key.as_bytes()).to_string();
+        Self::local_secret(Zeroizing::new(secret_str), network)
+    }
+
     pub fn hardware(
         kind: hardware_wallet::HardwareWalletKind,
         hd_path: &str,
@@ -889,5 +902,98 @@ mod tests {
         assert!(wallet_requires_confirmation(&request));
         request.usage_policy = Some(config::WalletUsagePolicy::default());
         assert!(!wallet_requires_confirmation(&request));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Agent-aware signing
+// ---------------------------------------------------------------------------
+
+/// Attempt to sign `transaction_xdr` through the running signing agent.
+///
+/// Returns `Ok(Some(signed_xdr))` if the agent handled the request,
+/// `Ok(None)` if the agent is not running or doesn't have the key loaded
+/// (callers should fall back to the normal passphrase-decryption path), or
+/// `Err` if the agent actively rejected the request (e.g. user declined).
+pub async fn try_sign_via_agent(
+    wallet: &config::WalletEntry,
+    transaction_xdr: &str,
+    network: &str,
+    preview: &str,
+    require_confirmation: bool,
+) -> Result<Option<String>> {
+    crate::agent::client::try_sign_via_agent(
+        &wallet.name,
+        &wallet.public_key,
+        transaction_xdr,
+        &config::get_network_passphrase(network),
+        preview,
+        require_confirmation,
+    )
+    .await
+}
+
+/// Sign `transaction_xdr` preferring the agent, falling back to local
+/// passphrase decryption.
+///
+/// The agent path is tried first: if the agent is running and has the key
+/// loaded, we get a cached signature without prompting for a passphrase.
+/// If the agent is not available we fall back to `sign_transaction_xdr` which
+/// will prompt for the passphrase as normal.
+pub async fn sign_with_agent_fallback(
+    transaction_xdr: &str,
+    request: &SigningRequest,
+    wallet: Option<&config::WalletEntry>,
+) -> Result<String> {
+    // Only try the agent for local (non-hardware) requests.
+    if request.hardware.is_none() {
+        if let Some(wallet) = wallet {
+            let preview = build_signing_preview(transaction_xdr, request);
+            match try_sign_via_agent(
+                wallet,
+                transaction_xdr,
+                &request.network,
+                &preview,
+                /* require_confirmation = */ false,
+            )
+            .await
+            {
+                Ok(Some(signed)) => {
+                    tracing::info!(
+                        wallet = %wallet.name,
+                        "signed via agent (passphrase not required)"
+                    );
+                    return Ok(signed);
+                }
+                Ok(None) => {
+                    // Agent not available — fall through to local signing.
+                    tracing::debug!(wallet = %wallet.name, "agent not available, signing locally");
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    // Fallback: synchronous local signing.
+    sign_transaction_xdr(transaction_xdr, request)
+}
+
+/// Build a human-readable one-line preview for a signing request.
+fn build_signing_preview(transaction_xdr: &str, request: &SigningRequest) -> String {
+    let wallet = request
+        .wallet_name
+        .as_deref()
+        .unwrap_or("(unknown)");
+    let network = &request.network;
+    match &request.target {
+        SigningTarget::Contract(Some(id)) => {
+            format!("contract invoke on {network} (contract {id}) signed by {wallet}")
+        }
+        SigningTarget::Contract(None) => {
+            format!("contract deploy on {network} signed by {wallet}")
+        }
+        SigningTarget::NonContract | SigningTarget::Unspecified => {
+            format!("transaction on {network} signed by {wallet}")
+        }
     }
 }

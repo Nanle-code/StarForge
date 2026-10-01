@@ -79,47 +79,15 @@ jobs:
             --file src/utils/wallet_import.rs \
             --jobs 4 \
             $([ "$MAX_MUTANTS" != "0" ] && echo "--max-mutants $MAX_MUTANTS" || echo "") \
-            --output mutation-reports/wallet_import.json \
-            --format json \
             2>&1 | tee mutation-reports/wallet_import.log || EXIT_CODE=$?
+          # cargo mutants writes results under mutants.out/; copy them into our report dir.
+          if [ -d mutants.out ]; then
+            cp -r mutants.out/* mutation-reports/ 2>/dev/null || true
+          fi
 
       - name: Parse mutation testing results
         id: parse_results
-        run: |
-          python3 << 'EOF'
-          import json
-          import sys
-
-          try:
-              with open('mutation-reports/wallet_import.json') as f:
-                  report = json.load(f)
-          except FileNotFoundError:
-              print("⚠ Mutation report not found. Check test baseline.")
-              sys.exit(1)
-
-          killed = report.get('killed', 0)
-          survived = report.get('survived', 0)
-          total = killed + survived
-          
-          if total == 0:
-              print("⚠ No mutants generated. Check examine_globs in .cargo-mutants.toml")
-              kill_rate = 0.0
-          else:
-              kill_rate = killed / total
-
-          print(f"Kill Rate: {kill_rate:.1%} ({killed}/{total} mutants killed)")
-          print(f"::set-output name=kill_rate::{kill_rate}")
-          print(f"::set-output name=killed::{killed}")
-          print(f"::set-output name=survived::{survived}")
-          print(f"::set-output name=total::{total}")
-
-          threshold = float("${{ env.MIN_KILL_RATE }}")
-          if kill_rate < threshold:
-              print(f"❌ Kill rate {kill_rate:.1%} below threshold {threshold:.1%}")
-              sys.exit(1)
-          else:
-              print(f"✓ Kill rate {kill_rate:.1%} meets threshold {threshold:.1%}")
-          EOF
+        run: python3 scripts/parse-mutants-report.py
 
       - name: Comment PR with mutation results
         if: github.event_name == 'pull_request'
@@ -161,18 +129,23 @@ See [mutation-reports](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REP
         uses: actions/upload-artifact@v4
         with:
           name: mutation-reports
-          path: mutation-reports/
+          path: |
+            mutation-reports/
+            mutants.out/
           retention-days: 30
 
       - name: Check kill rate threshold
         run: |
-          kill_rate=${{ steps.parse_results.outputs.kill_rate }}
-          threshold=${{ env.MIN_KILL_RATE }}
-          if (( $(echo "$kill_rate < $threshold" | bc -l) )); then
-            echo "❌ Mutation kill rate $kill_rate is below threshold $threshold"
-            exit 1
-          fi
-          echo "✓ Mutation kill rate $kill_rate meets threshold $threshold"
+          kill_rate="${{ steps.parse_results.outputs.kill_rate }}"
+          threshold="${{ env.MIN_KILL_RATE }}"
+          python3 -c "
+          kill_rate = float('$kill_rate') if '$kill_rate' else 0.0
+          threshold = float('$threshold')
+          if kill_rate < threshold:
+              print(f'❌ Mutation kill rate {kill_rate:.1%} is below threshold {threshold:.1%}')
+              raise SystemExit(1)
+          print(f'✓ Mutation kill rate {kill_rate:.1%} meets threshold {threshold:.1%}')
+          "
 
       - name: Report to pull request
         if: failure() && github.event_name == 'pull_request'
