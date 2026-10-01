@@ -20,19 +20,23 @@ Global options: `--json`, `--quiet`/`-q`, `--log-format`, `--log-dir`, `--correl
 |---|---|
 | `account` | On-chain account lifecycle with sponsored reserves (CAP-33) |
 | `ai` | AI-assisted development: local assistant, audits, tests, search, planning |
+| `ai-security-training` | AI-driven security training: lessons, exercises, progress tracking |
+| `ai-telemetry` | AI usage telemetry and analytics: calls, tokens, latency, cost, opt-out |
 | `alias` | Manage per-network contract and account aliases |
-| `asset` | Classic Stellar assets: SAC contract id lookup and wrap/deploy |
 | `completions` | Generate shell completions for bash, zsh, fish, and powershell |
 | `config` | Manage starforge configuration, telemetry, feature flags, and privacy |
-| `contract` | Contract operations (invoke, build, test, audit, upgrade, inspect, monitor, ttl) |
+| `contract` | Contract operations (invoke, inspect, etc.) |
+| `contract-monitor` | Contract health monitoring, performance tracking, security events, alerting, and dashboard |
 | `deploy` | Deploy a compiled Soroban contract and manage the deployment lifecycle |
-| `dev` | Watch contract sources and rebuild/redeploy on save |
 | `network` | View or switch the active network, run a local node, simulate, snapshot |
+| `new` | Generate Soroban project boilerplate |
+| `nl` | Natural language command interface |
+| `optimize` | Analyse and optimize compiled WASM / Rust contract source for gas and size |
 | `plugin` | Manage third-party plugins |
 | `project` | Project scaffolding and AI-driven project management |
 | `template` | Manage community contract templates, versions, and the registry |
 | `tool` | Developer-environment utilities: tutorials, natural language, PR checks |
-| `wallet` | Manage test wallets (create, list, fund, sign), transactions, and devices |
+| `wallet` | Manage test wallets (create, list, fund, show, remove) |
 
 ## `account` subcommands
 

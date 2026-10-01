@@ -49,6 +49,7 @@ pub mod contract_monitor;
 pub mod cost;
 pub mod debug;
 pub mod deploy;
+pub mod deploy_checklist;
 pub mod deploy_policy;
 pub mod deployment_automate;
 pub mod deployment_optimize;

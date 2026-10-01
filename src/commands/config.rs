@@ -252,6 +252,7 @@ fn dry_run_plan(cmd: &ConfigCommands) -> Option<DryRunPlan> {
         )
         | ConfigCommands::Show
         | ConfigCommands::Doctor => None,
+        _ => None,
     }
 }
 

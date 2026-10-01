@@ -174,6 +174,7 @@ fn dry_run_plan(cmd: &NetworkCommands) -> Option<DryRunPlan> {
             .writes_filesystem(),
         ),
         NetworkCommands::Show { .. } | NetworkCommands::Test { .. } => None,
+        NetworkCommands::Node(_) | NetworkCommands::Simulate(_) | NetworkCommands::Snapshot(_) => None,
     }
 }
 

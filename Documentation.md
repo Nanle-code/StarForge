@@ -321,3 +321,4 @@ MIT © 2025 — See [LICENSE](./LICENSE) for details.
 Built for the Stellar ecosystem.
 Participates in the [Stellar Wave Program](https://www.drips.network/wave/stellar) via [Drips](https://www.drips.network).
 Powered by the [Stellar Horizon API](https://developers.stellar.org/api/horizon) and [Soroban](https://soroban.stellar.org).
+..
