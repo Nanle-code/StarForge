@@ -1,6 +1,9 @@
 use crate::utils::template_integration;
 use crate::utils::template_performance;
 use crate::utils::template_provenance;
+use crate::utils::template_security_scanner::{
+    scan_template_security, ScanLevel, TemplateSecurityScannerConfig,
+};
 use crate::utils::{
     dry_run::{self, DryRunPlan, PlannedOperation},
     output, print as p, template_customization_ai, templates,
@@ -416,6 +419,7 @@ async fn handle_cache(cmd: TemplateCacheCommands) -> Result<()> {
 /// and printing docs to stdout are read-only and return `None`.
 fn dry_run_plan(cmd: &TemplateCommands) -> Option<DryRunPlan> {
     match cmd {
+        TemplateCommands::Cache { .. } => None,
         TemplateCommands::Install {
             path, name, sign, ..
         } => {

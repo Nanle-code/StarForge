@@ -349,7 +349,7 @@ fn handle_list(
     }
     let mut table = Table::new();
     table
-        .load_style(UTF8_FULL)
+        .load_preset(UTF8_FULL)
         .set_content_arrangement(ContentArrangement::Dynamic)
         .set_header(vec![
             "Flag".to_string(),
@@ -857,7 +857,7 @@ fn handle_history(db: &Database, flag_name: &str) -> Result<()> {
         return Ok(());
     }
     let mut table = Table::new();
-    table.load_style(UTF8_FULL).set_header(vec![
+    table.load_preset(UTF8_FULL).set_header(vec![
         "Version".to_string(),
         "Enabled".to_string(),
         "Rollout %".to_string(),

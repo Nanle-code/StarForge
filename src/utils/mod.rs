@@ -188,6 +188,7 @@ pub mod testnet_integration;
 pub mod tutorial_engine;
 pub mod tx_batch;
 pub mod tx_builder;
+pub mod tx_xdr;
 pub mod wallet_import;
 pub mod wallet_signer;
 pub mod wasm_hash;
