@@ -233,7 +233,8 @@ fn publish_http(
     let token_owned = auth_token.map(String::from);
     let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
     let (status_code, status_text) = rt.block_on(async move {
-        let client = reqwest::Client::new();
+        // #902: shared client (proxy, custom CA bundle, user agent).
+        let client = crate::utils::http_client::client().clone();
         let mut req = client
             .post(&endpoint_owned)
             .header("Content-Type", "application/gzip")

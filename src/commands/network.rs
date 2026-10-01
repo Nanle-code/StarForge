@@ -191,6 +191,8 @@ fn show(json: bool) -> Result<()> {
             horizon_url: String,
             soroban_rpc_url: Option<String>,
             friendbot_url: Option<String>,
+            /// Extra root CAs trusted for this network (#902).
+            ca_bundle: Option<String>,
             active: bool,
         }
 
@@ -208,6 +210,7 @@ fn show(json: bool) -> Result<()> {
                 horizon_url: net_cfg.horizon_url.clone(),
                 soroban_rpc_url: net_cfg.soroban_rpc_url.clone(),
                 friendbot_url: net_cfg.friendbot_url.clone(),
+                ca_bundle: net_cfg.ca_bundle.clone(),
                 active: cfg.network == *name,
             })
             .collect();
@@ -230,6 +233,9 @@ fn show(json: bool) -> Result<()> {
         }
         if let Some(friendbot_url) = &net_cfg.friendbot_url {
             p::kv("Friendbot", friendbot_url);
+        }
+        if let Some(ca_bundle) = &net_cfg.ca_bundle {
+            p::kv("CA bundle", ca_bundle);
         }
         println!();
     }
@@ -388,10 +394,10 @@ async fn test_network(network_name: Option<String>, json: bool) -> Result<()> {
         p::info(&format!("Horizon: {}", net_cfg.horizon_url));
     }
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .pool_max_idle_per_host(10)
-        .build()?;
+    // #902: the shared factory applies the proxy, the custom CA bundle and the
+    // `starforge/<version>` user agent to this probe exactly as it does to the
+    // requests the rest of the CLI sends.
+    let client = crate::utils::http_client::client_with_timeout(Duration::from_secs(10));
 
     // Test Horizon endpoint & parse details
     let start_horizon = std::time::Instant::now();

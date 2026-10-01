@@ -167,7 +167,8 @@ impl WebhookSink {
             crate::utils::config::config_dir().join("webhook_cursor")
         };
         Self {
-            client: Client::new(),
+            // #902: shared client (proxy, custom CA bundle, user agent).
+            client: crate::utils::http_client::client().clone(),
             url: config.url.clone(),
             hmac_secret: config.hmac_secret.clone(),
             cursor_store: FileCursorStore::new(cursor_path),
