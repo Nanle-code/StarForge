@@ -116,7 +116,7 @@ argon2 = "0.5.3"
 # Pinned: strkey encoding must stay aligned with stellar-xdr 22.x fixtures.
 stellar-strkey = "=0.0.10"
 stellar-xdr = { version = "22.0.0", features = ["serde", "base64"] }
-base64     = "0.21"
+base64     = "0.22"
 urlencoding = "2.1"
 sha2 = "0.10"
 indicatif = "0.17.7"
