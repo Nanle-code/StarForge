@@ -378,6 +378,10 @@ const SUBCOMMAND_INFO: &[(&str, &str)] = &[
     ),
     ("deploy run", "Deploy a compiled Soroban contract (.wasm)"),
     (
+        "deploy checklist",
+        "Verify required pre-mainnet deployment checks",
+    ),
+    (
         "deploy history",
         "Deployment history, rollback, verification, dashboard",
     ),

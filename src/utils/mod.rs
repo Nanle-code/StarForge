@@ -76,6 +76,7 @@ pub mod cost_management;
 pub mod crypto;
 pub mod database;
 pub mod debugger;
+pub mod deploy_checklist;
 pub mod deploy_history;
 pub mod deploy_orchestrator;
 pub mod deploy_policy;
