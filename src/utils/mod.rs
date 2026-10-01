@@ -117,6 +117,7 @@ pub mod interactive;
 pub mod keychain;
 pub mod latency_budget;
 pub mod logging;
+pub mod cli_migration_notes;
 pub mod migration_ai;
 pub mod migration_testing;
 pub mod mnemonic;

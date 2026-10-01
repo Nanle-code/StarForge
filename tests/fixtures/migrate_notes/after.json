@@ -1,0 +1,88 @@
+{
+  "version": "v0.2.0",
+  "commands": [
+    {
+      "command": "wallet create",
+      "description": "Create a new test wallet",
+      "flags": [
+        {
+          "name": "name",
+          "short": "n",
+          "required": true,
+          "default": null,
+          "description": "Wallet name"
+        },
+        {
+          "name": "network",
+          "short": null,
+          "required": false,
+          "default": "testnet",
+          "description": "Target network"
+        }
+      ]
+    },
+    {
+      "command": "wallet list",
+      "description": "List all local wallets",
+      "flags": []
+    },
+    {
+      "command": "deploy",
+      "description": "Deploy a compiled Soroban contract (.wasm)",
+      "flags": [
+        {
+          "name": "wasm",
+          "short": null,
+          "required": true,
+          "default": null,
+          "description": "Path to the compiled .wasm file"
+        },
+        {
+          "name": "network",
+          "short": null,
+          "required": true,
+          "default": null,
+          "description": "Target network"
+        },
+        {
+          "name": "simulate",
+          "short": null,
+          "required": false,
+          "default": null,
+          "description": "Simulate deployment without submitting"
+        }
+      ]
+    },
+    {
+      "command": "network show",
+      "description": "Show active network configuration",
+      "flags": []
+    }
+  ],
+  "config_keys": [
+    {
+      "key": "network.default",
+      "value_type": "string",
+      "default": "testnet",
+      "description": "Default network for all commands"
+    },
+    {
+      "key": "telemetry.enabled",
+      "value_type": "bool",
+      "default": "true",
+      "description": "Whether to send anonymous usage telemetry"
+    },
+    {
+      "key": "ai.model",
+      "value_type": "string",
+      "default": "codellama:7b",
+      "description": "Default Ollama model for AI commands"
+    },
+    {
+      "key": "deploy.timeout",
+      "value_type": "u64",
+      "default": "30",
+      "description": "Deployment timeout in seconds"
+    }
+  ]
+}

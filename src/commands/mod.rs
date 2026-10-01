@@ -75,6 +75,7 @@ pub mod man;
 pub mod manifest;
 pub mod migrate;
 pub mod migrate_ai;
+pub mod migrate_notes;
 pub mod monitor;
 pub mod multi_network;
 pub mod multisig_builder;

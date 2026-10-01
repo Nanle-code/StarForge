@@ -76,7 +76,7 @@ pub fn is_deprecated(type_name: &str, field_name: &str) -> bool {
 mod tests {
     use super::*;
 
-    /// Every deprecated field must have earliest_removal ≥ deprecated_since + 90 days.
+    /// Every deprecated field must have earliest_removal >= deprecated_since + 90 days.
     #[test]
     fn deprecation_windows_are_at_least_90_days() {
         for field in DEPRECATED_FIELDS {

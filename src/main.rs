@@ -229,6 +229,10 @@ enum Commands {
     #[command(subcommand)]
     Agent(commands::agent::AgentCommands),
 
+    /// AI-assisted CLI migration notes generator (breaking change notes from snapshots)
+    #[command(subcommand, name = "migrate-notes")]
+    MigrateNotes(commands::migrate_notes::MigrateNotesCommands),
+
     /// Terminal User Interface for wallets, contracts, and transactions
     #[cfg(feature = "ui")]
     Ui(commands::ui::UiArgs),
@@ -381,6 +385,7 @@ async fn run() {
         Commands::Dev(_) => "dev",
         Commands::Alias(_) => "alias",
         Commands::Autocomplete { .. } => "autocomplete",
+        Commands::MigrateNotes(_) => "migrate-notes",
         Commands::External(_) => "external",
         Commands::Verify(_) => "verify",
         Commands::Help(_) => "help",
@@ -458,6 +463,7 @@ async fn run() {
             )
             .await
         }
+        Commands::MigrateNotes(cmd) => commands::migrate_notes::handle(cmd),
         Commands::External(args) => handle_external_plugin(args),
         Commands::Help(args) => commands::help::handle(args).await,
         Commands::AiTelemetry(cmd) => commands::ai_telemetry::handle(cmd).await,
