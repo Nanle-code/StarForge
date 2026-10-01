@@ -1,0 +1,3 @@
+# Golden CLI case: starforge privacy --help
+description = "starforge privacy --help"
+args = ["privacy", "--help"]

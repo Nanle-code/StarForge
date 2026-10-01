@@ -1184,7 +1184,8 @@ impl DocQaEngine {
                     citations: citations_from_hits(&hits),
                     language: answer_language,
                     confidence: estimate_confidence(&hits, &analysis),
-                    is_low_confidence: estimate_confidence(&hits, &analysis) < 0.60 || hits.is_empty(),
+                    is_low_confidence: estimate_confidence(&hits, &analysis) < 0.60
+                        || hits.is_empty(),
                     mode: AnswerMode::Generated,
                     follow_up_suggestions: follow_up_suggestions(question, &analysis),
                     latency_ms: started.elapsed().as_millis(),
@@ -1343,7 +1344,11 @@ pub fn citations_from_hits(hits: &[SearchHit]) -> Vec<Citation> {
     hits.iter()
         .map(|hit| {
             let anchor = slugify_anchor(&hit.chunk.title);
-            let section_anchor = if anchor.is_empty() { None } else { Some(anchor) };
+            let section_anchor = if anchor.is_empty() {
+                None
+            } else {
+                Some(anchor)
+            };
             let file_path = extract_file_path(&hit.chunk.source);
             let confidence_score = (hit.score / 10.0).clamp(0.0, 1.0);
             Citation {
@@ -1604,7 +1609,10 @@ mod tests {
     #[test]
     fn test_slugify_anchor() {
         assert_eq!(slugify_anchor("# Deploy Policy"), "#deploy-policy");
-        assert_eq!(slugify_anchor("### Advanced Settings (v2)"), "#advanced-settings-v2");
+        assert_eq!(
+            slugify_anchor("### Advanced Settings (v2)"),
+            "#advanced-settings-v2"
+        );
         assert_eq!(slugify_anchor("CLI JSON Stability"), "#cli-json-stability");
         assert_eq!(slugify_anchor(""), "");
     }
@@ -1629,22 +1637,25 @@ mod tests {
             source: "docs/DEPLOY_POLICY.md".to_string(),
             kind: SourceKind::StarForge,
             title: "## Deployment Checkpoints".to_string(),
-            url: Some("https://nanle-code.github.io/StarForge/docs/DEPLOYMENT_CHECKPOINTS.html".to_string()),
+            url: Some(
+                "https://nanle-code.github.io/StarForge/docs/DEPLOYMENT_CHECKPOINTS.html"
+                    .to_string(),
+            ),
             content: "Checkpoints allow resuming interrupted deployments safely.".to_string(),
             language: QaLanguage::English,
             chunk_index: 0,
         };
-        let hit = SearchHit {
-            chunk,
-            score: 7.5,
-        };
+        let hit = SearchHit { chunk, score: 7.5 };
 
         let citations = citations_from_hits(&[hit]);
         assert_eq!(citations.len(), 1);
         let c = &citations[0];
         assert_eq!(c.source, "docs/DEPLOY_POLICY.md");
         assert_eq!(c.file_path, Some("docs/DEPLOY_POLICY.md".to_string()));
-        assert_eq!(c.section_anchor, Some("#deployment-checkpoints".to_string()));
+        assert_eq!(
+            c.section_anchor,
+            Some("#deployment-checkpoints".to_string())
+        );
         assert!(c.confidence_score > 0.5);
     }
 
@@ -1655,7 +1666,9 @@ mod tests {
         assert!(answer.is_low_confidence);
         assert_eq!(answer.confidence, 0.0);
         assert!(answer.citations.is_empty());
-        assert!(answer.answer.contains("No relevant documentation was found"));
+        assert!(answer
+            .answer
+            .contains("No relevant documentation was found"));
     }
 
     #[test]
@@ -1680,4 +1693,3 @@ mod tests {
         assert_eq!(citation, deserialized);
     }
 }
-

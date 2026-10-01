@@ -9,12 +9,15 @@ Welcome to StarForge! This guide will help you get started contributing to the p
 - [Development Setup](#development-setup)
 - [Building the Project](#building-the-project)
 - [Running Tests](#running-tests)
+- [Golden CLI Snapshot Tests](#golden-cli-snapshot-tests)
 - [Documentation Snippets](#documentation-snippets)
 - [Development Workflow](#development-workflow)
 - [Code Quality](#code-quality)
 - [Submitting a Pull Request](#submitting-a-pull-request)
+- [Writing Plugins](#writing-plugins)
 - [Contributing to AI Features](#contributing-to-ai-features)
 - [Common Issues & Troubleshooting](#common-issues--troubleshooting)
+- [Flaky Tests & Quarantine](#flaky-tests--quarantine)
 - [Questions & Support](#questions--support)
 
 ---
@@ -35,7 +38,19 @@ Welcome to StarForge! This guide will help you get started contributing to the p
 
 ### Rust
 
-StarForge requires **Rust 1.80 or later**. 
+StarForge requires **Rust 1.80 or later** (`rust-version` in `Cargo.toml`).
+
+#### MSRV policy
+
+- The Minimum Supported Rust Version (MSRV) tracks approximately **N−3** stable
+  releases (today: 1.80 while latest stable is ~1.83+).
+- MSRV bumps happen only in **minor** StarForge releases, never in patch releases.
+- Exact dependency pins (`=x.y.z`) are avoided unless a justification comment sits
+  next to the pin (usually an MSRV or API-stability hold). Prefer caret ranges and
+  rely on `.cargo/config.toml` `incompatible-rust-versions = "fallback"` plus the
+  weekly `latest-deps` CI job to catch drift.
+- When raising MSRV, update `Cargo.toml` `rust-version`, the `MSRV (Rust …)` CI
+  job, `CONTRIBUTING.md`, and `docs/BRANCH_PROTECTION.md` in the same PR.
 
 #### Install Rust
 
@@ -169,6 +184,31 @@ The project includes quick smoke tests to verify basic functionality:
 ```bash
 cargo test --test cli_smoke
 ```
+
+### Golden CLI Snapshot Tests
+
+`tests/cli_golden.rs` pins the observable output (stdout, stderr, exit code)
+of `starforge` against committed snapshots under `tests/cmd/`. It is a
+dependency-free stand-in for `trycmd`/`snapbox` (those crates are not in
+`Cargo.lock`, and CI asserts the lockfile is unchanged), using the same
+`TRYCMD=overwrite` workflow:
+
+```bash
+# Compare against the committed corpus
+cargo test --locked --test cli_golden
+
+# Intentionally refresh the snapshots (or run: bash scripts/gen-cli-snapshots.sh)
+TRYCMD=overwrite cargo test --locked --test cli_golden
+git diff -- tests/cmd
+```
+
+A case whose snapshot file is missing is generated automatically and passes
+(with a notice), so adding a new `tests/cmd/<case>.toml` never turns CI red
+before its snapshot is committed. Only snapshots whose exact bytes are known
+without running the binary are committed; run the `TRYCMD=overwrite` command
+above to populate the rest of the corpus. See
+[docs/CLI_GOLDEN_TESTS.md](docs/CLI_GOLDEN_TESTS.md) for the full workflow,
+determinism rules, and corpus layout.
 
 ### Run Optional-Feature Tests (hardware wallets)
 
@@ -653,6 +693,22 @@ When opening a PR, fill out the template with:
 
 ---
 
+## Writing Plugins
+
+Building a StarForge plugin, or changing one of the example plugins? Start with
+the [plugin authoring cookbook](docs/plugins/cookbook.md). It walks through a
+hello-world plugin, capabilities, testing, signing, trust metadata, publishing
+and ABI compatibility, using the example plugins in
+[`examples/plugins/`](examples/plugins/). CI builds and tests those examples in
+the **Plugin Cookbook Examples** job; run the same check locally with:
+
+```bash
+cp Cargo.lock examples/plugins/Cargo.lock
+cargo test --manifest-path examples/plugins/Cargo.toml --workspace
+```
+
+---
+
 ## Contributing to AI Features
 
 StarForge integrates AI features for smart contract generation and automated documentation. When contributing to these features:
@@ -750,6 +806,71 @@ This document confirms:
 
 ---
 
+## Flaky Tests & Quarantine
+
+A **flaky test** is one that fails and then passes when it is retried. Flakes
+waste reviewer time and train people to ignore red CI, so StarForge runs the
+test suite through [`cargo nextest`](https://nexte.st) with retries enabled
+(see [`.config/nextest.toml`](.config/nextest.toml)) and reports every test that
+passed only on a retry.
+
+### Detecting flakes
+
+The [Flaky Test Detection workflow](.github/workflows/flaky-tests.yml) runs
+nightly and on pull requests that touch the test suite. It publishes two
+artifacts:
+
+| Artifact | Contents |
+|---|---|
+| `flaky-test-report-nextest` | `flaky-report.md` and `flaky-report.json` — the tests that passed only on a retry |
+| `nextest-junit-report` | The raw nextest JUnit XML (`target/nextest/ci/junit.xml`) |
+
+Run the same detection locally:
+
+```bash
+cargo install cargo-nextest --locked          # once
+cargo nextest run --profile ci                # retries failures, writes JUnit XML
+python3 scripts/flaky-report.py               # writes flaky-report.md + flaky-report.json
+```
+
+### Quarantine process
+
+When a flake cannot be fixed in the same pull request, quarantine it by adding
+one entry to [`.github/flaky-quarantine.json`](.github/flaky-quarantine.json):
+
+```json
+{
+  "test": "starforge::utils::wallet::creates_wallet_from_seed",
+  "owner": "@your-github-handle",
+  "issue": 924,
+  "quarantinedOn": "2026-09-26",
+  "deadline": "2026-10-26",
+  "reason": "Intermittent filesystem timing on the CI runner."
+}
+```
+
+The rules are intentionally strict so quarantines do not become permanent:
+
+1. **Every entry names one owner and one deadline.** `test` is the full nextest
+   id from `flaky-report.md`; `owner` is a GitHub handle (`@name`); `deadline`
+   is an ISO date (`YYYY-MM-DD`).
+2. **The deadline is at most 30 days out.** Longer-lived flakes should be fixed,
+   not hidden.
+3. **Quarantined tests still run.** Quarantine marks the flake as known and
+   assigns accountability; it does not delete or skip coverage. The report
+   lists each flake next to its owner and deadline.
+4. **Expired entries are escalated.** Once the deadline passes, the flaky
+   report marks the entry `expired` and the owner must fix the test,
+   re-quarantine it with a new deadline and a tracking issue, or remove it with
+   a justification in the pull request.
+5. **Fixes beat quarantines.** When you fix a flake, add deterministic coverage
+   for the failure mode and delete its entry in the same pull request.
+
+Reviewers should reject a quarantine entry that is missing an owner, a deadline,
+or a linked tracking issue.
+
+---
+
 ## Questions & Support
 
 - **Documentation**: See [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) for in-depth development topics
@@ -765,3 +886,4 @@ This document confirms:
 Contributors are recognized in the project and may participate in the [Stellar Wave Program](https://www.drips.network/wave/stellar) for monetary rewards.
 
 Thank you for contributing to StarForge! 🚀
+.....

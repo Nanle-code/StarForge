@@ -6,7 +6,7 @@ fn isolated_home() -> tempfile::TempDir {
 
 fn starforge(home: &std::path::Path) -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_starforge"));
-    cmd.env("HOME", home);
+    cmd.env("STARFORGE_HOME", home);
     cmd.env("USERPROFILE", home);
     cmd
 }
@@ -32,6 +32,28 @@ fn test_hardware_wallet_command_availability() {
             || help_text.contains("ledger"),
         "Wallet help should document hardware wallet options"
     );
+}
+
+#[test]
+fn test_hardware_wallet_diagnostics_uses_native_cli() {
+    let home = isolated_home();
+    let output = starforge(home.path())
+        .args(["wallet", "diagnostics", "--wallet", "ledger"])
+        .output()
+        .expect("Hardware-wallet diagnostics should run without Node.js");
+
+    assert!(
+        output.status.success(),
+        "Diagnostics should report device status without treating a missing device as a CLI failure"
+    );
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    )
+    .to_lowercase();
+    assert!(combined.contains("ledger"));
+    assert!(!combined.contains("node.js runtime"));
 }
 
 #[test]

@@ -1,0 +1,3 @@
+# Golden CLI case: starforge approval --help
+description = "starforge approval --help"
+args = ["approval", "--help"]

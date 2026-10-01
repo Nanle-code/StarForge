@@ -1,0 +1,3 @@
+# Golden CLI case: network switch to an unknown network (JSON error envelope)
+description = "network switch to an unknown network (JSON error envelope)"
+args = ["--json", "network", "switch", "does-not-exist-xyz"]

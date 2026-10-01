@@ -158,7 +158,7 @@ pub fn load_backup(id: &str) -> Result<BackupRecord> {
 fn zip_sources(sources: &[PathBuf]) -> Result<Vec<u8>> {
     let buf = Cursor::new(Vec::new());
     let mut zip = ZipWriter::new(buf);
-    let options: FileOptions =
+    let options: FileOptions<()> =
         FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
     for src in sources {
@@ -176,7 +176,7 @@ fn add_path_to_zip<W: Write + std::io::Seek>(
     zip: &mut ZipWriter<W>,
     base: &Path,
     path: &Path,
-    options: FileOptions,
+    options: FileOptions<()>,
 ) -> Result<()> {
     if path.is_dir() {
         for entry in fs::read_dir(path)? {

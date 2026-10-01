@@ -84,13 +84,15 @@ fn network_config() -> impl Strategy<Value = NetworkConfig> {
         proptest::option::of(http_url()),
         proptest::option::of(http_url()),
         proptest::option::of("[A-Za-z0-9 ;]{0,40}"),
+        proptest::option::of("[A-Za-z0-9/._-]{1,64}"),
     )
         .prop_map(
-            |(horizon_url, soroban_rpc_url, friendbot_url, passphrase)| NetworkConfig {
+            |(horizon_url, soroban_rpc_url, friendbot_url, passphrase, ca_bundle)| NetworkConfig {
                 horizon_url,
                 soroban_rpc_url,
                 friendbot_url,
                 passphrase,
+                ca_bundle,
             },
         )
 }
@@ -205,6 +207,10 @@ fn valid_config() -> impl Strategy<Value = Config> {
                         funded,
                         rotation_history,
                         kdf_options: None,
+                        derivation_index: None,
+                        derivation_path: None,
+                        mnemonic_wallet: None,
+                        usage_policy: Default::default(),
                     });
                 }
 
@@ -257,6 +263,10 @@ fn overlay_for(base: &Config) -> impl Strategy<Value = ConfigOverlay> {
                     funded: false,
                     rotation_history: Vec::new(),
                     kdf_options: None,
+                    derivation_index: None,
+                    derivation_path: None,
+                    mnemonic_wallet: None,
+                    usage_policy: Default::default(),
                 });
             }
             ConfigOverlay {
@@ -450,6 +460,10 @@ proptest! {
             funded: false,
             rotation_history: Vec::new(),
             kdf_options: None,
+            derivation_index: None,
+            derivation_path: None,
+            mnemonic_wallet: None,
+            usage_policy: Default::default(),
         });
         prop_assert!(config::validate_config(&broken).is_err());
     }
@@ -482,6 +496,10 @@ proptest! {
             funded: false,
             rotation_history: Vec::new(),
             kdf_options: None,
+            derivation_index: None,
+            derivation_path: None,
+            mnemonic_wallet: None,
+            usage_policy: Default::default(),
         });
         prop_assert!(config::validate_config(&broken).is_err());
     }
@@ -547,6 +565,7 @@ fn minimal_config() -> Config {
             soroban_rpc_url: None,
             friendbot_url: None,
             passphrase: None,
+            ca_bundle: None,
         },
     );
     Config {

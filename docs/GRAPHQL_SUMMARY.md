@@ -359,7 +359,7 @@ subscription {
 2. Connect to actual Stellar/Soroban APIs
 3. Add database integration for persistence
 4. Implement file upload for contracts
-5. Add query complexity analysis
+5. ✅ Query depth limits and complexity cost analysis (Issue #782)
 6. Performance optimization
 
 ## 📋 Sign-Off

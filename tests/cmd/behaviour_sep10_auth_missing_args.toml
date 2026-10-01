@@ -1,0 +1,3 @@
+# Golden CLI case: sep10 auth requires --domain and --wallet
+description = "sep10 auth requires --domain and --wallet"
+args = ["sep10", "auth"]

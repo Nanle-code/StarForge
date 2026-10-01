@@ -19,9 +19,9 @@ Structured tutorial for building, uploading, and instantiating your first Soroba
 ## Interactive flow
 
 ```bash
-starforge tutorial start deploy
-starforge tutorial next    # after each milestone
-starforge tutorial status
+starforge tool tutorial start deploy
+starforge tool tutorial next    # after each milestone
+starforge tool tutorial status
 ```
 
 Step definitions live in `tutorial.json` beside this README.

@@ -90,6 +90,8 @@ describe("Registry API", () => {
           version: "1.0.0",
           description: "Test counter template",
           author: "Test User",
+          authors: ["Test User"],
+          attribution: "Copyright (c) 2026 Test User",
           tags: ["example", "test"],
           license: "MIT",
           content: Buffer.from("test content").toString("base64"),
@@ -98,7 +100,63 @@ describe("Registry API", () => {
       expect(response.status).toBe(201);
       expect(response.body.success).toBe(true);
       expect(response.body.template_id).toBeDefined();
+      const published = await request(app).get("/api/templates/test-counter/1.0.0");
+      expect(published.body.license).toBe("MIT");
+      expect(published.body.authors).toEqual(["Test User"]);
+      expect(published.body.attribution).toBe("Copyright (c) 2026 Test User");
 
+    });
+
+    it("should reject publish without a license identifier", async () => {
+      const response = await request(app)
+        .post("/api/templates/publish")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          name: "missing-license",
+          version: "1.0.0",
+          description: "Missing license",
+          author: "Test User",
+          attribution: "Copyright (c) 2026 Test User",
+          content: Buffer.from("content").toString("base64"),
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toContain("SPDX license identifier");
+    });
+
+    it("should reject publish without authors or attribution metadata", async () => {
+      const response = await request(app)
+        .post("/api/templates/publish")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          name: "missing-attribution",
+          version: "1.0.0",
+          description: "Missing attribution",
+          author: "Test User",
+          license: "MIT",
+          content: Buffer.from("content").toString("base64"),
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toContain("Attribution metadata is required");
+    });
+
+    it("should reject non-SPDX license identifiers", async () => {
+      const response = await request(app)
+        .post("/api/templates/publish")
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          name: "invalid-license",
+          version: "1.0.0",
+          description: "Invalid license",
+          author: "Test User",
+          attribution: "Copyright (c) 2026 Test User",
+          license: "Not-A-Real-License",
+          content: Buffer.from("content").toString("base64"),
+        });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toContain("SPDX license identifier");
     });
 
     it("should reject publish without authentication", async () => {
@@ -137,6 +195,9 @@ describe("Registry API", () => {
           version: "1.0.0",
           description: "Template for review testing",
           author: "Test User",
+          authors: ["Test User"],
+          attribution: "Copyright (c) 2026 Test User",
+          license: "MIT",
           tags: ["test"],
           content: Buffer.from("test").toString("base64"),
         });

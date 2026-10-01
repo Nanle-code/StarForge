@@ -238,13 +238,8 @@ pub struct Sep10Client {
 
 impl Sep10Client {
     pub fn new(home_domain: &str, network_passphrase: &str) -> Result<Self, Sep10Error> {
-        let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(15))
-            .build()
-            .map_err(|source| Sep10Error::Http {
-                url: "client".to_string(),
-                source,
-            })?;
+        // #902: one shared factory owns proxy, custom CA bundle and user agent.
+        let http = crate::utils::http_client::client_with_timeout(Duration::from_secs(15));
         Ok(Self {
             home_domain: home_domain.trim().trim_end_matches('/').to_string(),
             network_passphrase: network_passphrase.to_string(),
@@ -263,13 +258,7 @@ impl Sep10Client {
 
     /// Override the HTTP timeout, mostly so tests do not wait 15s to fail.
     pub fn with_timeout(mut self, timeout: Duration) -> Result<Self, Sep10Error> {
-        self.http = reqwest::Client::builder()
-            .timeout(timeout)
-            .build()
-            .map_err(|source| Sep10Error::Http {
-                url: "client".to_string(),
-                source,
-            })?;
+        self.http = crate::utils::http_client::client_with_timeout(timeout);
         Ok(self)
     }
 

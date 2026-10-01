@@ -16,20 +16,10 @@ use starforge::utils::multisig_audit::{
     MonitoringBaseline, SignerSetDiff, SignerState,
 };
 
-static HOME_LOCK: Mutex<()> = Mutex::new(());
-
 /// Serialises tests that replace the process-wide `HOME` / `USERPROFILE`.
 ///
 /// The returned guard must stay alive for the duration of the test so later
 /// tests cannot repoint `HOME` while this one is still doing file I/O.
-fn home_lock(home: &Path) -> std::sync::MutexGuard<'static, ()> {
-    let guard = HOME_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    std::env::set_var("HOME", home);
-    std::env::set_var("USERPROFILE", home);
-    guard
-}
 
 /// Resolve the home directory the same way the audit module does: honour the
 /// `HOME` / `USERPROFILE` env vars set by [`home_lock`], falling back to

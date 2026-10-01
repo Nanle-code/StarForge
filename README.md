@@ -4,6 +4,7 @@
 templates, encrypted wallets and deployment safety checks for Stellar.**
 
 [![CI](https://github.com/Nanle-code/StarForge/actions/workflows/ci.yml/badge.svg)](https://github.com/Nanle-code/StarForge/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/Nanle-code/StarForge/branch/master/graph/badge.svg)](https://codecov.io/gh/Nanle-code/StarForge)
 ![License: MIT](https://img.shields.io/badge/License-MIT-cyan.svg)
 ![Status: beta](https://img.shields.io/badge/status-beta-yellow.svg)
 ![Stellar Wave](https://img.shields.io/badge/Stellar-Wave%20Program-blueviolet.svg)
@@ -38,7 +39,7 @@ Scaffold new Soroban smart contract projects from battle-tested templates with o
 starforge template search defi
 
 # Use a marketplace template
-starforge new contract my-dex --template uniswap-v2 --from marketplace
+starforge project new contract my-dex --template uniswap-v2 --from marketplace
 
 # Publish your own template
 starforge template publish ./my-template
@@ -47,7 +48,7 @@ starforge template publish ./my-template
 ### 🚀 Contract Deployment
 Validate, size-check, and deploy compiled Soroban `.wasm` files to Testnet or Mainnet. Verifies account balance on-chain, calculates the Soroban WASM hash as a SHA-256 digest of the raw file bytes, and generates the exact `stellar contract deploy` command to complete the deployment.
 
-The local hash shown by `starforge deploy` is intended to match the value reported by `stellar contract inspect --wasm <file>` for the same bytecode. StarForge now computes that hash through a shared helper that validates the WASM payload, rejects empty or malformed input, and fails explicitly on unsupported build environments instead of silently producing a different result.
+The local hash shown by `starforge deploy run` is intended to match the value reported by `stellar contract inspect --wasm <file>` for the same bytecode. StarForge now computes that hash through a shared helper that validates the WASM payload, rejects empty or malformed input, and fails explicitly on unsupported build environments instead of silently producing a different result.
 
 For contributors, the hash is intentionally defined as the SHA-256 digest of the raw `.wasm` bytecode. The implementation currently supports Linux, Windows, and macOS hosts; other environments are rejected with a clear error so reproducibility checks do not silently drift.
 
@@ -188,7 +189,7 @@ cp target/release/starforge /usr/local/bin/
 starforge --version
 # starforge 0.1.0
 
-starforge info
+starforge config info
 ```
 
 ---
@@ -392,25 +393,25 @@ cp ~/.starforge/config.backup.v0.<timestamp>.toml ~/.starforge/config.toml
 
 ```bash
 # Scaffold a Soroban contract (hello-world template)
-starforge new contract my-contract
+starforge project new contract my-contract
 
 # Scaffold interactively with custom options
-starforge new contract my-contract --interactive
+starforge project new contract my-contract --interactive
 
 # Scaffold with a specific template
-starforge new contract my-token --template token
-starforge new contract my-nft --template nft
-starforge new contract my-vote --template voting
+starforge project new contract my-token --template token
+starforge project new contract my-nft --template nft
+starforge project new contract my-vote --template voting
 
 # Search marketplace templates
 starforge template search defi
-starforge new contract --search lending --tags defi
+starforge project new contract --search lending --tags defi
 
 # Use a marketplace template
-starforge new contract my-dex --template uniswap-v2 --from marketplace
+starforge project new contract my-dex --template uniswap-v2 --from marketplace
 
 # Scaffold a Stellar dApp frontend (Vite + React)
-starforge new dapp my-dapp
+starforge project new dapp my-dapp
 ```
 
 ### Local AI assistant
@@ -486,7 +487,7 @@ These commands run offline in a throwaway `HOME`, and CI executes them on
 every PR:
 
 ```bash run
-starforge new contract hello              # scaffold from a template
+starforge project new contract hello              # scaffold from a template
 starforge wallet create alice             # local keypair (add --encrypt to protect it)
 starforge network show                    # testnet, mainnet, or your own
 starforge template search defi            # community templates
@@ -501,8 +502,8 @@ cd hello && stellar contract build
 stellar keys generate deployer                          # or reuse an existing identity
 starforge wallet import --from-stellar-cli deployer     # same wallet, now in StarForge
 starforge wallet fund deployer
-starforge deploy --wasm target/wasm32v1-none/release/hello.wasm --wallet deployer --dry-run
-starforge deploy --wasm target/wasm32v1-none/release/hello.wasm --wallet deployer --yes --execute
+starforge deploy run --wasm target/wasm32v1-none/release/hello.wasm --wallet deployer --dry-run
+starforge deploy run --wasm target/wasm32v1-none/release/hello.wasm --wallet deployer --yes --execute
 stellar contract invoke --id <CONTRACT_ID> --source deployer --network testnet -- hello --to Stellar
 ```
 
@@ -526,6 +527,14 @@ still does better.
 - [Installation](docs/INSTALL.md) · [Usage guide](docs/USAGE.md) · [Command reference](docs/COMMAND_REFERENCE.md) · [Cheat sheet](docs/COMMAND_CHEATSHEET.md)
 - [Configuration](docs/CONFIGURATION.md) · [Architecture](ARCHITECTURE.md) · [All documentation](docs/README.md)
 - Docs site: <https://nanle-code.github.io/StarForge/> (built from [`docs/`](docs/))
+
+### Nightly end-to-end suite
+
+A scheduled workflow exercises the real Stellar **testnet** every night:
+ephemeral wallet → Friendbot funding → scaffold/build/deploy/invoke/upgrade/verify
+for each built-in template, with failures opening or updating a single tracking
+issue. See [docs/NIGHTLY_E2E.md](docs/NIGHTLY_E2E.md) for how to run the suite
+locally and how to change the cron schedule.
 
 ## Status and stability
 
@@ -604,6 +613,7 @@ StarForge has comprehensive documentation covering all aspects of the project:
 ### ?? Examples
 - **[examples/template_marketplace_usage.md](examples/template_marketplace_usage.md)** - Practical examples
 - **[tutorials/hello-world/](tutorials/hello-world/)** - Beginner tutorial
+- **[15-minute onboarding tutorial](tutorials/onboarding-15-minute/)** - Offline-first tutorial with verified install, wallet, scaffold, and simulation checkpoints
 
 **Total**: 17 documentation files with 7,700+ lines covering architecture, development, API reference, and examples.
 
@@ -668,3 +678,21 @@ See `examples/binding_generator_example.md` for complete examples.
 ### Terminal UI
 The `starforge ui` command provides a live TUI (Terminal User Interface) overview of your project, showing balances, deployed contracts, TTLs, recent transactions, and a live event tail.
 ![StarForge UI](https://raw.githubusercontent.com/Nanle-code/StarForge/main/docs/ui-screenshot.png)
+# Add contract features
+
+Add reusable components to an existing Soroban contract:
+
+```sh
+starforge new contract my-token --template token
+cd my-token
+starforge add --list
+starforge add ownable
+starforge add pausable --dry-run
+starforge add access-control --path ../another-contract
+```
+
+`starforge add <component>` applies to the current directory. `--path` selects another project, `--dry-run` prints a unified diff without writing files, and `--list` shows the component registry. The command requires a Cargo package with `soroban-sdk` and `src/lib.rs` containing a contract struct. It refuses duplicate applications and generated API name collisions before changing anything.
+
+Components expose `owner` and `transfer_ownership` (`ownable`), `grant_role`, `revoke_role`, and `has_role` (`access-control`), `pause`, `unpause`, and `is_paused` (`pausable`), and `version` and `upgrade` (`upgradeable`). `pausable` and `access-control` accept an authenticated administrator address independently; `ownable` stores an owner. Components have separate storage keys and can be combined. `upgradeable` uses Soroban's current-contract WASM upgrade API. These utilities expose management APIs; contract business methods must call `is_paused` or `has_role` where enforcement is required.
+
+See [docs/ADDING_COMPONENTS.md](docs/ADDING_COMPONENTS.md) for API details, composition guidance, conflicts, and contributor instructions.

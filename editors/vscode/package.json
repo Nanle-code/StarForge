@@ -1,0 +1,297 @@
+{
+  "name": "starforge-vscode",
+  "displayName": "StarForge",
+  "description": "Build, deploy, and invoke Soroban smart contracts from VS Code",
+  "version": "0.1.0",
+  "publisher": "starforge",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Nanle-code/StarForge"
+  },
+  "homepage": "https://github.com/Nanle-code/StarForge/tree/master/editors/vscode#readme",
+  "bugs": {
+    "url": "https://github.com/Nanle-code/StarForge/issues"
+  },
+  "galleryBanner": {
+    "color": "#0f172a",
+    "theme": "dark"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other",
+    "Programming Languages",
+    "Debuggers"
+  ],
+  "keywords": [
+    "stellar",
+    "soroban",
+    "blockchain",
+    "smart contracts",
+    "web3"
+  ],
+  "activationEvents": [
+    "workspaceContains:**/starforge-project.toml",
+    "workspaceContains:**/Cargo.toml",
+    "onCommand:starforge.build",
+    "onCommand:starforge.test",
+    "onCommand:starforge.deploy",
+    "onCommand:starforge.invoke",
+    "onView:starforgeWallets",
+    "onView:starforgeNetworks",
+    "onView:starforgeContracts"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "starforge.build",
+        "title": "StarForge: Build Contract",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "starforge.test",
+        "title": "StarForge: Test Contract",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "starforge.deploy",
+        "title": "StarForge: Deploy Contract",
+        "icon": "$(rocket)"
+      },
+      {
+        "command": "starforge.invoke",
+        "title": "StarForge: Invoke Contract Function",
+        "icon": "$(play)"
+      },
+      {
+        "command": "starforge.refreshWallets",
+        "title": "StarForge: Refresh Wallets",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "starforge.refreshNetworks",
+        "title": "StarForge: Refresh Networks",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "starforge.refreshContracts",
+        "title": "StarForge: Refresh Contracts",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "starforge.openContractExplorer",
+        "title": "StarForge: Open Contract Explorer",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "starforge.copyContractId",
+        "title": "Copy Contract ID",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "starforge.inspectContract",
+        "title": "StarForge: Inspect Contract",
+        "icon": "$(search)"
+      },
+      {
+        "command": "starforge.showInfo",
+        "title": "StarForge: Show Info",
+        "icon": "$(info)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "starforge",
+          "title": "StarForge",
+          "icon": "media/starforge-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "starforge": [
+        {
+          "id": "starforgeWallets",
+          "name": "Wallets",
+          "icon": "$(key)",
+          "contextualTitle": "StarForge Wallets"
+        },
+        {
+          "id": "starforgeNetworks",
+          "name": "Networks",
+          "icon": "$(globe)",
+          "contextualTitle": "StarForge Networks"
+        },
+        {
+          "id": "starforgeContracts",
+          "name": "Deployed Contracts",
+          "icon": "$(circuit-board)",
+          "contextualTitle": "StarForge Contracts"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "starforge.refreshWallets",
+          "when": "view == starforgeWallets",
+          "group": "navigation"
+        },
+        {
+          "command": "starforge.refreshNetworks",
+          "when": "view == starforgeNetworks",
+          "group": "navigation"
+        },
+        {
+          "command": "starforge.refreshContracts",
+          "when": "view == starforgeContracts",
+          "group": "navigation"
+        },
+        {
+          "command": "starforge.deploy",
+          "when": "view == starforgeContracts",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "starforge.copyContractId",
+          "when": "viewItem == deployedContract",
+          "group": "inline"
+        },
+        {
+          "command": "starforge.invoke",
+          "when": "viewItem == deployedContract",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "starforge.inspectContract",
+          "when": "viewItem == deployedContract",
+          "group": "1_actions@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "starforge.copyContractId",
+          "when": "false"
+        }
+      ]
+    },
+    "taskDefinitions": [
+      {
+        "type": "starforge",
+        "required": ["task"],
+        "properties": {
+          "task": {
+            "type": "string",
+            "description": "The StarForge task to run (build, test, deploy)",
+            "enum": ["build", "test", "deploy"]
+          },
+          "args": {
+            "type": "array",
+            "description": "Additional arguments to pass to the CLI",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    ],
+    "problemMatchers": [
+      {
+        "name": "starforge-build",
+        "owner": "starforge",
+        "source": "StarForge",
+        "fileLocation": ["relative", "${workspaceFolder}"],
+        "pattern": [
+          {
+            "regexp": "^error(?:\\[(E\\d+)\\])?:\\s+(.+)$",
+            "severity": 1,
+            "message": 2,
+            "code": 1
+          },
+          {
+            "regexp": "^\\s+-->\\s+([^:]+):(\\d+):(\\d+)$",
+            "file": 1,
+            "line": 2,
+            "column": 3
+          }
+        ]
+      },
+      {
+        "name": "starforge-warning",
+        "owner": "starforge",
+        "source": "StarForge",
+        "fileLocation": ["relative", "${workspaceFolder}"],
+        "pattern": [
+          {
+            "regexp": "^warning(?:\\[(\\w+)\\])?:\\s+(.+)$",
+            "severity": 2,
+            "message": 2,
+            "code": 1
+          },
+          {
+            "regexp": "^\\s+-->\\s+([^:]+):(\\d+):(\\d+)$",
+            "file": 1,
+            "line": 2,
+            "column": 3
+          }
+        ]
+      }
+    ],
+    "configuration": {
+      "title": "StarForge",
+      "properties": {
+        "starforge.binaryPath": {
+          "type": "string",
+          "default": "starforge",
+          "description": "Path to the starforge CLI binary. Defaults to 'starforge' on PATH."
+        },
+        "starforge.defaultNetwork": {
+          "type": "string",
+          "default": "testnet",
+          "enum": ["testnet", "mainnet"],
+          "description": "Default network to use for deploy and invoke operations."
+        },
+        "starforge.showJsonOutput": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show raw JSON output in the StarForge output channel."
+        },
+        "starforge.autoRefresh": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically refresh tree views when the workspace changes."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
+    "build:watch": "npm run build -- --watch",
+    "compile": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "test": "node ./dist/test/runTests.js",
+    "pretest": "npm run build && tsc -p tsconfig.test.json --outDir dist/test",
+    "package": "vsce package",
+    "deploy-marketplace": "vsce publish",
+    "deploy-ovsx": "ovsx publish"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.6",
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.90.0",
+    "@typescript-eslint/eslint-plugin": "^7.13.0",
+    "@typescript-eslint/parser": "^7.13.0",
+    "@vscode/test-electron": "^2.4.0",
+    "@vscode/vsce": "^2.29.0",
+    "esbuild": "^0.21.5",
+    "eslint": "^8.57.0",
+    "glob": "^10.4.1",
+    "mocha": "^10.4.0",
+    "ovsx": "^0.9.1",
+    "typescript": "^5.4.5"
+  }
+}

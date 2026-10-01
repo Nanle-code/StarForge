@@ -1,21 +1,16 @@
-use crate::utils::{config, wallet_signer};
+use crate::utils::{config, http_client as shared_http, wallet_signer};
 use anyhow::{Context, Result};
 use once_cell::sync::Lazy;
 use reqwest::Client;
 use serde::Deserialize;
 use std::time::Duration;
 
-fn build_http_client(timeout: Duration) -> Result<Client> {
-    Client::builder()
-        .timeout(timeout)
-        .pool_max_idle_per_host(10)
-        .build()
-        .context("Failed to create Horizon HTTP client")
-}
+/// Overall timeout for Horizon calls.
+const HORIZON_TIMEOUT: Duration = Duration::from_secs(10);
 
-static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
-    build_http_client(Duration::from_secs(10)).expect("Failed to create shared Horizon HTTP client")
-});
+/// Shared client for Horizon requests, built by the central factory (#902) so
+/// proxy, custom CA bundle and user agent are applied like everywhere else.
+static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| shared_http::client_with_timeout(HORIZON_TIMEOUT));
 
 /// Shared HTTP client used for Horizon requests.
 pub(crate) fn http_client() -> &'static Client {
@@ -24,35 +19,15 @@ pub(crate) fn http_client() -> &'static Client {
 
 /// Issue an HTTP request against Horizon with bounded retries and exponential
 /// backoff for transient failures (5xx / 429 / connection errors).
+///
+/// Thin wrapper over [`shared_http::send_with_retry`], kept so callers in this
+/// module read in Horizon terms.
 pub async fn send_with_retry<F, Fut>(make_request: F) -> Result<reqwest::Response>
 where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = std::result::Result<reqwest::Response, reqwest::Error>>,
 {
-    const MAX_RETRIES: u32 = 3;
-    let mut backoff = Duration::from_millis(150);
-
-    for attempt in 1..=MAX_RETRIES {
-        match make_request().await {
-            Ok(res)
-                if (res.status().is_server_error()
-                    || res.status() == reqwest::StatusCode::TOO_MANY_REQUESTS)
-                    && attempt < MAX_RETRIES =>
-            {
-                tokio::time::sleep(backoff).await;
-                backoff *= 2;
-            }
-            Ok(res) => return Ok(res),
-            Err(e) => {
-                if attempt == MAX_RETRIES {
-                    return Err(e).context("Horizon request failed after retries");
-                }
-                tokio::time::sleep(backoff).await;
-                backoff *= 2;
-            }
-        }
-    }
-    anyhow::bail!("Exceeded maximum Horizon retries")
+    shared_http::send_with_retry(make_request).await
 }
 
 pub fn network_config(network: &str) -> Result<config::NetworkConfig> {
@@ -543,6 +518,67 @@ pub async fn submit_payment_with_signing(
     }
 }
 
+/// Submit an envelope that is already fully signed.
+///
+/// Used by the fee-bump and sponsorship flows, where more than one party
+/// contributes a signature and re-signing a single-secret request would either
+/// drop a signature or fail on the wrapped layer. The caller is responsible for
+/// having signed the inner transaction and, if present, the fee bump.
+pub async fn submit_signed_envelope(
+    signed_xdr: &str,
+    network: &str,
+) -> Result<TransactionSubmitResult> {
+    crate::utils::network_guard::verify(network).await?;
+    submit_signed_xdr(signed_xdr, network).await
+}
+
+async fn submit_signed_xdr(signed_xdr: &str, network: &str) -> Result<TransactionSubmitResult> {
+    let horizon = horizon_url(network)?;
+    let url = format!("{}/transactions", horizon);
+    let form_data = [("tx", urlencoding::encode(signed_xdr))];
+
+    let res = HTTP_CLIENT
+        .post(&url)
+        .form(&form_data)
+        .send()
+        .await
+        .with_context(|| "Failed to submit transaction to Horizon")?;
+
+    let status = res.status();
+
+    if status == 200 {
+        let result: serde_json::Value = res
+            .json()
+            .await
+            .with_context(|| "Failed to parse transaction response")?;
+
+        let hash = result
+            .get("hash")
+            .and_then(|h| h.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        Ok(TransactionSubmitResult {
+            hash,
+            successful: true,
+        })
+    } else {
+        let error_text = res
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
+
+        if let Ok(horizon_error) = serde_json::from_str::<HorizonError>(&error_text) {
+            let detail = horizon_error
+                .detail
+                .unwrap_or_else(|| "No additional details".to_string());
+            anyhow::bail!("Transaction failed: {} - {}", horizon_error.title, detail);
+        } else {
+            anyhow::bail!("Transaction failed with status {}: {}", status, error_text);
+        }
+    }
+}
+
 pub async fn submit_multisig_transaction(
     signed_transaction_xdr: &str,
     network: &str,
@@ -590,6 +626,80 @@ pub async fn submit_multisig_transaction(
             anyhow::bail!("Transaction failed with status {}: {}", status, error_text);
         }
     }
+}
+
+/// Submits an already-signed envelope to Horizon exactly as given.
+///
+/// Unlike [`submit_payment_with_signing`] this performs no signing, so the
+/// caller owns the bytes on the wire — the contract `tx submit` needs to stay
+/// composable with `tx encode | tx sign`.
+pub async fn submit_envelope(envelope_xdr: &str, network: &str) -> Result<EnvelopeSubmitOutcome> {
+    let horizon = horizon_url(network)?;
+    let url = format!("{}/transactions", horizon);
+    let form_data = [("tx", urlencoding::encode(envelope_xdr))];
+
+    let response = HTTP_CLIENT
+        .post(&url)
+        .form(&form_data)
+        .send()
+        .await
+        .with_context(|| "Failed to submit transaction to Horizon")?;
+
+    let status = response.status();
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .unwrap_or_else(|_| serde_json::Value::Null);
+
+    if status == 200 {
+        return Ok(EnvelopeSubmitOutcome {
+            hash: json_string(&body, "hash").unwrap_or_else(|| "unknown".to_string()),
+            ledger: json_u64(&body, "ledger"),
+            successful: json_bool(&body, "successful").unwrap_or(true),
+            result_xdr: json_string(&body, "result_xdr"),
+        });
+    }
+
+    // Horizon reports a rejected transaction as an RFC 7807 problem document,
+    // with the decoded outcome under `extras`.
+    let extras = body.get("extras");
+    let title = json_string(&body, "title").unwrap_or_else(|| "Transaction failed".to_string());
+    let result_code = extras
+        .and_then(|e| e.get("result_codes"))
+        .and_then(|c| c.get("transaction"))
+        .and_then(|v| v.as_str());
+    let result_xdr = extras
+        .and_then(|e| e.get("result_xdr"))
+        .and_then(|v| v.as_str());
+    let detail = json_string(&body, "detail")
+        .or_else(|| result_code.map(str::to_string))
+        .unwrap_or_else(|| format!("Horizon returned status {}", status.as_u16()));
+    let mut message = format!("Transaction rejected: {title} - {detail}");
+    if let Some(xdr) = result_xdr {
+        message.push_str(&format!("\n  Result XDR: {xdr}"));
+    }
+    anyhow::bail!(message);
+}
+
+/// What Horizon reported for a submitted envelope.
+#[derive(Debug, Clone)]
+pub struct EnvelopeSubmitOutcome {
+    pub hash: String,
+    pub ledger: Option<u64>,
+    pub successful: bool,
+    pub result_xdr: Option<String>,
+}
+
+fn json_string(body: &serde_json::Value, key: &str) -> Option<String> {
+    body.get(key).and_then(|v| v.as_str()).map(str::to_string)
+}
+
+fn json_u64(body: &serde_json::Value, key: &str) -> Option<u64> {
+    body.get(key).and_then(|v| v.as_u64())
+}
+
+fn json_bool(body: &serde_json::Value, key: &str) -> Option<bool> {
+    body.get(key).and_then(|v| v.as_bool())
 }
 
 fn build_batch_transaction_xdr(

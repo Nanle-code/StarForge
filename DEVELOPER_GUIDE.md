@@ -605,7 +605,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-soroban-sdk = "21.0.0"
+soroban-sdk = "22.0.0"
 ```
 
 ```rust

@@ -1,0 +1,10 @@
+# Copy this file to starforge-dev.toml in a contract project.
+# Commands are argv arrays, not shell strings.
+sources = ["contracts", "src"]
+build = ["stellar", "contract", "build"]
+
+# Configure the local-network deploy command for the project.
+deploy = ["stellar", "contract", "deploy", "--wasm", "target/wasm32-unknown-unknown/release/contract.wasm", "--network", "standalone"]
+smoke = [
+  ["stellar", "contract", "invoke", "--id", "CONTRACT_ID", "--network", "standalone", "--", "health"],
+]

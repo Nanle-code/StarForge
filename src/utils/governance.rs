@@ -699,7 +699,6 @@ mod tests {
     }
 
     fn with_isolated_governance<F: FnOnce()>(f: F) {
-        let _home_guard = crate::utils::lock_home_env();
         // Recover from poisoning: one failing test must not cascade into every
         // other test that shares this lock.
         let _guard = TEST_MUTEX
@@ -708,7 +707,6 @@ mod tests {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let home = test_home();
         let config_dir = home.path().join(".starforge");
-        env::set_var("HOME", home.path());
         env::set_var("USERPROFILE", home.path());
         env::set_var(crate::utils::config::CONFIG_DIR_ENV, &config_dir);
         f();

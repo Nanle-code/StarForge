@@ -2,22 +2,29 @@
 
 Browse every top-level command and its most important flags. For wallet, template, and transaction details see also [API_REFERENCE.md](../API_REFERENCE.md).
 
+Commands are grouped by noun (`starforge contract test`, `starforge wallet
+auth`, `starforge tool tutorial`). The old flat spellings still work for one
+minor release and print a deprecation warning; see
+[CLI_COMMAND_TREE.md](CLI_COMMAND_TREE.md) for the full migration table and
+[adr/0007-noun-verb-command-tree.md](adr/0007-noun-verb-command-tree.md) for
+the rationale.
+
 ## Global options
 
-| Flag | Description |
-|------|-------------|
-| `-q, --quiet` | Suppress banner and decorative output |
-| `--log-format human\|json` | Structured log format (default: `human`) |
-| `--log-dir <PATH>` | Optional rotating log directory |
-| `--correlation-id <ID>` | Tie every log line of this invocation together (8–64 chars of `[A-Za-z0-9_-]`); defaults to `$STARFORGE_CORRELATION_ID` or a generated value — see [CORRELATION_IDS.md](CORRELATION_IDS.md) |
-| `-h, --help` | Command help |
-| `-V, --version` | CLI version |
+| Flag                       | Description                                                                                                                                                                                 |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-q, --quiet`              | Suppress banner and decorative output                                                                                                                                                       |
+| `--log-format human\|json` | Structured log format (default: `human`)                                                                                                                                                    |
+| `--log-dir <PATH>`         | Optional rotating log directory                                                                                                                                                             |
+| `--correlation-id <ID>`    | Tie every log line of this invocation together (8–64 chars of `[A-Za-z0-9_-]`); defaults to `$STARFORGE_CORRELATION_ID` or a generated value — see [CORRELATION_IDS.md](CORRELATION_IDS.md) |
+| `-h, --help`               | Command help                                                                                                                                                                                |
+| `-V, --version`            | CLI version                                                                                                                                                                                 |
 
 ## Quick workflow examples
 
 ```bash norun
 # Environment check
-starforge info
+starforge config info
 
 # Wallet + network
 starforge wallet create deployer --fund
@@ -25,31 +32,31 @@ starforge network show
 
 # Templates + deploy
 starforge template list
-starforge deploy --wasm ./contract.wasm --wallet deployer --simulate
+starforge deploy run --wasm ./contract.wasm --wallet deployer --simulate
 
 # Guided tutorial
-starforge tutorial start hello-world
-starforge tutorial next
+starforge tool tutorial start hello-world
+starforge tool tutorial next
 ```
 
 ---
 
 ## `wallet`
 
-| Subcommand | Purpose |
-|------------|---------|
-| `create <NAME>` | Create and store a keypair (`--fund`, `--encrypt`, `--mnemonic`) |
-| `list` | List saved wallets |
-| `show <NAME>` | Show wallet metadata and balance (`--reveal`) |
-| `fund <NAME>` | Fund via Friendbot when configured |
-| `remove <NAME>` | Delete a saved wallet |
-| `rename <OLD> <NEW>` | Rename a wallet entry |
-| `merge` | Account merge (`--from`, `--to`, `--yes`) |
-| `rotate <NAME>` | Rotate keys in place (`--fund`, `--encrypt`, `--mem`, `--iterations`) |
-| `export <NAME> --output <FILE>` | Export backup JSON |
-| `import` | Import from file or `--mnemonic` |
-| `sign` | Sign a payload with a saved wallet |
-| `multisig` | Multisig helpers (create, add-signer, submit) |
+| Subcommand                      | Purpose                                                               |
+| ------------------------------- | --------------------------------------------------------------------- |
+| `create <NAME>`                 | Create and store a keypair (`--fund`, `--encrypt`, `--mnemonic`)      |
+| `list`                          | List saved wallets                                                    |
+| `show <NAME>`                   | Show wallet metadata and balance (`--reveal`)                         |
+| `fund <NAME>`                   | Fund via Friendbot when configured                                    |
+| `remove <NAME>`                 | Delete a saved wallet                                                 |
+| `rename <OLD> <NEW>`            | Rename a wallet entry                                                 |
+| `merge`                         | Account merge (`--from`, `--to`, `--yes`)                             |
+| `rotate <NAME>`                 | Rotate keys in place (`--fund`, `--encrypt`, `--mem`, `--iterations`) |
+| `export <NAME> --output <FILE>` | Export backup JSON                                                    |
+| `import`                        | Import from file or `--mnemonic`                                      |
+| `sign`                          | Sign a payload with a saved wallet                                    |
+| `multisig`                      | Multisig helpers (create, add-signer, submit)                         |
 
 `import --file` accepts a plaintext backup JSON or an encrypted bundle, detected
 automatically. See [WALLET_IMPORT_SECURITY.md](WALLET_IMPORT_SECURITY.md) for the
@@ -57,51 +64,72 @@ limits enforced on untrusted backup files.
 
 ---
 
-## `multisig`
+## `wallet multisig`
 
-| Subcommand | Purpose |
-|------------|---------|
-| `wizard` | Interactive transaction proposal builder |
-| `create` | Create a proposal with threshold, signers, metadata, and optional transaction XDR |
-| `status <FILE>` | Show visual signature collection progress |
-| `verify <FILE>` | Validate signatures, duplicates, pending signers, and threshold readiness |
-| `notify <FILE>` | Queue signature request notifications for pending signers |
-| `export <FILE>` / `import <FILE>` | Share proposal JSON between signers |
-| `templates` / `from-template` | Use common scenarios like escrow, company treasury, DAO, vault, and payment |
+| Subcommand                        | Purpose                                                                           |
+| --------------------------------- | --------------------------------------------------------------------------------- |
+| `wizard`                          | Interactive transaction proposal builder                                          |
+| `create`                          | Create a proposal with threshold, signers, metadata, and optional transaction XDR |
+| `status <FILE>`                   | Show visual signature collection progress                                         |
+| `verify <FILE>`                   | Validate signatures, duplicates, pending signers, and threshold readiness         |
+| `notify <FILE>`                   | Queue signature request notifications for pending signers                         |
+| `export <FILE>` / `import <FILE>` | Share proposal JSON between signers                                               |
+| `templates` / `from-template`     | Use common scenarios like escrow, company treasury, DAO, vault, and payment       |
 
 ```bash norun
-starforge multisig wizard
-starforge multisig create --threshold 2 --signers alice,bob,carol \
+starforge wallet multisig wizard
+starforge wallet multisig create --threshold 2 --signers alice,bob,carol \
   --title "Treasury payment" --transaction-xdr <XDR>
-starforge multisig status proposal.json
-starforge multisig verify proposal.json
-starforge multisig notify proposal.json --message "Please sign the treasury payment"
+starforge wallet multisig status proposal.json
+starforge wallet multisig verify proposal.json
+starforge wallet multisig notify proposal.json --message "Please sign the treasury payment"
 ```
 
 ---
 
-## `new`
+## `project new`
 
-| Subcommand | Purpose |
-|------------|---------|
+| Subcommand        | Purpose                                  |
+| ----------------- | ---------------------------------------- |
 | `contract <NAME>` | Scaffold Soroban contract (`--template`) |
-| `dapp <NAME>` | Scaffold Stellar dApp frontend |
+| `dapp <NAME>`     | Scaffold Stellar dApp frontend           |
 
 ---
 
-## `contract` / `inspect` / `deploy`
+## `contract` / `deploy`
 
-| Command | Purpose |
-|---------|---------|
-| `contract invoke` | Invoke contract function (`--simulate`) |
-| `contract invoke-script` | Run an ordered YAML or JSON invocation script (`--dry-run`) |
-| `contract build` | Build a Soroban contract with build provenance metadata |
-| `contract inspect` | Inspect deployed contract or local WASM metadata |
-| `contract generate-bindings <WASM_FILE>` | Generate Rust or TypeScript wrappers (`--lang rust\|ts`) |
-| `inspect storage` | Deep storage inspection |
-| `deploy --wasm <FILE>` | Prepare Soroban deployment |
+| Command                                  | Purpose                                                                |
+| ---------------------------------------- | ---------------------------------------------------------------------- |
+| `contract invoke`                        | Invoke contract function (`--submit`, `--auto-restore`, `--json`)      |
+| `contract invoke-script`                 | Run an ordered YAML or JSON invocation script (`--dry-run`)            |
+| `contract ttl show`                      | List instance/code/persistent TTL (live-until + ETA; `--warn-below`)   |
+| `contract ttl extend`                    | Build/submit `ExtendFootprintTTL` (`--ledgers N`, cost estimate first) |
+| `contract build`                         | Build a Soroban contract with build provenance metadata                |
+| `contract inspect`                       | Inspect deployed contract or local WASM metadata                       |
+| `contract generate-bindings <WASM_FILE>` | Generate Rust or TypeScript wrappers (`--lang rust\|ts`)               |
+| `inspect storage`                        | Deep storage inspection                                                |
+| `deploy run --wasm <FILE>`               | Prepare or execute a Soroban deployment                                |
+| `deploy checklist --wasm <FILE>`         | Report pre-mainnet deployment checks (human-readable or `--json`)      |
 
-**`deploy` flags:** `--network`, `--wallet`, `--optimize`, `--simulate`, `--yes`, `--execute`, `--policy`, `--checklist`
+**Invoke restore:** when simulation returns a `restorePreamble`, StarForge can
+prompt (or `--auto-restore`) to submit a `RestoreFootprintOp`, then re-simulate.
+`--json` reports `"restored": true` when a restore ran. See
+[guides/INVOKE.md](guides/INVOKE.md).
+
+**TTL monitoring:** `contract ttl show --warn-below N` exits non-zero when any
+entry has fewer than `N` ledgers remaining — suitable for cron/alert jobs.
+
+**`deploy run` flags:** `--network`, `--wallet`, `--optimize`, `--simulate`, `--yes`, `--execute`, `--policy`, `--checklist`, `--skip-smoke`, `--override-checklist`
+
+`deploy checklist` evaluates reproducible WASM hash, Soroban simulation,
+deployer balance, signer setup, and Horizon network identity. Required failures
+block executed mainnet deployments unless `--override-checklist` is supplied.
+See [DEPLOY_CHECKLIST.md](DEPLOY_CHECKLIST.md) for project customization.
+
+After a successful `--execute`, `deploy` runs the `[[smoke_tests]]` declared in
+`starforge-project.toml` against the new contract. A smoke failure exits with
+code **9** (`SMOKE_TEST_FAILURE`), which is distinct from a failed deploy.
+`--skip-smoke` opts out. See [SMOKE_TESTS.md](SMOKE_TESTS.md).
 
 Deploy policy files (`starforge-deploy-policy.toml`) gate allowed networks,
 required reviewers, and checklist items. Validate in CI with
@@ -116,19 +144,19 @@ footprint alongside the minimum resource fee and a recommended fee that
 includes a safety margin. See [SIMULATION_RESOURCES.md](SIMULATION_RESOURCES.md).
 
 ```bash norun
-starforge deploy --wasm target/wasm32v1-none/release/token.wasm \
+starforge deploy run --wasm target/wasm32v1-none/release/token.wasm \
   --wallet deployer --network testnet --simulate
 
-starforge deploy --wasm ./token.wasm --optimize --yes --execute
+starforge deploy run --wasm ./token.wasm --optimize --yes --execute
 
 starforge contract generate-bindings ./token.wasm --lang rust
 ```
 
 ## `deploy-policy`
 
-| Subcommand | Purpose |
-|------------|---------|
-| `init [FILE]` | Write a documented default policy (TOML or YAML) |
+| Subcommand              | Purpose                                                          |
+| ----------------------- | ---------------------------------------------------------------- |
+| `init [FILE]`           | Write a documented default policy (TOML or YAML)                 |
 | `check --config <FILE>` | Validate policy schema and simulate deploy context (CI-friendly) |
 
 See [DEPLOY_POLICY.md](DEPLOY_POLICY.md).
@@ -172,38 +200,38 @@ starforge contract invoke-script ./ops.yaml --network testnet
 
 ---
 
-## `test`
+## `contract test`
 
-| Flag | Purpose |
-|------|---------|
-| `--wasm <FILE>` | Compiled Soroban WASM under test |
-| `--fixture <FILE>` | JSON/TOML contract test suite with fixtures, mocks, and assertions |
-| `--source <FILE>` | Contract source used for generated tests or coverage |
-| `--coverage` | Include source coverage summary |
-| `--coverage-out <FILE>` | Write a dedicated coverage report |
-| `--coverage-format html\|json\|markdown\|text` | Format for `--coverage-out` |
-| `--coverage-goal <PCT>` | Minimum overall coverage percentage |
-| `--function-coverage-goal <PCT>` | Minimum function coverage percentage |
-| `--line-coverage-goal <PCT>` | Minimum line coverage percentage |
-| `--branch-coverage-goal <PCT>` | Minimum branch coverage percentage |
-| `--coverage-ci` | Fail when configured coverage goals are missed |
-| `--coverage-ci-workflow-out <FILE>` | Generate a GitHub Actions coverage workflow |
-| `--report html\|json\|junit` | Write a test report (`junit` is available for fixture suites) |
-| `--testnet` | Validate Soroban testnet integration for the run |
-| `--testnet-dry-run` | Validate testnet configuration without probing RPC health |
+| Flag                                           | Purpose                                                            |
+| ---------------------------------------------- | ------------------------------------------------------------------ |
+| `--wasm <FILE>`                                | Compiled Soroban WASM under test                                   |
+| `--fixture <FILE>`                             | JSON/TOML contract test suite with fixtures, mocks, and assertions |
+| `--source <FILE>`                              | Contract source used for generated tests or coverage               |
+| `--coverage`                                   | Include source coverage summary                                    |
+| `--coverage-out <FILE>`                        | Write a dedicated coverage report                                  |
+| `--coverage-format html\|json\|markdown\|text` | Format for `--coverage-out`                                        |
+| `--coverage-goal <PCT>`                        | Minimum overall coverage percentage                                |
+| `--function-coverage-goal <PCT>`               | Minimum function coverage percentage                               |
+| `--line-coverage-goal <PCT>`                   | Minimum line coverage percentage                                   |
+| `--branch-coverage-goal <PCT>`                 | Minimum branch coverage percentage                                 |
+| `--coverage-ci`                                | Fail when configured coverage goals are missed                     |
+| `--coverage-ci-workflow-out <FILE>`            | Generate a GitHub Actions coverage workflow                        |
+| `--report html\|json\|junit`                   | Write a test report (`junit` is available for fixture suites)      |
+| `--testnet`                                    | Validate Soroban testnet integration for the run                   |
+| `--testnet-dry-run`                            | Validate testnet configuration without probing RPC health          |
 
 ```bash norun
-starforge test --wasm ./target/contract.wasm \
+starforge contract test --wasm ./target/contract.wasm \
   --fixture ./contract-tests.json --coverage --source ./src/lib.rs --report html
 
-starforge test --wasm ./target/contract.wasm --source ./src/lib.rs \
+starforge contract test --wasm ./target/contract.wasm --source ./src/lib.rs \
   --coverage --coverage-out coverage.html --coverage-format html \
   --coverage-ci --coverage-goal 85 --branch-coverage-goal 70
 
-starforge test --wasm ./target/contract.wasm --source ./src/lib.rs \
+starforge contract test --wasm ./target/contract.wasm --source ./src/lib.rs \
   --coverage-ci-workflow-out .github/workflows/starforge-coverage.yml
 
-starforge test --wasm ./target/contract.wasm \
+starforge contract test --wasm ./target/contract.wasm \
   --fixture ./contract-tests.toml --testnet --testnet-dry-run
 ```
 
@@ -212,25 +240,170 @@ Coverage analysis tracks Soroban contract functions, line spans, branch paths, u
 
 ---
 
-## `network` / `node`
+## `network`
 
-| Command | Purpose |
-|---------|---------|
-| `network show` | Show configured networks |
-| `network switch <NAME>` | Set active network |
-| `network add` | Add custom Horizon/RPC/Friendbot endpoints |
-| `network test` | Connectivity probe |
-| `node start` | Start local quickstart devnet (`--port`) |
+| Command                 | Purpose                                    |
+| ----------------------- | ------------------------------------------ |
+| `network show`          | Show configured networks                   |
+| `network switch <NAME>` | Set active network                         |
+| `network add`           | Add custom Horizon/RPC/Friendbot endpoints |
+| `network test`          | Connectivity probe                         |
+| `network node start`    | Start local quickstart devnet (`--port`)   |
 
 ---
 
-## `tx`
+## `wallet tx`
 
-| Subcommand | Purpose |
-|------------|---------|
-| `tx send` | Payment (`--from`, `--to`, `--amount`, `--asset`) |
-| `tx batch` | Batch operations from JSON (`--file`, `--from`) |
-| `tx history <PUBKEY>` | Recent transactions (`--limit`, `--cursor`, `--successful`) |
+| Subcommand            | Purpose                                                          |
+| --------------------- | ---------------------------------------------------------------- |
+| `tx send`             | Payment (`--from`, `--to`, `--amount`, `--asset`, `--fee-payer`) |
+| `tx batch`            | Batch operations from JSON (`--file`, `--from`)                  |
+| `tx history <PUBKEY>` | Recent transactions (`--limit`, `--cursor`, `--successful`)      |
+
+---
+
+## `account` — sponsored reserves (CAP-33)
+
+Stellar accounts must hold a base reserve before they can exist. CAP-33 lets
+one account sponsor another's reserve, which is what makes **gasless onboarding**
+possible: a brand-new user can receive and use an account without ever holding
+XLM.
+
+| Subcommand                | Purpose                                                                                                                                             |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `account create`          | Create an account with a sponsor paying its reserve (`--sponsor`, `--to`, `--starting-balance`, `--fee-payer`, `--no-fee-payer`, `--yes`, `--json`) |
+| `account end-sponsorship` | Release the sponsor's reserve (`--wallet`, `--fee-payer`, `--yes`, `--json`)                                                                        |
+
+`--fee-payer` is a CAP-15 fee bump: a third wallet signs the outer envelope and
+pays the network fee, so even the _sponsoring_ transaction can be submitted
+without the sponsor spending anything.
+
+It is opt-in. Without it, the transaction is submitted unwrapped and the signer
+pays the fee directly, which is cheaper — a bump always charges at least twice
+the base fee. Passing the signer's own name is rejected rather than silently
+doubling the cost.
+
+### Gasless onboarding recipe
+
+Three parties, and the new user spends nothing at any step.
+
+**1. The sponsor funds its own account once.** It needs enough XLM to cover the
+reserve it is fronting plus transaction fees.
+
+```bash
+starforge wallet create sponsor --fund
+```
+
+**2. The new user generates a key locally and shares only the public key.**
+No funds are required to generate a key.
+
+```bash
+starforge wallet create alice
+starforge wallet show alice          # copy the G... address
+```
+
+**3. The sponsor creates the account and pays the reserve.** The user's address
+is passed with `--to`, the sponsor's wallet with `--sponsor`. Without a third
+wallet, the sponsor also pays the network fee:
+
+```bash
+starforge account create \
+  --sponsor sponsor \
+  --to <ALICE_G...> \
+  --starting-balance 5000000 \
+  --network testnet \
+  --yes
+```
+
+Before confirming, StarForge prints exactly who pays what:
+
+```
+Sponsor                    GSPONSOR...
+New account                GALICE...
+Base reserve (sponsored)   5000000 (0.5000000 XLM)
+Paid by new account        0 (0.0000000 XLM)
+Network fee (sponsor)      200 (0.0000200 XLM)
+Sponsor total outlay       10000200 (1.0000200 XLM)
+```
+
+Add `--fee-payer <WALLET>` only when a _different_, fee-only wallet should
+cover the network fee, so the sponsor pays just the reserve and the funded
+amount:
+
+```bash
+starforge account create \
+  --sponsor sponsor \
+  --to <ALICE_G...> \
+  --starting-balance 5000000 \
+  --network testnet \
+  --fee-payer fees \
+  --yes
+```
+
+The preview then shows both layers explicitly:
+
+```
+Who Pays What
+  Inner source            GSponsor...   (signs the reserve)
+  Fee payer               GFees...      (signs the fee bump)
+  Inner fee (not charged) 200 (0.0000200 XLM)
+  Bump fee (total)        400 (0.0000400 XLM)
+  Paid by inner source    0 (0.0000000 XLM)
+```
+
+The inner transaction's own fee is not charged at all: the fee bump covers it,
+so only the fee payer's amount is actually debited.
+
+**4. The new user transacts without ever holding XLM.** A fee wallet covers the
+fee bump, so the account only ever needs its sponsored reserve.
+
+```bash
+starforge tx send \
+  --from alice \
+  --to <RECIPIENT_G...> \
+  --amount 10 \
+  --fee-payer fees \
+  --network testnet \
+  --yes
+```
+
+**5. End the sponsorship once the account can sustain its own reserve.** The
+sponsor's reserve is returned; from then on the account pays its own base
+reserve. This step is signed by the _sponsored_ account.
+
+```bash
+starforge account end-sponsorship --wallet alice --network testnet --yes
+```
+
+### How it works
+
+`account create` builds a single transaction containing two operations:
+
+1. `BeginSponsoringFutureReserves` — the sponsor opens the sponsorship.
+2. `CreateAccount` — the new account is created with `startingBalance` funded
+   and its base reserve sponsored.
+
+Both operations are committed atomically, so the account never exists in an
+unsponsored state. The sponsor signs the transaction; the new account does not
+sign, because it does not exist yet and therefore has no key in a wallet to
+sign with.
+
+Ending the sponsorship is a separate, single-operation
+`EndSponsoringFutureReserves` transaction sourced and signed by the sponsored
+account, which by then exists and can sign for itself.
+
+### Notes and limits
+
+- The fee payer must be a **local wallet**: a fee bump requires the fee
+  source's signature, so a bare `G...` address cannot authorise one.
+- `--starting-balance` is the amount sent _to_ the new account and is separate
+  from the sponsored reserve. Pass `0` for an account that will be funded later.
+- Sponsoring is unlimited in count but the sponsor must stay funded: each open
+  sponsorship locks one base reserve against the sponsor's minimum balance.
+- Always end sponsorships you no longer need, or the sponsor's balance stays
+  reduced.
+- `--json` emits a stable machine-readable payload on both subcommands for
+  scripted onboarding flows.
 
 ---
 
@@ -241,54 +414,66 @@ challenge/response handshake with a saved wallet, and prints the JWT the anchor
 issues. See [SEP10_AUTH.md](SEP10_AUTH.md) for the full walkthrough, the validation
 rules, and the JSON output.
 
-| Subcommand | Purpose |
-|------------|---------|
-| `sep10 auth --domain <DOMAIN> --wallet <NAME>` | Authenticate and print the JWT (`--network`, `--toml-url`, `--json`, `--verbose`, `--output`) |
+| Subcommand                                      | Purpose                                                                                       |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `wallet auth --domain <DOMAIN> --wallet <NAME>` | Authenticate and print the JWT (`--network`, `--toml-url`, `--json`, `--verbose`, `--output`) |
 
 ---
 
 ## `template`
 
-| Subcommand | Purpose |
-|------------|---------|
-| `template list` | List marketplace templates |
-| `template search <QUERY>` | Search templates |
-| `template show <ID>` | Template details |
-| `template init <ID> <DIR>` | Scaffold from template |
-| `template publish` | Publish template metadata |
-| `template remove <ID>` | Remove local template entry |
+| Subcommand                 | Purpose                     |
+| -------------------------- | --------------------------- |
+| `template list`            | List marketplace templates  |
+| `template search <QUERY>`  | Search templates            |
+| `template show <ID>`       | Template details            |
+| `template init <ID> <DIR>` | Scaffold from template      |
+| `template publish`         | Publish template metadata   |
+| `template remove <ID>`     | Remove local template entry |
 
 When downloading template archives from a remote registry, the CLI automatically verifies the SHA-256 checksum if provided by the registry prior to extraction. Archives from registries that omit a checksum field are accepted without verification.
 
 ---
 
-## `gas`
+## `template-vcs`
 
-| Subcommand | Purpose |
-|------------|---------|
-| `gas analyze <WASM>` | Heuristic gas/cpu report (`--network`) |
-| `gas optimize --target <IN> --output <OUT>` | Lightweight WASM shrink pass |
-| `gas diff <OLD> <NEW>` | Compare estimated costs |
+| Subcommand                                      | Purpose                                                                                                                             |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `template-vcs upgrade <PROJECT> --to <VERSION>` | Print a read-only upgrade checklist from the project's `.starforge-template.json` version (`--patch-hints` adds manual suggestions) |
+| `template-vcs migrate <PATH> <FROM> <TO>`       | Generate an AI migration guide between recorded template versions                                                                   |
+
+The upgrade command never changes project files. Projects without
+`.starforge-template.json` are reported as having an unknown source version.
 
 ---
 
-## `simulate` / `cost` — resource fees
+## `gas`
 
-| Command | Purpose |
-|---------|---------|
-| `simulate resources --file <JSON>` | Report CPU, memory, footprint, and minimum resource fee from a saved `simulateTransaction` response |
-| `simulate resources --contract <ID> --function <NAME>` | The same, simulated live against Soroban RPC |
-| `cost resources --file <JSON>` | Price a simulation and check it against configured budgets (`--enforce` to gate CI) |
-| `cost forecast-batch <MANIFEST>` | Forecast aggregate fees for a batch of planned invokes before submission (per-item estimates + totals, high-variance calls highlighted) |
+| Subcommand                                  | Purpose                                |
+| ------------------------------------------- | -------------------------------------- |
+| `gas analyze <WASM>`                        | Heuristic gas/cpu report (`--network`) |
+| `gas optimize --target <IN> --output <OUT>` | Lightweight WASM shrink pass           |
+| `gas diff <OLD> <NEW>`                      | Compare estimated costs                |
+
+---
+
+## `network simulate` / `deploy cost` — resource fees
+
+| Command                                                | Purpose                                                                                                                                 |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `simulate resources --file <JSON>`                     | Report CPU, memory, footprint, and minimum resource fee from a saved `simulateTransaction` response                                     |
+| `simulate resources --contract <ID> --function <NAME>` | The same, simulated live against Soroban RPC                                                                                            |
+| `cost resources --file <JSON>`                         | Price a simulation and check it against configured budgets (`--enforce` to gate CI)                                                     |
+| `cost forecast-batch <MANIFEST>`                       | Forecast aggregate fees for a batch of planned invokes before submission (per-item estimates + totals, high-variance calls highlighted) |
 
 Shared flags: `--margin <PERCENT>` (default `20`), `--inclusion-fee <STROOPS>`
 (default `100`). `simulate resources` also takes `--json`.
 
 ```bash norun
-starforge simulate resources --file simulation.json --json
-starforge simulate resources --contract CCPYZ... --function balance --network testnet
-starforge cost resources --file simulation.json --network mainnet --enforce
-starforge cost forecast-batch batch-invoke-manifest.json --network testnet --enforce
+starforge network simulate resources --file simulation.json --json
+starforge network simulate resources --contract CCPYZ... --function balance --network testnet
+starforge deploy cost resources --file simulation.json --network mainnet --enforce
+starforge deploy cost forecast-batch batch-invoke-manifest.json --network testnet --enforce
 ```
 
 Full reference: [SIMULATION_RESOURCES.md](SIMULATION_RESOURCES.md) and
@@ -296,23 +481,23 @@ Full reference: [SIMULATION_RESOURCES.md](SIMULATION_RESOURCES.md) and
 
 ---
 
-## `advanced-perf`
+## `contract profile`
 
-| Subcommand | Purpose |
-|------------|---------|
-| `advanced-perf profile <WASM>` | Profile a compiled Soroban contract artifact |
-| `advanced-perf profile <WASM> --baseline <JSON>` | Detect gas, execution-time, or memory regressions against a saved profile |
-| `advanced-perf profile <WASM> --dashboard <HTML>` | Generate a local performance dashboard |
-| `advanced-perf analyze <CONTRACT>` | Analyze recorded runtime metrics for bottlenecks |
-| `advanced-perf detect-regression <CONTRACT>` | Detect regressions from recorded metric history |
-| `advanced-perf compare <CONTRACT>` | Compare recorded profiles across time windows |
-| `advanced-perf generate-dashboard <CONTRACT>` | Show the recorded-metrics performance dashboard |
+| Subcommand                                        | Purpose                                                                   |
+| ------------------------------------------------- | ------------------------------------------------------------------------- |
+| `advanced-perf profile <WASM>`                    | Profile a compiled Soroban contract artifact                              |
+| `advanced-perf profile <WASM> --baseline <JSON>`  | Detect gas, execution-time, or memory regressions against a saved profile |
+| `advanced-perf profile <WASM> --dashboard <HTML>` | Generate a local performance dashboard                                    |
+| `advanced-perf analyze <CONTRACT>`                | Analyze recorded runtime metrics for bottlenecks                          |
+| `advanced-perf detect-regression <CONTRACT>`      | Detect regressions from recorded metric history                           |
+| `advanced-perf compare <CONTRACT>`                | Compare recorded profiles across time windows                             |
+| `advanced-perf generate-dashboard <CONTRACT>`     | Show the recorded-metrics performance dashboard                           |
 
 ```bash norun
-starforge advanced-perf profile ./target/wasm32-unknown-unknown/release/token.wasm \
+starforge contract profile profile ./target/wasm32-unknown-unknown/release/token.wasm \
   --label token --dashboard ./target/token-profile.html
 
-starforge advanced-perf profile ./target/wasm32-unknown-unknown/release/token.wasm \
+starforge contract profile profile ./target/wasm32-unknown-unknown/release/token.wasm \
   --baseline ~/.starforge/contract_profiles/profile-abc123def456.json \
   --output ./target/token-profile.json
 ```
@@ -322,40 +507,40 @@ baseline regression detection, comparison deltas, and a dashboard summary.
 
 ### `perf regression` — regression testing against tracked baselines
 
-| Subcommand | Purpose |
-|------------|---------|
-| `perf regression baseline --name <NAME> --input <JSON>` | Record or update a baseline; each version is appended to `<name>.history.jsonl` |
-| `perf regression baseline --run "<CMD>" --label <L>` | Time a command (`--iterations`, `--warmup`) and record `<L>.wall_time_ms` |
-| `perf regression check --baseline <NAME> --input <JSON>` | Compare measurements with a baseline; exits non-zero on regressions |
-| `perf regression history --name <NAME>` | Show how each metric's mean evolved across baseline versions |
-| `perf regression list` | List stored baselines |
+| Subcommand                                               | Purpose                                                                         |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `perf regression baseline --name <NAME> --input <JSON>`  | Record or update a baseline; each version is appended to `<name>.history.jsonl` |
+| `perf regression baseline --run "<CMD>" --label <L>`     | Time a command (`--iterations`, `--warmup`) and record `<L>.wall_time_ms`       |
+| `perf regression check --baseline <NAME> --input <JSON>` | Compare measurements with a baseline; exits non-zero on regressions             |
+| `perf regression history --name <NAME>`                  | Show how each metric's mean evolved across baseline versions                    |
+| `perf regression list`                                   | List stored baselines                                                           |
 
 See [PERF_REGRESSION_TESTING.md](PERF_REGRESSION_TESTING.md) for the measurement
 format, thresholds, noise handling, and CI integration.
 
 ---
 
-## `docs`
+## `contract docs`
 
 AI-assisted documentation generation for Soroban contracts (issue #499).
 
-| Subcommand | Purpose |
-|------------|---------|
-| `docs generate <CONTRACT> --source <FILE.rs>` | Generate comprehensive Markdown docs from rustdoc + AI enrichment |
-| `docs generate <CONTRACT> --source <FILE.rs> --lang rust,ts,python,go` | Multi-language usage examples |
-| `docs generate <CONTRACT> --source <FILE.rs> --output docs.md --rustdoc-out stubs.rs` | Write Markdown + rustdoc stubs |
-| `docs extract <PATH> [--format json\|markdown]` | Extract rustdoc comments |
-| `docs show / list / search / versions / export` | Browse the local docs store (`~/.starforge/docs`) |
-| `docs html / api-ref / publish` | HTML site, API reference, and publish helpers |
+| Subcommand                                                                            | Purpose                                                           |
+| ------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `docs generate <CONTRACT> --source <FILE.rs>`                                         | Generate comprehensive Markdown docs from rustdoc + AI enrichment |
+| `docs generate <CONTRACT> --source <FILE.rs> --lang rust,ts,python,go`                | Multi-language usage examples                                     |
+| `docs generate <CONTRACT> --source <FILE.rs> --output docs.md --rustdoc-out stubs.rs` | Write Markdown + rustdoc stubs                                    |
+| `docs extract <PATH> [--format json\|markdown]`                                       | Extract rustdoc comments                                          |
+| `docs show / list / search / versions / export`                                       | Browse the local docs store (`~/.starforge/docs`)                 |
+| `docs html / api-ref / publish`                                                       | HTML site, API reference, and publish helpers                     |
 
 ```bash norun
-starforge docs generate counter --name Counter \
+starforge contract docs generate counter --name Counter \
   --source ./contracts/counter/src/lib.rs \
   --lang rust,ts,python \
   --output ./docs/counter.md
 
-starforge docs export counter
-starforge docs show counter
+starforge contract docs export counter
+starforge contract docs show counter
 ```
 
 With `--source`, StarForge extracts `///` / `//!` rustdoc comments, documents functions and types,
@@ -364,20 +549,20 @@ Set `STARFORGE_AI_API_KEY` (optional `STARFORGE_AI_BASE_URL`, `STARFORGE_AI_MODE
 
 ---
 
-## `security`
+## `contract security`
 
-| Subcommand | Purpose |
-|------------|---------|
-| `audit <PATH>` | Run built-in Soroban analysis plus optional Slither/Mythril integrations |
-| `audit --format json\|html --out <FILE>` | Generate machine-readable or HTML audit reports |
-| `audit --ci --min-score <N>` | Fail when the audit score is below the CI threshold |
-| `audit --ci-workflow-out <FILE>` | Generate a GitHub Actions workflow for security audits |
-| `audit --track` | Create remediation tracker items for findings |
-| `remediation list` | Review tracked audit and pentest remediation items |
-| `best-practices analyze [PATH]` | Score a contract or project against the best-practices library (`--format text\|markdown\|json\|sarif`, `--fail-on`, `--min-score`, `--track`) |
-| `best-practices rules` | List rules with severities and OWASP/CWE references |
-| `best-practices status` | Show tracked findings, remediation status, and score trend |
-| `best-practices accept <ID> --reason <TEXT>` / `reopen <ID>` | Record accepted risk or reopen a finding |
+| Subcommand                                                   | Purpose                                                                                                                                        |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `audit <PATH>`                                               | Run built-in Soroban analysis plus optional Slither/Mythril integrations                                                                       |
+| `audit --format json\|html --out <FILE>`                     | Generate machine-readable or HTML audit reports                                                                                                |
+| `audit --ci --min-score <N>`                                 | Fail when the audit score is below the CI threshold                                                                                            |
+| `audit --ci-workflow-out <FILE>`                             | Generate a GitHub Actions workflow for security audits                                                                                         |
+| `audit --track`                                              | Create remediation tracker items for findings                                                                                                  |
+| `remediation list`                                           | Review tracked audit and pentest remediation items                                                                                             |
+| `best-practices analyze [PATH]`                              | Score a contract or project against the best-practices library (`--format text\|markdown\|json\|sarif`, `--fail-on`, `--min-score`, `--track`) |
+| `best-practices rules`                                       | List rules with severities and OWASP/CWE references                                                                                            |
+| `best-practices status`                                      | Show tracked findings, remediation status, and score trend                                                                                     |
+| `best-practices accept <ID> --reason <TEXT>` / `reopen <ID>` | Record accepted risk or reopen a finding                                                                                                       |
 
 See [security/BEST_PRACTICES_ANALYZER.md](security/BEST_PRACTICES_ANALYZER.md).
 
@@ -392,25 +577,25 @@ External tools are optional. StarForge runs built-in Soroban heuristics every ti
 
 ---
 
-## `upgrade`
+## `contract upgrade`
 
-| Subcommand | Purpose |
-|------------|---------|
-| `upgrade prepare` | Validate upgrade WASM (`--contract-id`, `--wasm`) |
-| `upgrade auto compat` | Compare old/new WASM ABI and storage layout (`--old-wasm`, `--new-wasm`) |
-| `upgrade auto diff` | Diff two contract interfaces and classify breaking vs non-breaking (`--old-wasm`, `--new-wasm`, `--format json\|markdown`, `--acknowledge`) |
-| `upgrade auto plan` | Generate compatibility-aware upgrade plan and migration template |
-| `upgrade propose` | Create governance proposal |
-| `upgrade list` / `status` | List pending proposals |
-| `upgrade approve` | Approve proposal |
-| `upgrade execute` | Execute approved upgrade |
-| `upgrade rollback` | Roll back contract version |
-| `upgrade history` | Show upgrade history |
+| Subcommand                | Purpose                                                                                                                                     |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `upgrade prepare`         | Validate upgrade WASM (`--contract-id`, `--wasm`)                                                                                           |
+| `upgrade auto compat`     | Compare old/new WASM ABI and storage layout (`--old-wasm`, `--new-wasm`)                                                                    |
+| `upgrade auto diff`       | Diff two contract interfaces and classify breaking vs non-breaking (`--old-wasm`, `--new-wasm`, `--format json\|markdown`, `--acknowledge`) |
+| `upgrade auto plan`       | Generate compatibility-aware upgrade plan and migration template                                                                            |
+| `upgrade propose`         | Create governance proposal                                                                                                                  |
+| `upgrade list` / `status` | List pending proposals                                                                                                                      |
+| `upgrade approve`         | Approve proposal                                                                                                                            |
+| `upgrade execute`         | Execute approved upgrade                                                                                                                    |
+| `upgrade rollback`        | Roll back contract version                                                                                                                  |
+| `upgrade history`         | Show upgrade history                                                                                                                        |
 
 ### Contract interface diff (`upgrade auto diff`)
 
-`starforge upgrade auto diff --old-wasm <old.wasm> --new-wasm <new.wasm>` diffs the *public
-contract interface* (exported ABI functions, public types, and auth surface) between two
+`starforge contract upgrade auto diff --old-wasm <old.wasm> --new-wasm <new.wasm>` diffs the _public
+contract interface_ (exported ABI functions, public types, and auth surface) between two
 WASM builds and classifies every change as **breaking** or **non-breaking**.
 
 - Output formats: `--format json` (default, machine-readable for CI/governance tooling) or
@@ -423,12 +608,12 @@ WASM builds and classifies every change as **breaking** or **non-breaking**.
 
 Exit codes for the interface diff tool:
 
-| Code | Name | Meaning |
-|------|------|---------|
-| 0 | SUCCESS | Diff produced; no breaking changes (or `--acknowledge` used) |
-| 2 | USAGE_ERROR | Bad input arguments (e.g. missing `--old-wasm`/`--new-wasm`) |
-| 8 | BREAKING_INTERFACE_CHANGE | Breaking interface change detected and not acknowledged |
-| Others | — | Standard classification (see `src/utils/exit_codes.rs`) |
+| Code   | Name                      | Meaning                                                      |
+| ------ | ------------------------- | ------------------------------------------------------------ |
+| 0      | SUCCESS                   | Diff produced; no breaking changes (or `--acknowledge` used) |
+| 2      | USAGE_ERROR               | Bad input arguments (e.g. missing `--old-wasm`/`--new-wasm`) |
+| 8      | BREAKING_INTERFACE_CHANGE | Breaking interface change detected and not acknowledged      |
+| Others | —                         | Standard classification (see `src/utils/exit_codes.rs`)      |
 
 The tool integrates with the upgrade proposal generator: `upgrade auto plan` reuses the same
 compatibility engine, and the markdown report produced here can be attached to
@@ -436,68 +621,70 @@ compatibility engine, and the markdown report produced here can be attached to
 
 ---
 
-## `governance`
+## `contract governance`
 
 Contract upgrade governance with voting, timelock, audit trail, and emergency upgrades.
 
-| Subcommand | Purpose |
-|------------|---------|
-| `governance propose` | Create upgrade proposal (`--contract-id`, `--wasm`, `--threshold`, `--timelock`) |
-| `governance list` | List proposals with optional filters |
-| `governance show` | Show proposal details and votes |
-| `governance vote` | Cast vote (`--for` or `--against`) |
-| `governance reject` | Reject a proposal |
-| `governance execute` | Execute after timelock and threshold met |
-| `governance emergency` | Emergency upgrade (bypasses timelock) |
-| `governance audit` | Show governance audit trail |
-| `governance dashboard` | Governance summary dashboard |
-| `governance config show/set` | View or update governance defaults |
+| Subcommand                   | Purpose                                                                          |
+| ---------------------------- | -------------------------------------------------------------------------------- |
+| `governance propose`         | Create upgrade proposal (`--contract-id`, `--wasm`, `--threshold`, `--timelock`) |
+| `governance list`            | List proposals with optional filters                                             |
+| `governance show`            | Show proposal details and votes                                                  |
+| `governance vote`            | Cast vote (`--for` or `--against`)                                               |
+| `governance reject`          | Reject a proposal                                                                |
+| `governance execute`         | Execute after timelock and threshold met                                         |
+| `governance emergency`       | Emergency upgrade (bypasses timelock)                                            |
+| `governance audit`           | Show governance audit trail                                                      |
+| `governance dashboard`       | Governance summary dashboard                                                     |
+| `governance config show/set` | View or update governance defaults                                               |
 
 See [GOVERNANCE.md](GOVERNANCE.md) for the full workflow.
 
 ---
 
-## `tutorial`
+## `tool tutorial`
 
-| Subcommand | Purpose |
-|------------|---------|
-| `tutorial list` | List tutorials under `./tutorials/` |
-| `tutorial start <SLUG>` | Begin guided flow (resets progress) |
-| `tutorial next` | Mark step complete and show next milestone |
-| `tutorial status` | Show active tutorial and current step |
+| Subcommand              | Purpose                                    |
+| ----------------------- | ------------------------------------------ |
+| `tutorial list`         | List tutorials under `./tutorials/`        |
+| `tutorial start <SLUG>` | Begin guided flow (resets progress)        |
+| `tutorial next`         | Mark step complete and show next milestone |
+| `tutorial status`       | Show active tutorial and current step      |
 
 ---
 
 ## Utility commands
 
-| Command | Purpose |
-|---------|---------|
-| `info` | Version, config path, network health, Stellar CLI detection |
-| `shell` | Interactive local REPL with persistent history and tab completion |
-| `monitor` | Live event/threshold monitoring |
-| `benchmark` | CLI performance benchmarks |
-| `test` | Soroban WASM test runner |
-| `lint <PATH>` | Static Soroban source lint |
-| `plugin install/list/run` | Dynamic plugin management |
-| `completions <SHELL>` | bash/zsh/fish/powershell completions |
-| `privacy mode on/off/status` | Enable, disable, or report strict end-to-end privacy mode |
+| Command                              | Purpose                                                             |
+| ------------------------------------ | ------------------------------------------------------------------- |
+| `config info`                        | Version, config path, network health, Stellar CLI detection         |
+| `contract repl`                      | Interactive local REPL with persistent history and tab completion   |
+| `contract monitor`                   | Live event/threshold monitoring                                     |
+| `contract benchmark`                 | CLI performance benchmarks                                          |
+| `contract test`                      | Soroban WASM test runner                                            |
+| `contract lint <PATH>`               | Static Soroban source lint                                          |
+| `tool pr`                            | Check PR readiness (CI status and merge conflicts)                  |
+| `tool bug-report`                    | Prefilled environment bug report                                    |
+| `plugin install/list/run`            | Dynamic plugin management                                           |
+| `completions <SHELL>`                | bash/zsh/fish/powershell completions                                |
+| `privacy mode on/off/status`         | Enable, disable, or report strict end-to-end privacy mode           |
 | `config set privacy.mode true/false` | Persist privacy mode in the configuration (`config set` equivalent) |
 
 ### Strict privacy mode (`privacy mode`)
 
-*End-to-end privacy mode* guarantees that **no bytes leave the machine** for
+_End-to-end privacy mode_ guarantees that **no bytes leave the machine** for
 automatic network activity. It is the single kill-switch for outbound data.
 
-| Channel | Behavior when enabled |
-|---------|----------------------|
-| Telemetry (`telemetry.enabled`) | Force-disabled; no events are even written to disk |
-| AI cloud calls | Forced to offline mode; cloud-only AI commands fail clearly |
+| Channel                                     | Behavior when enabled                                            |
+| ------------------------------------------- | ---------------------------------------------------------------- |
+| Telemetry (`telemetry.enabled`)             | Force-disabled; no events are even written to disk               |
+| AI cloud calls                              | Forced to offline mode; cloud-only AI commands fail clearly      |
 | Marketplace / template registry auto-update | Uses the local cache or bundled registry; never fetches remotely |
 
 ```bash run
-starforge privacy mode on        # enable
-starforge privacy mode off       # disable
-starforge privacy mode status    # report effective status
+starforge config privacy mode on        # enable
+starforge config privacy mode off       # disable
+starforge config privacy mode status    # report effective status
 ```
 
 Alternative ways to enable it:
@@ -516,56 +703,56 @@ Note that `privacy mode off` only flips the persisted config; a still-exported
 
 Live monitoring of contracts or wallets, including Soroban event streaming, routing, alerting, persistence, replay, and dashboard output.
 
-| Option | Purpose |
-|--------|---------|
-| `--contract <ID>` | Contract ID to monitor via Soroban RPC |
-| `--events <EVENTS>` | Comma-separated event names to filter |
-| `--type <TYPE>` | Soroban event type filter (`contract`, `system`, `diagnostic`) |
-| `--topic <TOPIC>` | Topic segment matcher, comma-separated, with `*` wildcards |
-| `--value <VALUE>` | Match event payload text |
-| `--transport <TRANSPORT>` | `auto`, `websocket`, or `http` transport selection |
-| `--websocket-url <URL>` | Override the derived WebSocket endpoint |
-| `--route <NAME=PATTERN>` | Route matching events into named lanes; repeatable |
-| `--alert <RULE>` | Alert rule in `pattern`, `severity:pattern`, or `severity:pattern:message` form |
-| `--alert-rate <RULE>` | Rate alert `[severity:]pattern:COUNT/LEDGERS[:message]`: fires when COUNT matching events land within LEDGERS ledgers, then stays quiet for one window; repeatable |
-| `--notify <SEVERITY>` | Forward alerts at or above this severity to notification channels configured with `contract-monitor notify add` |
-| `--persist [PATH]` | Persist matching events to JSONL, using the default StarForge event store path when PATH is omitted |
-| `--replay <PATH>` | Replay events from a JSONL event store instead of connecting live |
-| `--from-ledger <N>` / `--to-ledger <N>` | Limit a replay to an inclusive ledger range |
-| `--dashboard` | Render the event analytics dashboard |
-| `--trigger <PATTERN=COMMAND>` | Execute a shell command when a pattern matches; repeatable |
-| `--allow-triggers` | Required explicit opt-in before event triggers execute shell commands |
-| `--wallet <NAME>` | Wallet name to monitor |
-| `--threshold <AMOUNT>` | XLM threshold for notifications |
-| `--balance-alert <AMOUNT>` | Alert when wallet balance drops below this amount |
-| `--network <NETWORK>` | Network to use |
-| `--interval <SECONDS>` | Poll interval in seconds |
+| Option                                  | Purpose                                                                                                                                                            |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--contract <ID>`                       | Contract ID to monitor via Soroban RPC                                                                                                                             |
+| `--events <EVENTS>`                     | Comma-separated event names to filter                                                                                                                              |
+| `--type <TYPE>`                         | Soroban event type filter (`contract`, `system`, `diagnostic`)                                                                                                     |
+| `--topic <TOPIC>`                       | Topic segment matcher, comma-separated, with `*` wildcards                                                                                                         |
+| `--value <VALUE>`                       | Match event payload text                                                                                                                                           |
+| `--transport <TRANSPORT>`               | `auto`, `websocket`, or `http` transport selection                                                                                                                 |
+| `--websocket-url <URL>`                 | Override the derived WebSocket endpoint                                                                                                                            |
+| `--route <NAME=PATTERN>`                | Route matching events into named lanes; repeatable                                                                                                                 |
+| `--alert <RULE>`                        | Alert rule in `pattern`, `severity:pattern`, or `severity:pattern:message` form                                                                                    |
+| `--alert-rate <RULE>`                   | Rate alert `[severity:]pattern:COUNT/LEDGERS[:message]`: fires when COUNT matching events land within LEDGERS ledgers, then stays quiet for one window; repeatable |
+| `--notify <SEVERITY>`                   | Forward alerts at or above this severity to notification channels configured with `contract-monitor notify add`                                                    |
+| `--persist [PATH]`                      | Persist matching events to JSONL, using the default StarForge event store path when PATH is omitted                                                                |
+| `--replay <PATH>`                       | Replay events from a JSONL event store instead of connecting live                                                                                                  |
+| `--from-ledger <N>` / `--to-ledger <N>` | Limit a replay to an inclusive ledger range                                                                                                                        |
+| `--dashboard`                           | Render the event analytics dashboard                                                                                                                               |
+| `--trigger <PATTERN=COMMAND>`           | Execute a shell command when a pattern matches; repeatable                                                                                                         |
+| `--allow-triggers`                      | Required explicit opt-in before event triggers execute shell commands                                                                                              |
+| `--wallet <NAME>`                       | Wallet name to monitor                                                                                                                                             |
+| `--threshold <AMOUNT>`                  | XLM threshold for notifications                                                                                                                                    |
+| `--balance-alert <AMOUNT>`              | Alert when wallet balance drops below this amount                                                                                                                  |
+| `--network <NETWORK>`                   | Network to use                                                                                                                                                     |
+| `--interval <SECONDS>`                  | Poll interval in seconds                                                                                                                                           |
 
 Examples:
 
 ```bash norun
-starforge monitor --contract CCPYZ... --transport websocket --dashboard
-starforge monitor --contract CCPYZ... --route swaps=swap --alert high:mint --persist
-starforge monitor --contract CCPYZ... --replay ~/.starforge/events/testnet-CCPYZ....jsonl --dashboard
-starforge monitor --contract CCPYZ... --trigger mint=./on-mint.sh --allow-triggers
-starforge monitor --contract CCPYZ... --follow \
+starforge contract monitor --contract CCPYZ... --transport websocket --dashboard
+starforge contract monitor --contract CCPYZ... --route swaps=swap --alert high:mint --persist
+starforge contract monitor --contract CCPYZ... --replay ~/.starforge/events/testnet-CCPYZ....jsonl --dashboard
+starforge contract monitor --contract CCPYZ... --trigger mint=./on-mint.sh --allow-triggers
+starforge contract monitor --contract CCPYZ... --follow \
   --alert "critical:topic~admin & !topic~init:admin action" \
   --alert-rate "high:topic~transfer:20/5:transfer burst" --notify high
-starforge monitor --contract CCPYZ... --replay events.jsonl \
+starforge contract monitor --contract CCPYZ... --replay events.jsonl \
   --from-ledger 51200 --to-ledger 51900 --alert-rate "transfer:20/5" --dashboard
 ```
 
 Event patterns (used by `--route`, `--alert`, `--alert-rate`, and `--trigger`) are
 case-insensitive:
 
-| Pattern | Matches |
-|---------|---------|
-| `text` | Substring anywhere in the event type, ledger, ID, topics, or value |
-| `topic~swap`, `type~contract`, `value~xlm`, `id~0000` | Substring in one field |
-| `ledger>=100`, `ledger<200`, `ledger=150` | Ledger comparisons |
-| `!term` | Negation |
-| `a & b` | All terms must match |
-| `a \| b` | Any alternative matches (`&` binds tighter than `\|`) |
+| Pattern                                               | Matches                                                            |
+| ----------------------------------------------------- | ------------------------------------------------------------------ |
+| `text`                                                | Substring anywhere in the event type, ledger, ID, topics, or value |
+| `topic~swap`, `type~contract`, `value~xlm`, `id~0000` | Substring in one field                                             |
+| `ledger>=100`, `ledger<200`, `ledger=150`             | Ledger comparisons                                                 |
+| `!term`                                               | Negation                                                           |
+| `a & b`                                               | All terms must match                                               |
+| `a \| b`                                              | Any alternative matches (`&` binds tighter than `\|`)              |
 
 Replays are processed in ledger order, so rate alerts behave the same live and on
 replay. The dashboard reports totals, the event rate (events per ledger), top
@@ -589,6 +776,8 @@ starforge my-plugin <args>
 
 ## See also
 
+- [CLI_COMMAND_TREE.md](CLI_COMMAND_TREE.md) — noun-verb tree and the deprecated-name migration table
+- [COMMAND_CHEATSHEET.md](COMMAND_CHEATSHEET.md) — generated one-page command list
 - [API_REFERENCE.md](../API_REFERENCE.md) — detailed per-command examples and output samples
 - [DEVELOPER_GUIDE.md](../DEVELOPER_GUIDE.md) — contributing and local development
 - [SIMULATION_RESOURCES.md](SIMULATION_RESOURCES.md) — CPU, memory, footprint, and resource fees

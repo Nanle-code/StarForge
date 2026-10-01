@@ -1,0 +1,8 @@
+# The plugin reads the WASM file named on the command line and nothing else,
+# so it declares `fs:read` only: no `fs:write`, no `network`.
+name = "wasm-inspect"
+version = "0.1.0"
+starforge_version = "0.1.0"
+starforge_version_min = "0.1.0"
+description = "Summarises the sections of a compiled Soroban contract WASM"
+required_capabilities = ["fs:read"]

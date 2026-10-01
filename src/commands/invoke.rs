@@ -100,6 +100,9 @@ pub async fn handle(args: InvokeArgs) -> Result<()> {
         network,
         submit_wallet.map(|w| w as &crate::utils::config::WalletEntry),
         None,
+        &[],
+        None,
+        None,
     )
     .await?;
 
@@ -148,6 +151,9 @@ pub async fn handle(args: InvokeArgs) -> Result<()> {
                 summary = summary.add(format!("Arg [{}] {}", i, arg_type), arg);
             }
         }
+
+        // Add auth trees
+        summary = summary.with_auth_trees(outcome.simulation.auth.clone());
 
         let confirm_config = confirmation::ConfirmationConfig {
             risk_level,

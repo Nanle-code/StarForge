@@ -1,0 +1,3 @@
+# Golden CLI case: starforge --version
+description = "starforge --version"
+args = ["--version"]

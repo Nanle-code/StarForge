@@ -1,0 +1,19 @@
+[package]
+name = "starforge-hello-plugin"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+description = "Minimal StarForge plugin from the plugin authoring cookbook"
+license = "MIT"
+publish = false
+
+[lib]
+# The loader resolves `libstarforge_<name>.so` when `--path` is omitted.
+name = "starforge_hello"
+# `cdylib` is what StarForge loads; `rlib` lets tests link the crate.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Plugins must be built against the same StarForge core (and rustc) as the
+# CLI that loads them. See "ABI compatibility" in docs/plugins/cookbook.md.
+starforge = { path = "../../.." }

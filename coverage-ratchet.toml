@@ -1,0 +1,15 @@
+# Coverage ratchet baseline (#904).
+# CI fails when measured line coverage drops more than `tolerance_percent`
+# below `lines_percent_min`, or when a critical path falls below its floor.
+# Bump `lines_percent_min` when coverage improves on master (never lower it
+# without an issue discussing the regression).
+
+lines_percent_min = 20.0
+tolerance_percent = 1.0
+
+[critical_paths]
+"src/utils/crypto.rs" = 50.0
+"src/wasm/crypto.rs" = 50.0
+"src/utils/config.rs" = 45.0
+"src/commands/wallet.rs" = 40.0
+"src/utils/wallet_signer.rs" = 40.0

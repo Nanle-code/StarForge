@@ -1,3 +1,12 @@
+//! Canonical template registry and package operations.
+//!
+//! This module owns template metadata, registry loading, caching, installation,
+//! publishing, and compatibility checks. CLI command parsing and presentation
+//! belong in `crate::commands::template`; specialized template capabilities
+//! remain in their focused `template_*` modules. Consumers should use this
+//! module for the shared registry and package API rather than implementing
+//! another template store.
+
 use crate::utils::http_client;
 use crate::utils::template_provenance::{self, TemplateProvenance};
 use crate::utils::template_schema;
@@ -10,6 +19,28 @@ use std::path::{Path, PathBuf};
 
 /// The running StarForge CLI version — used for template compatibility checks.
 pub const CLI_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// The Soroban SDK version targeted by every scaffold StarForge generates and
+/// by the bundled templates under `templates/`.
+///
+/// This is the **single source of truth** for the generated-project SDK
+/// version: `crate::commands::new` and the template tooling read this constant
+/// instead of hard-coding a version string. Keep it in lock-step with:
+///
+/// * the root `Cargo.toml` `soroban-sdk` dev-dependency,
+/// * `templates/examples/*/Cargo.toml`, and
+/// * `templates/test-helpers/Cargo.toml`.
+///
+/// See `docs/TEMPLATE_CONTRIBUTING.md` for the upgrade cadence.
+pub const SOROBAN_SDK_VERSION: &str = "22.0.0";
+
+/// The `stellar-xdr` version that matches [`SOROBAN_SDK_VERSION`].
+///
+/// Mirrors the root `Cargo.toml` `stellar-xdr` dependency so that any code
+/// emitting an XDR pin has one place to read from. No bundled template depends
+/// on `stellar-xdr` directly today; this constant is the canonical value for
+/// generators that need to reference it.
+pub const STELLAR_XDR_VERSION: &str = "22.0.0";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TemplateRegistry {
@@ -346,11 +377,11 @@ pub fn check_template_compatibility(entry: &TemplateEntry) -> CompatibilityStatu
         entry.cli_version_min.as_deref(),
         entry.cli_version_max.as_deref(),
     );
-    
+
     if !matches!(cli_status, CompatibilityStatus::Compatible) {
         return cli_status;
     }
-    
+
     // Then check Soroban SDK version compatibility if constraints are present
     if entry.soroban_sdk_min.is_some() || entry.soroban_sdk_max.is_some() {
         let detected_sdk = detect_soroban_sdk_version(entry);
@@ -360,7 +391,7 @@ pub fn check_template_compatibility(entry: &TemplateEntry) -> CompatibilityStatu
                 entry.soroban_sdk_min.as_deref(),
                 entry.soroban_sdk_max.as_deref(),
             );
-            
+
             if !matches!(sdk_status, CompatibilityStatus::Compatible) {
                 return CompatibilityStatus::SorobanSdkIncompatible {
                     sdk_min: entry.soroban_sdk_min.clone(),
@@ -370,7 +401,7 @@ pub fn check_template_compatibility(entry: &TemplateEntry) -> CompatibilityStatu
             }
         }
     }
-    
+
     CompatibilityStatus::Compatible
 }
 
@@ -386,7 +417,7 @@ fn detect_soroban_sdk_version(entry: &TemplateEntry) -> Option<String> {
             }
         }
     }
-    
+
     // For remote templates, we can't detect the version without downloading
     // Return None to skip SDK compatibility checks
     None
@@ -412,7 +443,7 @@ fn extract_soroban_sdk_version_from_cargo_toml(content: &str) -> Option<String> 
                         .trim_start_matches('<')
                         .trim_start_matches('=')
                         .trim();
-                    
+
                     if !version.is_empty() {
                         return Some(version.to_string());
                     }
@@ -458,6 +489,24 @@ pub fn assert_template_compatible(entry: &TemplateEntry) -> Result<()> {
                  Contact the template author to fix the cli_version_min / cli_version_max fields.",
                 entry.name,
                 reason,
+            )
+        }
+        CompatibilityStatus::SorobanSdkIncompatible {
+            sdk_min,
+            sdk_max,
+            found_version,
+        } => {
+            let range = match (sdk_min, sdk_max) {
+                (Some(min), Some(max)) => format!(">= {} and <= {}", min, max),
+                (Some(min), None) => format!(">= {}", min),
+                (None, Some(max)) => format!("<= {}", max),
+                (None, None) => "compatible".to_string(),
+            };
+            anyhow::bail!(
+                "Template '{}' requires Soroban SDK {} but running version is {}.",
+                entry.name,
+                range,
+                found_version
             )
         }
     }
@@ -526,6 +575,22 @@ fn build_update_report(
         }
         CompatibilityStatus::MalformedMetadata { reason } => {
             format!("Version metadata is malformed: {}", reason)
+        }
+        CompatibilityStatus::SorobanSdkIncompatible {
+            sdk_min,
+            sdk_max,
+            found_version,
+        } => {
+            let range = match (sdk_min, sdk_max) {
+                (Some(min), Some(max)) => format!(">= {} and <= {}", min, max),
+                (Some(min), None) => format!(">= {}", min),
+                (None, Some(max)) => format!("<= {}", max),
+                (None, None) => "compatible".to_string(),
+            };
+            format!(
+                "Requires Soroban SDK {} but running version is {}",
+                range, found_version
+            )
         }
     };
 
@@ -970,17 +1035,199 @@ fn template_storage_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
-fn template_cache_dir() -> Result<PathBuf> {
+/// Environment variable to override the template cache directory (useful for testing).
+pub const TEMPLATE_CACHE_DIR_ENV: &str = "STARFORGE_TEMPLATE_CACHE_DIR";
+
+/// Default TTL for cached templates before an update check is triggered (24 hours).
+pub const TEMPLATE_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
+/// Metadata recorded alongside a cached template in `~/.starforge/template-cache/<name>.meta.json`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CachedTemplateMetadata {
+    pub name: String,
+    pub version: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub author: String,
+    pub digest: String,
+    pub cached_at: String,
+    pub source: TemplateSource,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<TemplateProvenance>,
+    #[serde(default)]
+    pub cli_version_min: Option<String>,
+    #[serde(default)]
+    pub cli_version_max: Option<String>,
+    #[serde(default)]
+    pub soroban_sdk_min: Option<String>,
+    #[serde(default)]
+    pub soroban_sdk_max: Option<String>,
+}
+
+impl From<CachedTemplateMetadata> for TemplateEntry {
+    fn from(m: CachedTemplateMetadata) -> Self {
+        TemplateEntry {
+            name: m.name,
+            version: m.version,
+            description: m.description,
+            author: m.author,
+            source: m.source,
+            provenance: m.provenance,
+            cli_version_min: m.cli_version_min,
+            cli_version_max: m.cli_version_max,
+            soroban_sdk_min: m.soroban_sdk_min,
+            soroban_sdk_max: m.soroban_sdk_max,
+            ..Default::default()
+        }
+    }
+}
+
+/// Information about a cached template surfaced by `starforge template cache list`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CachedTemplateInfo {
+    pub name: String,
+    pub version: String,
+    pub path: PathBuf,
+    pub digest: String,
+    pub cached_at: String,
+    pub is_valid: bool,
+    pub verification_error: Option<String>,
+    pub size_bytes: u64,
+}
+
+pub fn template_cache_dir() -> Result<PathBuf> {
+    if let Ok(dir) = std::env::var(TEMPLATE_CACHE_DIR_ENV) {
+        let p = PathBuf::from(dir);
+        ensure_private_directory(&p)?;
+        return Ok(p);
+    }
     let dir = crate::utils::config::config_dir().join("template-cache");
     ensure_private_directory(&dir)?;
     Ok(dir)
 }
 
-/// Clone a git-sourced template into `~/.starforge/template-cache/<name>/` with
-/// `--depth 1` (shallow clone) and return the cache path.
+pub fn template_cache_metadata_path(name: &str) -> Result<PathBuf> {
+    Ok(template_cache_dir()?.join(format!("{}.meta.json", name)))
+}
+
+fn write_cache_metadata(entry: &TemplateEntry, digest: &str) -> Result<()> {
+    let meta_file = template_cache_metadata_path(&entry.name)?;
+    let meta = CachedTemplateMetadata {
+        name: entry.name.clone(),
+        version: entry.version.clone(),
+        description: entry.description.clone(),
+        author: entry.author.clone(),
+        digest: digest.to_string(),
+        cached_at: Utc::now().to_rfc3339(),
+        source: entry.source.clone(),
+        provenance: entry.provenance.clone(),
+        cli_version_min: entry.cli_version_min.clone(),
+        cli_version_max: entry.cli_version_max.clone(),
+        soroban_sdk_min: entry.soroban_sdk_min.clone(),
+        soroban_sdk_max: entry.soroban_sdk_max.clone(),
+    };
+    let json = serde_json::to_string_pretty(&meta)
+        .context("Failed to serialize template cache metadata")?;
+    fs::write(&meta_file, json)
+        .with_context(|| format!("Failed to write cache metadata to {}", meta_file.display()))?;
+    Ok(())
+}
+
+pub fn read_cache_metadata(name: &str) -> Result<Option<CachedTemplateMetadata>> {
+    let meta_file = template_cache_metadata_path(name)?;
+    if !meta_file.exists() {
+        return Ok(None);
+    }
+    let content = fs::read_to_string(&meta_file)
+        .with_context(|| format!("Failed to read {}", meta_file.display()))?;
+    let meta: CachedTemplateMetadata = serde_json::from_str(&content)
+        .with_context(|| format!("Failed to parse {}", meta_file.display()))?;
+    Ok(Some(meta))
+}
+
+fn calculate_dir_size(path: &Path) -> u64 {
+    let mut total = 0;
+    if let Ok(entries) = fs::read_dir(path) {
+        for entry in entries.flatten() {
+            if let Ok(meta) = entry.metadata() {
+                if meta.is_dir() {
+                    total += calculate_dir_size(&entry.path());
+                } else {
+                    total += meta.len();
+                }
+            }
+        }
+    }
+    total
+}
+
+/// Verify that a cached template directory matches its expected digest and provenance.
 ///
-/// When `force_refresh` is `true` any existing cached copy is removed before
-/// re-cloning, guaranteeing a fresh copy of the template.
+/// Rejects tampered or corrupted cache entries before they are used.
+pub fn verify_cache_entry_integrity(
+    name: &str,
+    dest: &Path,
+    expected_digest: Option<&str>,
+    provenance: Option<&TemplateProvenance>,
+) -> Result<()> {
+    if !dest.exists() {
+        anyhow::bail!(
+            "Cached template directory for '{}' does not exist at {}",
+            name,
+            dest.display()
+        );
+    }
+
+    let actual_digest = template_provenance::package_digest(dest)
+        .with_context(|| format!("Failed to calculate digest for cached template '{}'", name))?;
+
+    let target_digest = expected_digest
+        .or_else(|| provenance.map(|p| p.digest.as_str()))
+        .map(|d| d.trim());
+
+    if let Some(exp) = target_digest {
+        if !exp.is_empty() && !actual_digest.eq_ignore_ascii_case(exp) {
+            anyhow::bail!(
+                "Cached template '{}' has been tampered with or corrupted.\n\
+                 Expected digest: {}\n\
+                 Actual digest:   {}\n\
+                 Refusing to use tampered cache entry.",
+                name,
+                exp,
+                actual_digest
+            );
+        }
+    }
+
+    if let Some(prov) = provenance {
+        let config = template_provenance::VerifyConfig {
+            require_crypto: template_provenance::require_signed_templates(),
+            cosign_bin: None,
+        };
+        template_provenance::verify_provenance(dest, prov, &config).with_context(|| {
+            format!(
+                "Cryptographic verification failed for cached template '{}'",
+                name
+            )
+        })?;
+    }
+
+    Ok(())
+}
+
+/// Fetch a template into the local cache (`~/.starforge/template-cache/<name>/`).
+///
+/// When the cache is warm (`dest.exists()`) and not being refreshed:
+/// - Verifies the integrity of the warm cache against its recorded metadata and provenance.
+/// - Tampered cache entries are rejected.
+///
+/// On update (`force_refresh` or TTL expired):
+/// - Fetches into a temporary staging directory first.
+/// - Verifies package integrity and cryptographic signatures *before* touching the cache.
+/// - Atomically replaces the cache entry only if verification succeeds.
+/// - If update fails (e.g. offline during automatic TTL refresh), falls back to the existing
+///   verified warm cache.
 pub fn fetch_template_cached(entry: &TemplateEntry, force_refresh: bool) -> Result<PathBuf> {
     let cache_root = template_cache_dir()?;
     let dest = cache_root.join(&entry.name);
@@ -992,13 +1239,26 @@ pub fn fetch_template_cached(entry: &TemplateEntry, force_refresh: bool) -> Resu
     }
 
     if dest.exists() {
+        let meta = read_cache_metadata(&entry.name).ok().flatten();
         let mut should_refresh = force_refresh;
+
         if !should_refresh {
-            if let Ok(metadata) = fs::metadata(&dest) {
-                if let Ok(modified) = metadata.modified() {
-                    use std::time::{Duration, SystemTime};
-                    let ttl = Duration::from_secs(24 * 60 * 60); // 24 hours TTL
-                    if SystemTime::now().duration_since(modified).unwrap_or(ttl) >= ttl {
+            let ttl = TEMPLATE_CACHE_TTL;
+            if let Some(ref m) = meta {
+                if let Ok(cached_time) = chrono::DateTime::parse_from_rfc3339(&m.cached_at) {
+                    let now = Utc::now();
+                    if now.signed_duration_since(cached_time).num_seconds() >= ttl.as_secs() as i64
+                    {
+                        should_refresh = true;
+                    }
+                }
+            } else if let Ok(dir_meta) = fs::metadata(&dest) {
+                if let Ok(modified) = dir_meta.modified() {
+                    if std::time::SystemTime::now()
+                        .duration_since(modified)
+                        .unwrap_or(ttl)
+                        >= ttl
+                    {
                         should_refresh = true;
                     }
                 }
@@ -1006,35 +1266,97 @@ pub fn fetch_template_cached(entry: &TemplateEntry, force_refresh: bool) -> Resu
         }
 
         if should_refresh {
-            // Rename existing cache to a temporary name to preserve it in case refresh fails
-            let temp_old = cache_root.join(format!("{}.old", entry.name));
-            // Remove any existing temp_old directory
-            if temp_old.exists() {
-                fs::remove_dir_all(&temp_old)?;
-            }
-            fs::rename(&dest, &temp_old)?;
+            // Stage fetch into a temporary directory first so the existing cache
+            // is not corrupted if downloading or verification fails.
+            let staging_dir = tempfile::tempdir_in(&cache_root)
+                .context("Failed to create staging directory for template update")?;
+            let staged_dest = staging_dir.path().join("content");
 
-            // Try to fetch new template
-            match fetch_template(entry, &dest) {
+            match fetch_template(entry, &staged_dest) {
                 Ok(_) => {
-                    // Success - clean up the old temp directory
-                    fs::remove_dir_all(&temp_old).ok(); // Ignore errors during cleanup
+                    let digest = template_provenance::package_digest(&staged_dest)?;
+
+                    // Verify signature and digest on the staged directory before replacing cache
+                    verify_cache_entry_integrity(
+                        &entry.name,
+                        &staged_dest,
+                        Some(&digest),
+                        entry.provenance.as_ref(),
+                    )?;
+
+                    // Replace existing cache safely
+                    let temp_old =
+                        cache_root.join(format!("{}.old.{}", entry.name, uuid::Uuid::new_v4()));
+                    if dest.exists() {
+                        let _ = fs::rename(&dest, &temp_old);
+                    }
+                    if let Err(_) = fs::rename(&staged_dest, &dest) {
+                        copy_dir_recursive(&staged_dest, &dest)?;
+                    }
+                    let _ = fs::remove_dir_all(&temp_old);
+
+                    // Write updated metadata
+                    write_cache_metadata(entry, &digest)?;
                     Ok(dest)
                 }
-                Err(_) => {
-                    // Failed - restore old cache and use it
-                    if dest.exists() {
-                        fs::remove_dir_all(&dest)?;
+                Err(err) => {
+                    if force_refresh {
+                        return Err(err).with_context(|| {
+                            format!(
+                                "Failed to refresh template '{}' with signature verification",
+                                entry.name
+                            )
+                        });
                     }
-                    fs::rename(&temp_old, &dest)?;
+
+                    // For TTL-based automatic refresh (e.g. offline):
+                    // Verify existing warm cache integrity before falling back to it!
+                    let expected_digest = meta.as_ref().map(|m| m.digest.as_str());
+                    let provenance = entry
+                        .provenance
+                        .as_ref()
+                        .or(meta.as_ref().and_then(|m| m.provenance.as_ref()));
+                    verify_cache_entry_integrity(&entry.name, &dest, expected_digest, provenance)?;
+
                     Ok(dest)
                 }
             }
         } else {
+            // Warm cache hit: verify integrity
+            let expected_digest = meta.as_ref().map(|m| m.digest.as_str());
+            let provenance = entry
+                .provenance
+                .as_ref()
+                .or(meta.as_ref().and_then(|m| m.provenance.as_ref()));
+            verify_cache_entry_integrity(&entry.name, &dest, expected_digest, provenance)?;
+
+            if meta.is_none() {
+                if let Ok(digest) = template_provenance::package_digest(&dest) {
+                    let _ = write_cache_metadata(entry, &digest);
+                }
+            }
+
             Ok(dest)
         }
     } else {
-        fetch_template(entry, &dest)?;
+        // Cold fetch into staging dir, verify, then move to dest
+        let staging_dir = tempfile::tempdir_in(&cache_root)
+            .context("Failed to create staging directory for template fetch")?;
+        let staged_dest = staging_dir.path().join("content");
+
+        fetch_template(entry, &staged_dest)?;
+        let digest = template_provenance::package_digest(&staged_dest)?;
+        verify_cache_entry_integrity(
+            &entry.name,
+            &staged_dest,
+            Some(&digest),
+            entry.provenance.as_ref(),
+        )?;
+
+        if let Err(_) = fs::rename(&staged_dest, &dest) {
+            copy_dir_recursive(&staged_dest, &dest)?;
+        }
+        write_cache_metadata(entry, &digest)?;
         Ok(dest)
     }
 }
@@ -1042,12 +1364,28 @@ pub fn fetch_template_cached(entry: &TemplateEntry, force_refresh: bool) -> Resu
 /// Return the `src/lib.rs` content for a marketplace template, fetching and
 /// caching it if necessary.
 ///
-/// Returns `None` when the template name is not found in the registry.
+/// Supports offline scaffolding from warm cache if remote registry is unavailable.
 pub async fn template_source_content(name: &str, force_refresh: bool) -> Result<Option<String>> {
-    let registry = load_registry().await?;
-    let entry = match registry.templates.into_iter().find(|t| t.name == name) {
+    let entry = match load_registry().await {
+        Ok(registry) => registry.templates.into_iter().find(|t| t.name == name),
+        Err(_) => {
+            if let Ok(Some(meta)) = read_cache_metadata(name) {
+                Some(TemplateEntry::from(meta))
+            } else {
+                None
+            }
+        }
+    };
+
+    let entry = match entry {
         Some(e) => e,
-        None => return Ok(None),
+        None => {
+            if let Ok(Some(meta)) = read_cache_metadata(name) {
+                TemplateEntry::from(meta)
+            } else {
+                return Ok(None);
+            }
+        }
     };
 
     let cache_path = fetch_template_cached(&entry, force_refresh)?;
@@ -1059,6 +1397,133 @@ pub async fn template_source_content(name: &str, force_refresh: bool) -> Result<
     } else {
         Ok(None)
     }
+}
+
+/// List all cached templates in the local template cache.
+pub fn list_cached_templates() -> Result<Vec<CachedTemplateInfo>> {
+    let cache_root = template_cache_dir()?;
+    let mut list = Vec::new();
+
+    if !cache_root.exists() {
+        return Ok(list);
+    }
+
+    for entry in fs::read_dir(&cache_root)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.ends_with(".old") || name.contains(".old.") || name.starts_with('.') {
+                continue;
+            }
+
+            let meta = read_cache_metadata(&name).ok().flatten();
+            let version = meta
+                .as_ref()
+                .map(|m| m.version.clone())
+                .unwrap_or_else(|| "unknown".to_string());
+            let cached_at = meta
+                .as_ref()
+                .map(|m| m.cached_at.clone())
+                .unwrap_or_default();
+            let expected_digest = meta.as_ref().map(|m| m.digest.as_str());
+            let provenance = meta.as_ref().and_then(|m| m.provenance.as_ref());
+
+            let (is_valid, verification_error, digest) =
+                match template_provenance::package_digest(&path) {
+                    Ok(actual) => {
+                        let digest_matches = match expected_digest {
+                            Some(exp) => actual.eq_ignore_ascii_case(exp),
+                            None => true,
+                        };
+                        if !digest_matches {
+                            (
+                                false,
+                                Some(
+                                    "Digest mismatch: cache entry tampered or corrupted"
+                                        .to_string(),
+                                ),
+                                actual,
+                            )
+                        } else if let Some(prov) = provenance {
+                            let config = template_provenance::VerifyConfig {
+                                require_crypto: false,
+                                cosign_bin: None,
+                            };
+                            match template_provenance::verify_provenance(&path, prov, &config) {
+                                Ok(_) => (true, None, actual),
+                                Err(e) => (
+                                    false,
+                                    Some(format!("Provenance verification failed: {}", e)),
+                                    actual,
+                                ),
+                            }
+                        } else {
+                            (true, None, actual)
+                        }
+                    }
+                    Err(e) => (
+                        false,
+                        Some(format!("Failed to calculate digest: {}", e)),
+                        String::new(),
+                    ),
+                };
+
+            let size_bytes = calculate_dir_size(&path);
+
+            list.push(CachedTemplateInfo {
+                name,
+                version,
+                path,
+                digest,
+                cached_at,
+                is_valid,
+                verification_error,
+                size_bytes,
+            });
+        }
+    }
+
+    list.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(list)
+}
+
+/// Clear one or all cached templates from the local template cache.
+pub fn clear_cached_template(name: Option<&str>) -> Result<usize> {
+    let cache_root = template_cache_dir()?;
+    if !cache_root.exists() {
+        return Ok(0);
+    }
+
+    let mut count = 0;
+    if let Some(target) = name {
+        let dest = cache_root.join(target);
+        let meta_file = template_cache_metadata_path(target)?;
+        if dest.exists() {
+            fs::remove_dir_all(&dest).with_context(|| {
+                format!("Failed to remove cached template at {}", dest.display())
+            })?;
+            count += 1;
+        }
+        if meta_file.exists() {
+            let _ = fs::remove_file(&meta_file);
+        }
+    } else {
+        for entry in fs::read_dir(&cache_root)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                fs::remove_dir_all(&path).with_context(|| {
+                    format!("Failed to remove cached directory at {}", path.display())
+                })?;
+                count += 1;
+            } else if path.is_file() {
+                let _ = fs::remove_file(&path);
+            }
+        }
+    }
+
+    Ok(count)
 }
 
 const REGISTRY_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
@@ -1592,11 +2057,27 @@ pub fn paginate<T: Clone>(
 }
 
 pub async fn get_template(name: &str) -> Result<TemplateEntry> {
-    let versions = get_templates_by_name(name).await?;
-    versions
-        .into_iter()
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("Template '{}' not found in registry", name))
+    let registry = load_registry().await?;
+    let mut versions: Vec<TemplateEntry> = registry
+        .templates
+        .iter()
+        .filter(|t| t.name == name)
+        .cloned()
+        .collect();
+
+    versions.sort_by(|a, b| {
+        let a_ver =
+            semver::Version::parse(&a.version).unwrap_or_else(|_| semver::Version::new(0, 0, 0));
+        let b_ver =
+            semver::Version::parse(&b.version).unwrap_or_else(|_| semver::Version::new(0, 0, 0));
+        b_ver.cmp(&a_ver)
+    });
+
+    versions.into_iter().next().ok_or_else(|| {
+        let names: Vec<&str> = registry.templates.iter().map(|t| t.name.as_str()).collect();
+        let suggestion = crate::utils::suggestion::did_you_mean(name, &names).unwrap_or_default();
+        anyhow::anyhow!("Template '{}' not found in registry{}", name, suggestion)
+    })
 }
 
 pub async fn get_templates_by_name(name: &str) -> Result<Vec<TemplateEntry>> {
@@ -1700,18 +2181,40 @@ pub async fn get_template_by_name_and_version(
     name: &str,
     version: Option<&str>,
 ) -> Result<TemplateEntry> {
-    let versions = get_templates_by_name(name).await?;
+    if let Ok(versions) = get_templates_by_name(name).await {
+        if let Some(v) = version {
+            if let Some(matched) = versions.into_iter().find(|t| t.version == v) {
+                return Ok(matched);
+            }
+        } else if let Some(matched) = versions.into_iter().next() {
+            return Ok(matched);
+        }
+    }
+
+    // Offline fallback: check local warm cache
+    if let Ok(Some(meta)) = read_cache_metadata(name) {
+        if version.is_none() || version == Some(meta.version.as_str()) {
+            let cache_dir = template_cache_dir()?.join(name);
+            if cache_dir.exists() {
+                verify_cache_entry_integrity(
+                    name,
+                    &cache_dir,
+                    Some(&meta.digest),
+                    meta.provenance.as_ref(),
+                )?;
+                return Ok(TemplateEntry::from(meta));
+            }
+        }
+    }
 
     if let Some(v) = version {
-        versions
-            .into_iter()
-            .find(|t| t.version == v)
-            .ok_or_else(|| anyhow::anyhow!("Template '{}@{}' not found", name, v))
+        anyhow::bail!(
+            "Template '{}@{}' not found in registry or local cache",
+            name,
+            v
+        )
     } else {
-        versions
-            .into_iter()
-            .next()
-            .ok_or_else(|| anyhow::anyhow!("Template '{}' not found", name))
+        anyhow::bail!("Template '{}' not found in registry or local cache", name)
     }
 }
 
@@ -2011,6 +2514,8 @@ pub async fn publish_template(
         None,
         None,
         None,
+        None,
+        None,
     )
     .await
 }
@@ -2040,6 +2545,8 @@ pub async fn install_template_package(
         version,
         cli_version_min,
         cli_version_max,
+        None,
+        None,
         None,
         None,
         None,
@@ -2075,16 +2582,20 @@ pub async fn publish_template_versioned(
     let (source_root, _temp_guard) = resolve_template_source(template_path)?;
 
     validate_template_structure_with_constraints(
-        &source_root, 
-        &name, 
-        &description, 
-        &author, 
+        &source_root,
+        &name,
+        &description,
+        &author,
         &version,
         cli_version_min.as_deref(),
         cli_version_max.as_deref(),
         soroban_sdk_min.as_deref(),
         soroban_sdk_max.as_deref(),
     )?;
+
+    let manifest_license =
+        validate_template_publish_requirements(&source_root, license.as_deref())?;
+    let license = Some(manifest_license);
 
     let storage_root = template_storage_dir()?.join(&name);
     let dest = storage_root.join(&version);
@@ -2336,6 +2847,82 @@ pub fn validate_template_structure_with_constraints(
     Ok(())
 }
 
+/// Validate legal metadata and the license file required for marketplace publication.
+pub fn validate_template_publish_requirements(
+    path: &Path,
+    requested_license: Option<&str>,
+) -> Result<String> {
+    let license_path = path.join("LICENSE");
+    if !license_path.is_file() {
+        anyhow::bail!(
+            "Template is missing LICENSE. Add the complete license text matching the SPDX identifier in template.json."
+        );
+    }
+    if fs::read_to_string(&license_path)
+        .with_context(|| format!("Failed to read {}", license_path.display()))?
+        .trim()
+        .is_empty()
+    {
+        anyhow::bail!(
+            "Template LICENSE file is empty. Add the complete license text before publishing."
+        );
+    }
+
+    let manifest_path = path.join("template.json");
+    if !manifest_path.is_file() {
+        anyhow::bail!(
+            "Template is missing template.json. Add a manifest with license and authors or attribution metadata before publishing."
+        );
+    }
+    let manifest_text = fs::read_to_string(&manifest_path)
+        .with_context(|| format!("Failed to read {}", manifest_path.display()))?;
+    let manifest: serde_json::Value = serde_json::from_str(&manifest_text)
+        .with_context(|| format!("Invalid template manifest {}", manifest_path.display()))?;
+
+    let manifest_license = manifest
+        .get("license")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|license| !license.is_empty())
+        .context("Template manifest must contain a non-empty SPDX `license` identifier.")?;
+    if manifest_license.ends_with('+') || spdx::license_id(manifest_license).is_none() {
+        anyhow::bail!(
+            "Template manifest license '{}' is not a recognized SPDX license identifier. Use an exact identifier such as MIT or Apache-2.0.",
+            manifest_license
+        );
+    }
+    if let Some(requested_license) = requested_license {
+        if requested_license.trim() != manifest_license {
+            anyhow::bail!(
+                "The --license value '{}' does not match template.json license '{}'. Make both values identical.",
+                requested_license,
+                manifest_license
+            );
+        }
+    }
+
+    let has_authors = match manifest.get("authors") {
+        Some(serde_json::Value::String(authors)) => !authors.trim().is_empty(),
+        Some(serde_json::Value::Array(authors)) => authors.iter().any(|author| {
+            author
+                .as_str()
+                .is_some_and(|author| !author.trim().is_empty())
+        }),
+        _ => false,
+    };
+    let has_attribution = manifest
+        .get("attribution")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|attribution| !attribution.trim().is_empty());
+    if !has_authors && !has_attribution {
+        anyhow::bail!(
+            "Template manifest is missing attribution. Add a non-empty `authors` field or `attribution` field to template.json."
+        );
+    }
+
+    Ok(manifest_license.to_string())
+}
+
 /// Determine how to fetch a template from a user-supplied source string,
 /// then register it in the local registry and return the new entry.
 ///
@@ -2439,6 +3026,7 @@ async fn install_from_git_url(
         categories: Vec::new(),
         featured: false,
         provenance: None,
+        ..Default::default()
     };
 
     registry.templates.retain(|t| t.name != name);
@@ -2517,6 +3105,7 @@ async fn install_from_local_path(
         categories: Vec::new(),
         featured: false,
         provenance: None,
+        ..Default::default()
     };
 
     registry.templates.retain(|t| t.name != name);
@@ -2750,6 +3339,7 @@ mod tests {
             categories: Vec::new(),
             featured: false,
             provenance: None,
+            ..Default::default()
         }
     }
 
@@ -2888,6 +3478,84 @@ mod tests {
         .unwrap();
         fs::write(dir.join("src/lib.rs"), "#![no_std]\n").unwrap();
         fs::write(dir.join("README.md"), "# Template\n").unwrap();
+        fs::write(dir.join("LICENSE"), "MIT License\nCopyright Alice\n").unwrap();
+        fs::write(
+            dir.join("template.json"),
+            r#"{"license":"MIT","authors":["Alice"]}"#,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn publish_requirements_reject_missing_license_file() {
+        let tmp = tempdir().unwrap();
+        make_valid_template(tmp.path());
+        fs::remove_file(tmp.path().join("LICENSE")).unwrap();
+
+        let error = validate_template_publish_requirements(tmp.path(), Some("MIT")).unwrap_err();
+        assert!(error.to_string().contains("missing LICENSE"));
+    }
+
+    #[test]
+    fn publish_requirements_reject_empty_license_file() {
+        let tmp = tempdir().unwrap();
+        make_valid_template(tmp.path());
+        fs::write(tmp.path().join("LICENSE"), " \n").unwrap();
+
+        let error = validate_template_publish_requirements(tmp.path(), None).unwrap_err();
+        assert!(error.to_string().contains("LICENSE file is empty"));
+    }
+
+    #[test]
+    fn publish_requirements_reject_license_flag_mismatch() {
+        let tmp = tempdir().unwrap();
+        make_valid_template(tmp.path());
+
+        let error =
+            validate_template_publish_requirements(tmp.path(), Some("Apache-2.0")).unwrap_err();
+        assert!(error.to_string().contains("does not match template.json"));
+    }
+
+    #[test]
+    fn publish_requirements_reject_invalid_spdx_identifier() {
+        let tmp = tempdir().unwrap();
+        make_valid_template(tmp.path());
+        fs::write(
+            tmp.path().join("template.json"),
+            r#"{"license":"Definitely-Not-A-License","authors":["Alice"]}"#,
+        )
+        .unwrap();
+
+        let error = validate_template_publish_requirements(tmp.path(), None).unwrap_err();
+        assert!(error.to_string().contains("SPDX"));
+    }
+
+    #[test]
+    fn publish_requirements_reject_missing_attribution() {
+        let tmp = tempdir().unwrap();
+        make_valid_template(tmp.path());
+        fs::write(
+            tmp.path().join("template.json"),
+            r#"{"license":"MIT","authors":[]}"#,
+        )
+        .unwrap();
+
+        let error = validate_template_publish_requirements(tmp.path(), None).unwrap_err();
+        assert!(error.to_string().contains("missing attribution"));
+    }
+
+    #[test]
+    fn publish_requirements_reject_license_expression() {
+        let tmp = tempdir().unwrap();
+        make_valid_template(tmp.path());
+        fs::write(
+            tmp.path().join("template.json"),
+            r#"{"license":"MIT OR Apache-2.0","authors":["Alice"]}"#,
+        )
+        .unwrap();
+
+        let error = validate_template_publish_requirements(tmp.path(), None).unwrap_err();
+        assert!(error.to_string().contains("SPDX"));
     }
 
     #[test]
@@ -2902,7 +3570,7 @@ mod tests {
         let zip_path = tmp.path().join("package.zip");
         let file = fs::File::create(&zip_path).unwrap();
         let mut zip = ZipWriter::new(file);
-        let options = FileOptions::default();
+        let options = FileOptions::<()>::default();
 
         for entry in walkdir_flat(&tpl_dir) {
             let rel = entry.strip_prefix(&tpl_dir).unwrap();
@@ -2933,7 +3601,8 @@ mod tests {
 
         let file = fs::File::create(zip_path).unwrap();
         let mut zip = ZipWriter::new(file);
-        zip.start_file(raw_name, FileOptions::default()).unwrap();
+        zip.start_file(raw_name, FileOptions::<()>::default())
+            .unwrap();
         std::io::Write::write_all(&mut zip, contents).unwrap();
         zip.finish().unwrap();
     }
@@ -2972,9 +3641,10 @@ mod tests {
         let zip_path = tmp.path().join("mixed.zip");
         let file = fs::File::create(&zip_path).unwrap();
         let mut zip = ZipWriter::new(file);
-        zip.start_file("README.md", FileOptions::default()).unwrap();
+        zip.start_file("README.md", FileOptions::<()>::default())
+            .unwrap();
         std::io::Write::write_all(&mut zip, b"# ok").unwrap();
-        zip.start_file("../escaped.txt", FileOptions::default())
+        zip.start_file("../escaped.txt", FileOptions::<()>::default())
             .unwrap();
         std::io::Write::write_all(&mut zip, b"pwned").unwrap();
         zip.finish().unwrap();
@@ -3156,7 +3826,6 @@ mod tests {
         let tmp = tempdir().unwrap();
         let home = tmp.path().join("home");
         let config_dir = home.join(".starforge");
-        std::env::set_var("HOME", home.as_os_str());
         std::env::set_var("USERPROFILE", home.as_os_str());
         std::env::set_var(crate::utils::config::CONFIG_DIR_ENV, &config_dir);
         let registry_dir = config_dir.join("templates");
@@ -3252,6 +3921,7 @@ mod tests {
             categories: Vec::new(),
             featured: false,
             provenance: None,
+            ..Default::default()
         });
 
         // Test name search
@@ -3307,6 +3977,7 @@ mod tests {
             categories: Vec::new(),
             featured: false,
             provenance: None,
+            ..Default::default()
         };
 
         let dest = tmp.path().join(&entry.name);
@@ -3364,6 +4035,7 @@ mod tests {
             categories: Vec::new(),
             featured: false,
             provenance: None,
+            ..Default::default()
         }
     }
 
@@ -3985,5 +4657,209 @@ mod tests {
             .expect("should fall back instead of erroring");
         let bundled: TemplateRegistry = serde_json::from_str(DEFAULT_REGISTRY).unwrap();
         assert_eq!(registry.templates.len(), bundled.templates.len());
+    }
+
+    // ── Offline template cache & signature verification tests (issue #748) ───
+
+    struct CacheTestEnv {
+        _temp: tempfile::TempDir,
+    }
+
+    impl CacheTestEnv {
+        fn new() -> (Self, PathBuf) {
+            let temp = tempfile::tempdir().unwrap();
+            let path = temp.path().to_path_buf();
+            std::env::set_var(TEMPLATE_CACHE_DIR_ENV, &path);
+            (Self { _temp: temp }, path)
+        }
+    }
+
+    impl Drop for CacheTestEnv {
+        fn drop(&mut self) {
+            std::env::remove_var(TEMPLATE_CACHE_DIR_ENV);
+        }
+    }
+
+    #[test]
+    fn warm_cache_hit_works_offline_with_valid_digest() {
+        let (_env, cache_dir) = CacheTestEnv::new();
+
+        let tpl_dir = cache_dir.join("warm-template");
+        fs::create_dir_all(tpl_dir.join("src")).unwrap();
+        fs::write(tpl_dir.join("src/lib.rs"), "// contract code").unwrap();
+        fs::write(tpl_dir.join("README.md"), "# Warm Template").unwrap();
+
+        let digest = template_provenance::package_digest(&tpl_dir).unwrap();
+
+        let entry = TemplateEntry {
+            name: "warm-template".to_string(),
+            version: "1.2.0".to_string(),
+            description: "Warm test template".to_string(),
+            author: "Tester".to_string(),
+            source: TemplateSource::Local {
+                path: tpl_dir.to_string_lossy().to_string(),
+            },
+            ..Default::default()
+        };
+
+        write_cache_metadata(&entry, &digest).unwrap();
+
+        // fetch_template_cached should succeed from warm cache without network
+        let cached_path = fetch_template_cached(&entry, false).expect("warm cache should hit");
+        assert_eq!(cached_path, tpl_dir);
+        assert!(cached_path.join("src/lib.rs").exists());
+    }
+
+    #[test]
+    fn tampered_cache_entry_is_rejected() {
+        let (_env, cache_dir) = CacheTestEnv::new();
+
+        let tpl_dir = cache_dir.join("tampered-template");
+        fs::create_dir_all(tpl_dir.join("src")).unwrap();
+        fs::write(tpl_dir.join("src/lib.rs"), "// legitimate code").unwrap();
+
+        let digest = template_provenance::package_digest(&tpl_dir).unwrap();
+
+        let entry = TemplateEntry {
+            name: "tampered-template".to_string(),
+            version: "1.0.0".to_string(),
+            source: TemplateSource::Local {
+                path: tpl_dir.to_string_lossy().to_string(),
+            },
+            ..Default::default()
+        };
+
+        write_cache_metadata(&entry, &digest).unwrap();
+
+        // Tamper with the cache content by injecting unauthorized code
+        fs::write(tpl_dir.join("src/lib.rs"), "// malicious injected code").unwrap();
+
+        // Integrity verification must fail and reject the tampered cache
+        let err = fetch_template_cached(&entry, false).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("tampered with or corrupted") || msg.contains("Refusing to use tampered"),
+            "Expected tamper error, got: {}",
+            msg
+        );
+
+        // Verification function directly rejects it
+        let direct_err =
+            verify_cache_entry_integrity(&entry.name, &tpl_dir, Some(&digest), None).unwrap_err();
+        assert!(direct_err
+            .to_string()
+            .contains("tampered with or corrupted"));
+    }
+
+    #[tokio::test]
+    async fn offline_scaffold_fallback_from_warm_cache() {
+        let (_env, cache_dir) = CacheTestEnv::new();
+
+        let tpl_dir = cache_dir.join("offline-scaffold");
+        fs::create_dir_all(tpl_dir.join("src")).unwrap();
+        fs::write(tpl_dir.join("src/lib.rs"), "// offline scaffold code").unwrap();
+
+        let digest = template_provenance::package_digest(&tpl_dir).unwrap();
+
+        let entry = TemplateEntry {
+            name: "offline-scaffold".to_string(),
+            version: "2.0.0".to_string(),
+            description: "Offline scaffoldable template".to_string(),
+            author: "Offline Team".to_string(),
+            source: TemplateSource::Local {
+                path: tpl_dir.to_string_lossy().to_string(),
+            },
+            ..Default::default()
+        };
+
+        write_cache_metadata(&entry, &digest).unwrap();
+
+        // get_template should retrieve the entry from local cache when remote is not present
+        let retrieved = get_template("offline-scaffold")
+            .await
+            .expect("should load from cache");
+        assert_eq!(retrieved.name, "offline-scaffold");
+        assert_eq!(retrieved.version, "2.0.0");
+
+        // template_source_content should return the lib.rs content from warm cache
+        let content = template_source_content("offline-scaffold", false)
+            .await
+            .expect("should read source")
+            .expect("should have content");
+        assert_eq!(content, "// offline scaffold code");
+    }
+
+    #[test]
+    fn cache_list_and_clear_management() {
+        let (_env, cache_dir) = CacheTestEnv::new();
+
+        // Create two templates
+        for name in &["tpl-one", "tpl-two"] {
+            let dir = cache_dir.join(name);
+            fs::create_dir_all(dir.join("src")).unwrap();
+            fs::write(dir.join("src/lib.rs"), "code").unwrap();
+            let digest = template_provenance::package_digest(&dir).unwrap();
+
+            let entry = TemplateEntry {
+                name: name.to_string(),
+                version: "1.0.0".to_string(),
+                ..Default::default()
+            };
+            write_cache_metadata(&entry, &digest).unwrap();
+        }
+
+        // List templates
+        let list = list_cached_templates().unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].name, "tpl-one");
+        assert!(list[0].is_valid);
+        assert_eq!(list[1].name, "tpl-two");
+        assert!(list[1].is_valid);
+
+        // Clear one template
+        let cleared = clear_cached_template(Some("tpl-one")).unwrap();
+        assert_eq!(cleared, 1);
+        let list_after_one = list_cached_templates().unwrap();
+        assert_eq!(list_after_one.len(), 1);
+        assert_eq!(list_after_one[0].name, "tpl-two");
+
+        // Clear all remaining
+        let cleared_all = clear_cached_template(None).unwrap();
+        assert_eq!(cleared_all, 1);
+        let list_empty = list_cached_templates().unwrap();
+        assert_eq!(list_empty.len(), 0);
+    }
+}
+
+#[cfg(test)]
+mod scaffoldable_examples_tests {
+    use super::*;
+
+    #[test]
+    fn every_example_directory_is_registered_and_materializable() {
+        let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("templates/examples");
+        let registry: TemplateRegistry = serde_json::from_str(DEFAULT_REGISTRY)
+            .expect("bundled template registry must be valid JSON");
+
+        for item in fs::read_dir(&examples).expect("templates/examples must be readable") {
+            let path = item.expect("example directory entry").path();
+            if !path.is_dir() {
+                continue;
+            }
+            let name = path.file_name().unwrap().to_string_lossy();
+            let registered = registry.templates.iter().any(|entry| {
+                entry.name == name.as_ref()
+                    && matches!(&entry.source, TemplateSource::Builtin { id } if id == name.as_ref())
+            });
+            assert!(
+                registered,
+                "example template '{name}' is not scaffoldable by `starforge new`"
+            );
+
+            let temp = tempfile::tempdir().unwrap();
+            fetch_builtin_template(&name, temp.path())
+                .unwrap_or_else(|error| panic!("example '{name}' cannot be resolved: {error}"));
+            assert!(temp.path().join("Cargo.toml").is_file());
+        }
     }
 }

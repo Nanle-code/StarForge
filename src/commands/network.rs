@@ -1,4 +1,10 @@
-use crate::utils::{config, output, print as p};
+use crate::utils::{
+    config,
+    dry_run::{self, DryRunPlan, PlannedOperation},
+    output,
+    print as p,
+    soroban,
+};
 use anyhow::Result;
 use clap::Subcommand;
 use std::time::Duration;
@@ -54,9 +60,27 @@ pub enum NetworkCommands {
         /// New network name
         new_name: String,
     },
+
+    // ── Commands moved under `network` by ADR 0007 ───────────────────────
+    // Each moved command keeps its own argument struct, so no flag definition
+    // is duplicated here; `handle` forwards to the owning module.
+    /// Local Soroban devnet (Docker quickstart)
+    #[command(subcommand)]
+    Node(crate::commands::node::NodeCommands),
+    /// Local network simulation and testing environment
+    #[command(subcommand)]
+    Simulate(crate::commands::simulate::SimulateCommands),
+    /// Create and manage deterministic live-ledger snapshots for local tests
+    #[command(subcommand)]
+    Snapshot(crate::commands::snapshot::SnapshotCommands),
 }
 
 pub async fn handle(cmd: NetworkCommands) -> Result<()> {
+    if dry_run::is_enabled() {
+        if let Some(plan) = dry_run_plan(&cmd) {
+            return plan.emit(output::is_json_mode_enabled());
+        }
+    }
     match cmd {
         NetworkCommands::Show { json } => show(json),
         NetworkCommands::Switch { network } => switch(network),
@@ -76,6 +100,83 @@ pub async fn handle(cmd: NetworkCommands) -> Result<()> {
         NetworkCommands::Test { network, json } => test_network(network, json).await,
         NetworkCommands::Remove { name } => remove_network(name),
         NetworkCommands::Rename { old_name, new_name } => rename_network(old_name, new_name),
+        // ADR 0007: forward the commands that moved under `network`.
+        NetworkCommands::Node(cmd) => crate::commands::node::handle(cmd).await,
+        NetworkCommands::Simulate(cmd) => crate::commands::simulate::handle(cmd).await,
+        NetworkCommands::Snapshot(cmd) => crate::commands::snapshot::handle(cmd).await,
+    }
+}
+
+/// Build the plan shown by `--dry-run` for a mutating `network` subcommand.
+///
+/// `show` and `test` are read-only and return `None`.
+fn dry_run_plan(cmd: &NetworkCommands) -> Option<DryRunPlan> {
+    match cmd {
+        NetworkCommands::Switch { network } => Some(
+            DryRunPlan::new(
+                "network switch",
+                format!("Switch the active network to '{network}'"),
+            )
+            .network(network.clone())
+            .operation(PlannedOperation::new(
+                "config.write",
+                "active network",
+                format!("would set the active network to '{network}'"),
+            ))
+            .writes_filesystem(),
+        ),
+        NetworkCommands::Add {
+            name,
+            horizon_url,
+            soroban_rpc_url,
+            friendbot_url,
+            ..
+        } => {
+            let mut operation = PlannedOperation::new(
+                "config.write",
+                name.clone(),
+                format!("would add custom network '{name}' to the configuration"),
+            )
+            .detail("Horizon", horizon_url.clone());
+            if let Some(url) = soroban_rpc_url {
+                operation = operation.detail("Soroban RPC", url.clone());
+            }
+            if let Some(url) = friendbot_url {
+                operation = operation.detail("Friendbot", url.clone());
+            }
+            Some(
+                DryRunPlan::new("network add", format!("Add custom network '{name}'"))
+                    .network(name.clone())
+                    .operation(operation)
+                    .writes_filesystem(),
+            )
+        }
+        NetworkCommands::Remove { name } => Some(
+            DryRunPlan::new("network remove", format!("Remove custom network '{name}'"))
+                .network(name.clone())
+                .operation(PlannedOperation::new(
+                    "config.write",
+                    name.clone(),
+                    format!("would remove custom network '{name}' from the configuration"),
+                ))
+                .writes_filesystem()
+                .warn("If this is the active network, StarForge will switch back to testnet"),
+        ),
+        NetworkCommands::Rename { old_name, new_name } => Some(
+            DryRunPlan::new(
+                "network rename",
+                format!("Rename custom network '{old_name}' to '{new_name}'"),
+            )
+            .network(new_name.clone())
+            .operation(PlannedOperation::new(
+                "config.write",
+                new_name.clone(),
+                format!("would rename custom network '{old_name}' to '{new_name}'"),
+            ))
+            .writes_filesystem(),
+        ),
+        NetworkCommands::Show { .. } | NetworkCommands::Test { .. } => None,
+        NetworkCommands::Node(_) | NetworkCommands::Simulate(_) | NetworkCommands::Snapshot(_) => None,
     }
 }
 
@@ -90,6 +191,8 @@ fn show(json: bool) -> Result<()> {
             horizon_url: String,
             soroban_rpc_url: Option<String>,
             friendbot_url: Option<String>,
+            /// Extra root CAs trusted for this network (#902).
+            ca_bundle: Option<String>,
             active: bool,
         }
 
@@ -107,6 +210,7 @@ fn show(json: bool) -> Result<()> {
                 horizon_url: net_cfg.horizon_url.clone(),
                 soroban_rpc_url: net_cfg.soroban_rpc_url.clone(),
                 friendbot_url: net_cfg.friendbot_url.clone(),
+                ca_bundle: net_cfg.ca_bundle.clone(),
                 active: cfg.network == *name,
             })
             .collect();
@@ -129,6 +233,9 @@ fn show(json: bool) -> Result<()> {
         }
         if let Some(friendbot_url) = &net_cfg.friendbot_url {
             p::kv("Friendbot", friendbot_url);
+        }
+        if let Some(ca_bundle) = &net_cfg.ca_bundle {
+            p::kv("CA bundle", ca_bundle);
         }
         println!();
     }
@@ -271,6 +378,8 @@ pub struct NetworkHealthReport {
     pub timestamp: String,
     pub horizon: HorizonHealthDetails,
     pub soroban_rpc: Option<EndpointHealth>,
+    pub soroban_protocol_version: Option<u32>,
+    pub soroban_protocol_version_error: Option<String>,
     pub friendbot: Option<EndpointHealth>,
 }
 
@@ -285,10 +394,10 @@ async fn test_network(network_name: Option<String>, json: bool) -> Result<()> {
         p::info(&format!("Horizon: {}", net_cfg.horizon_url));
     }
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .pool_max_idle_per_host(10)
-        .build()?;
+    // #902: the shared factory applies the proxy, the custom CA bundle and the
+    // `starforge/<version>` user agent to this probe exactly as it does to the
+    // requests the rest of the CLI sends.
+    let client = crate::utils::http_client::client_with_timeout(Duration::from_secs(10));
 
     // Test Horizon endpoint & parse details
     let start_horizon = std::time::Instant::now();
@@ -343,6 +452,8 @@ async fn test_network(network_name: Option<String>, json: bool) -> Result<()> {
 
     // Test Soroban RPC if available
     let mut soroban_health = None;
+    let mut soroban_protocol_version = None;
+    let mut soroban_protocol_version_error = None;
     if let Some(ref soroban_url) = net_cfg.soroban_rpc_url {
         if !emit_json {
             p::info(&format!("Soroban RPC: {}", soroban_url));
@@ -401,6 +512,22 @@ async fn test_network(network_name: Option<String>, json: bool) -> Result<()> {
                 });
             }
         }
+
+        match soroban::get_protocol_version_for_url(soroban_url).await {
+            Ok(version) => {
+                soroban_protocol_version = Some(version);
+                if !emit_json {
+                    p::kv("Soroban protocol version", &version.to_string());
+                }
+            }
+            Err(error) => {
+                let message = format!("Soroban protocol version unavailable: {error:#}");
+                if !emit_json {
+                    p::warn(&message);
+                }
+                soroban_protocol_version_error = Some(message);
+            }
+        }
     }
 
     // Test Friendbot if available
@@ -439,6 +566,8 @@ async fn test_network(network_name: Option<String>, json: bool) -> Result<()> {
             error: horizon_err,
         },
         soroban_rpc: soroban_health,
+        soroban_protocol_version,
+        soroban_protocol_version_error,
         friendbot: friendbot_health,
     };
 

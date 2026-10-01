@@ -1,0 +1,3 @@
+# Golden CLI case: wallet show for a wallet that does not exist
+description = "wallet show for a wallet that does not exist"
+args = ["wallet", "show", "golden-missing-wallet"]

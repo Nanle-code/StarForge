@@ -1,11 +1,14 @@
 use anyhow::Result;
 use clap::{Args, Subcommand};
 use colored::*;
+use std::io::Write;
+use stellar_xdr::curr::TransactionEnvelope;
 
 use crate::utils::confirmation;
-use crate::utils::hardware_wallet::HardwareWalletKind;
+use crate::utils::hardware_wallet::{self, HardwareWalletKind};
 use crate::utils::horizon::FeeStats;
-use crate::utils::{config, horizon, print as p, tx_batch, wallet_signer};
+use crate::utils::tx_xdr;
+use crate::utils::{config, fee_payer, horizon, print as p, tx_batch, tx_builder, wallet_signer};
 
 #[derive(Args)]
 pub struct TxArgs {
@@ -27,6 +30,89 @@ pub enum TxCommands {
         #[arg(short, long)]
         network: Option<String>,
     },
+    /// Decode a transaction envelope from XDR to JSON
+    Decode(DecodeArgs),
+    /// Encode a JSON transaction envelope back into XDR
+    Encode(EncodeArgs),
+    /// Sign a transaction envelope with a stored wallet
+    Sign(SignArgs),
+    /// Simulate an arbitrary transaction envelope on the network
+    Simulate(SimulateArgs),
+    /// Submit an arbitrary transaction envelope exactly as provided
+    Submit(SubmitArgs),
+}
+
+/// An envelope supplied as an argument, a `--file`, or stdin.
+#[derive(Args)]
+pub struct XdrInputArgs {
+    /// Base64 (or hex) transaction envelope XDR
+    pub xdr: Option<String>,
+    /// Read the XDR from a file instead of an argument or stdin
+    #[arg(long)]
+    pub file: Option<std::path::PathBuf>,
+    /// Network the envelope is for; selects the signing hash
+    #[arg(short, long)]
+    pub network: Option<String>,
+}
+
+#[derive(Args)]
+pub struct DecodeArgs {
+    #[command(flatten)]
+    pub input: XdrInputArgs,
+    /// Emit the envelope JSON on a single line
+    #[arg(long)]
+    pub compact: bool,
+    /// Emit only the transaction hash
+    #[arg(long)]
+    pub hash: bool,
+    /// Emit the envelope, summary and hash as one JSON document
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args)]
+pub struct EncodeArgs {
+    /// JSON transaction envelope, as produced by `tx decode`
+    pub json: Option<String>,
+    /// Read the JSON envelope from a file instead of an argument or stdin
+    #[arg(long)]
+    pub file: Option<std::path::PathBuf>,
+    /// Output encoding for the XDR on stdout
+    #[arg(long, default_value = "base64", value_parser = ["base64", "hex"])]
+    pub format: String,
+}
+
+#[derive(Args)]
+pub struct SignArgs {
+    #[command(flatten)]
+    pub input: XdrInputArgs,
+    /// Wallet name to sign with
+    #[arg(long)]
+    pub wallet: String,
+    /// Output encoding for the signed XDR on stdout
+    #[arg(long, default_value = "base64", value_parser = ["base64", "hex"])]
+    pub format: String,
+}
+
+#[derive(Args)]
+pub struct SimulateArgs {
+    #[command(flatten)]
+    pub input: XdrInputArgs,
+    /// Print the raw Soroban RPC response
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args)]
+pub struct SubmitArgs {
+    #[command(flatten)]
+    pub input: XdrInputArgs,
+    /// Skip the confirmation prompt
+    #[arg(long, default_value = "false")]
+    pub yes: bool,
+    /// Print the submission result as JSON
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args)]
@@ -68,6 +154,9 @@ pub struct SendArgs {
     /// Network to use
     #[arg(long, default_value = "testnet", value_parser = ["testnet", "mainnet"])]
     pub network: String,
+    /// Wallet that pays the network fee via a fee bump (CAP-15)
+    #[arg(long, value_name = "WALLET")]
+    pub fee_payer: Option<String>,
     /// Skip confirmation prompt
     #[arg(long, default_value = "false")]
     pub yes: bool,
@@ -112,6 +201,384 @@ pub async fn handle(args: TxArgs) -> Result<()> {
         TxCommands::Send(args) => handle_send(args).await,
         TxCommands::Batch(args) => handle_batch(args).await,
         TxCommands::History(args) => handle_history(args).await,
+        TxCommands::Decode(args) => handle_decode(args),
+        TxCommands::Encode(args) => handle_encode(args),
+        TxCommands::Sign(args) => handle_sign(args),
+        TxCommands::Simulate(args) => handle_simulate(args).await,
+        TxCommands::Submit(args) => handle_submit(args).await,
+    }
+}
+
+// ── XDR toolbox (#916) ────────────────────────────────────────────────────────
+//
+// `decode`, `encode` and `sign` write only the payload to stdout so they
+// compose (`tx encode | tx sign | tx submit`); commentary goes to stderr.
+
+/// Resolves `--network`, falling back to the configured default.
+fn resolve_network(network: Option<&str>) -> Result<String> {
+    let network = match network {
+        Some(network) => network.to_string(),
+        None => config::load()
+            .map(|cfg| cfg.network)
+            .unwrap_or_else(|_| "testnet".to_string()),
+    };
+    config::validate_network(&network)?;
+    Ok(network)
+}
+
+fn emit_payload(payload: &str) -> Result<()> {
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    writeln!(handle, "{payload}")?;
+    handle.flush()?;
+    Ok(())
+}
+
+fn note(line: &str) {
+    eprintln!("  {line}");
+}
+
+/// Reports what the envelope actually contains, and its hash, off the payload
+/// stream so piping is unaffected.
+fn report_envelope(envelope: &TransactionEnvelope, network: &str, passphrase: &str) {
+    let summary = tx_xdr::summarize(envelope);
+    note(&format!(
+        "{} {}",
+        "Envelope:".dimmed(),
+        tx_xdr::envelope_kind(envelope).cyan()
+    ));
+    note(&format!(
+        "{}  {}",
+        "Source:".dimmed(),
+        summary.source_account.yellow()
+    ));
+    note(&format!(
+        "{}    {}  {}",
+        "Seq:".dimmed(),
+        summary.seq_num.white(),
+        format!("(fee {} stroops)", summary.fee_stroops).dimmed()
+    ));
+    for (index, operation) in summary.operations.iter().enumerate() {
+        note(&format!(
+            "{}   {} {}",
+            format!("Op {index}:").dimmed(),
+            "→".cyan(),
+            operation.white()
+        ));
+    }
+    note(&format!(
+        "{} {}",
+        "Signatures:".dimmed(),
+        if summary.signature_hints.is_empty() {
+            "none yet".yellow().to_string()
+        } else {
+            format!(
+                "{} (hints: {})",
+                summary.signature_hints.len(),
+                summary.signature_hints.join(", ")
+            )
+            .green()
+            .to_string()
+        }
+    ));
+    match tx_xdr::signature_hash(envelope, passphrase) {
+        Ok(hash) => note(&format!(
+            "{}      {}",
+            "Hash:".dimmed(),
+            hex::encode(hash).white().bold()
+        )),
+        Err(error) => note(&format!("{} {}", "Hash:".dimmed(), error.to_string().red())),
+    }
+    note(&format!("{}   {}", "Network:".dimmed(), network.cyan()));
+}
+
+fn handle_decode(args: DecodeArgs) -> Result<()> {
+    let network = resolve_network(args.input.network.as_deref())?;
+    let passphrase = config::get_network_passphrase(&network);
+    let input = tx_xdr::read_payload(
+        args.input.xdr.as_deref(),
+        args.input.file.as_deref(),
+        "xdr",
+        "decode",
+    )?;
+    let envelope = tx_xdr::parse_envelope(&input)?;
+
+    if args.hash {
+        let hash = tx_xdr::signature_hash(&envelope, &passphrase)?;
+        return emit_payload(&hex::encode(hash));
+    }
+
+    if args.json {
+        let decoded = tx_xdr::decode(&input, Some(&passphrase))?;
+        return emit_payload(&serde_json::to_string_pretty(&decoded)?);
+    }
+
+    emit_payload(&tx_xdr::to_json(&envelope, !args.compact)?)?;
+    report_envelope(&envelope, &network, &passphrase);
+    Ok(())
+}
+
+fn handle_encode(args: EncodeArgs) -> Result<()> {
+    let json = tx_xdr::read_payload(args.json.as_deref(), args.file.as_deref(), "json", "encode")?;
+    let envelope = tx_xdr::encode_json(&json)?;
+    let format = tx_xdr::WireFormat::parse(&args.format)?;
+    emit_payload(&tx_xdr::write_envelope(&envelope, format)?)
+}
+
+fn handle_sign(args: SignArgs) -> Result<()> {
+    let network = resolve_network(args.input.network.as_deref())?;
+    let passphrase = config::get_network_passphrase(&network);
+    let input = tx_xdr::read_payload(
+        args.input.xdr.as_deref(),
+        args.input.file.as_deref(),
+        "xdr",
+        "sign",
+    )?;
+    let envelope = tx_xdr::parse_envelope(&input)?;
+    let format = tx_xdr::WireFormat::parse(&args.format)?;
+
+    config::validate_wallet_name(&args.wallet)?;
+    let cfg = config::load()?;
+    let wallet = cfg
+        .wallets
+        .iter()
+        .find(|w| w.name == args.wallet)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Wallet '{}' not found. Run `starforge wallet list`",
+                args.wallet
+            )
+        })?;
+
+    let secret = wallet_signer::resolve_local_secret(wallet, &wallet.name)?;
+    let signer = tx_xdr::public_key_for_secret(&secret)?;
+    if signer != wallet.public_key {
+        anyhow::bail!(
+            "Wallet '{}' is configured for {} but its secret key belongs to {}. Refusing to sign.",
+            wallet.name,
+            wallet.public_key,
+            signer
+        );
+    }
+
+    let signed = tx_xdr::sign_envelope(&envelope, &secret, &passphrase)?;
+    emit_payload(&tx_xdr::write_envelope(&signed, format)?)?;
+
+    let summary = tx_xdr::summarize(&signed);
+    note(&format!(
+        "{} {}",
+        "Signed:".dimmed(),
+        format!("{signer} · {} signatures", summary.signature_hints.len()).green()
+    ));
+    if let Ok(hash) = tx_xdr::signature_hash(&signed, &passphrase) {
+        note(&format!(
+            "{} {}",
+            "Hash:".dimmed(),
+            hex::encode(hash).white()
+        ));
+    }
+    Ok(())
+}
+
+async fn handle_simulate(args: SimulateArgs) -> Result<()> {
+    let network = resolve_network(args.input.network.as_deref())?;
+    let passphrase = config::get_network_passphrase(&network);
+    let input = tx_xdr::read_payload(
+        args.input.xdr.as_deref(),
+        args.input.file.as_deref(),
+        "xdr",
+        "simulate",
+    )?;
+    // Validate locally so a malformed blob never reaches the RPC.
+    let envelope = tx_xdr::parse_envelope(&input)?;
+    let xdr = tx_xdr::write_envelope(&envelope, tx_xdr::WireFormat::Base64)?;
+
+    if !args.json {
+        p::header("Simulate Transaction");
+        p::info("Simulating against Soroban RPC…");
+    }
+    report_envelope(&envelope, &network, &passphrase);
+
+    let result = crate::utils::soroban::simulate_envelope(&xdr, &network).await?;
+
+    if args.json {
+        emit_payload(&serde_json::to_string_pretty(&result)?)?;
+    }
+
+    if let Some(error) = result.get("error").and_then(|v| v.as_str()) {
+        if !args.json {
+            p::error("Simulation failed");
+        }
+        anyhow::bail!("Simulation reported an error: {error}");
+    }
+
+    if args.json {
+        return Ok(());
+    }
+
+    p::separator();
+    if let Some(fee) = result.get("minResourceFee") {
+        p::kv("Resource fee (stroops)", &fee.to_string());
+    }
+    if let Some(cost) = result.get("cost") {
+        p::kv("Cost", &cost.to_string());
+    }
+    if let Some(ledger) = result.get("latestLedger") {
+        p::kv("Latest ledger", &ledger.to_string());
+    }
+    if let Some(results) = result.get("results").and_then(|v| v.as_array()) {
+        p::kv("Host function results", &results.len().to_string());
+        for (index, entry) in results.iter().enumerate() {
+            if let Some(xdr) = entry.get("xdr").and_then(|v| v.as_str()) {
+                p::kv(&format!("Result {index}"), xdr);
+            }
+        }
+    }
+    if let Some(events) = result.get("events").and_then(|v| v.as_array()) {
+        p::kv("Events", &events.len().to_string());
+    }
+    if let Some(preamble) = result.get("restorePreamble") {
+        p::warn("Transaction needs state restored before submission:");
+        println!("{}", preamble.to_string().yellow());
+    }
+    p::separator();
+    Ok(())
+}
+
+async fn handle_submit(args: SubmitArgs) -> Result<()> {
+    // `--json` is the scripted mode of a pipeline: stdout carries only the
+    // result and nothing waits for a keystroke, so the caller has to opt into
+    // the submission explicitly.
+    if args.json && !args.yes {
+        anyhow::bail!(
+            "--json is for scripted pipelines and prints no prompt; pass --yes to submit."
+        );
+    }
+
+    let network = resolve_network(args.input.network.as_deref())?;
+    let passphrase = config::get_network_passphrase(&network);
+    let input = tx_xdr::read_payload(
+        args.input.xdr.as_deref(),
+        args.input.file.as_deref(),
+        "xdr",
+        "submit",
+    )?;
+    let envelope = tx_xdr::parse_envelope(&input)?;
+    let summary = tx_xdr::summarize(&envelope);
+    let xdr = tx_xdr::write_envelope(&envelope, tx_xdr::WireFormat::Base64)?;
+
+    if !args.json {
+        p::header("Submit Transaction Envelope");
+    }
+    report_envelope(&envelope, &network, &passphrase);
+
+    if summary.signature_hints.is_empty() {
+        note(&format!(
+            "{}",
+            "This envelope carries no signatures; the network will reject it.".yellow()
+        ));
+    }
+    if network == "mainnet" {
+        note(&format!(
+            "{}",
+            "You are submitting on MAINNET. This will cost real XLM."
+                .red()
+                .bold()
+        ));
+    }
+
+    if args.json {
+        // `--json` never prompts, so it inherits the guardrail
+        // `confirm_operation` enforces for a destructive action: a mainnet
+        // submission still needs the explicit unsafe opt-in.
+        if network == "mainnet" && !confirmation::unsafe_skip_confirmation_enabled() {
+            anyhow::bail!(
+                "Refusing to skip confirmation for destructive action without explicit unsafe opt-in. \
+                 Set {}=1 only in controlled automation (see docs/CONFIRMATION_UX.md), \
+                 or submit without --json.",
+                confirmation::ENV_UNSAFE_SKIP_CONFIRMATION
+            );
+        }
+    } else {
+        let risk_level = if network == "mainnet" {
+            confirmation::RiskLevel::High
+        } else {
+            confirmation::RiskLevel::Medium
+        };
+        let mut summary_builder = confirmation::OperationSummary::new(
+            "Submit raw transaction envelope".to_string(),
+            network.clone(),
+            risk_level,
+        )
+        .add("Source", &summary.source_account)
+        .add("Sequence", &summary.seq_num)
+        .add("Fee (stroops)", summary.fee_stroops.to_string())
+        .add("Operations", summary.operations.join(", "));
+        if let Ok(hash) = tx_xdr::signature_hash(&envelope, &passphrase) {
+            summary_builder = summary_builder.add("Hash", hex::encode(hash));
+        }
+
+        let confirm_config = confirmation::ConfirmationConfig {
+            risk_level,
+            network: network.clone(),
+            skip_confirm: args.yes,
+            dry_run: false,
+            prompt: Some("Submit this transaction?".to_string()),
+            require_type_confirmation: network == "mainnet",
+            destructive_action: if network == "mainnet" {
+                Some(confirmation::DestructiveAction::MainnetTransaction)
+            } else {
+                None
+            },
+            challenge_phrase: None,
+        };
+
+        if !confirmation::confirm_operation(&summary_builder, &confirm_config)? {
+            return Ok(());
+        }
+    }
+
+    crate::utils::network_guard::verify(&network).await?;
+    if !args.json {
+        p::info("Submitting envelope to Horizon…");
+    }
+    let outcome = horizon::submit_envelope(&xdr, &network).await?;
+
+    if args.json {
+        let payload = serde_json::json!({
+            "hash": outcome.hash,
+            "ledger": outcome.ledger,
+            "successful": outcome.successful,
+            "result_xdr": outcome.result_xdr,
+        });
+        return emit_payload(&serde_json::to_string_pretty(&payload)?);
+    }
+
+    println!();
+    p::separator();
+    println!(
+        "  {} {}",
+        "✓".green().bold(),
+        "Transaction submitted successfully!".bright_white()
+    );
+    println!();
+    p::kv_accent("Transaction Hash", &outcome.hash);
+    if let Some(ledger) = outcome.ledger {
+        p::kv("Ledger", &ledger.to_string());
+    }
+    p::kv(
+        "Stellar Expert",
+        &format!("{}/{}", explorer_base(&network), outcome.hash),
+    );
+    p::separator();
+    Ok(())
+}
+
+fn explorer_base(network: &str) -> &'static str {
+    if network == "mainnet" {
+        "https://stellar.expert/explorer/public/tx"
+    } else {
+        "https://stellar.expert/explorer/testnet/tx"
     }
 }
 
@@ -269,7 +736,9 @@ async fn handle_batch(args: BatchArgs) -> Result<()> {
         &args.network,
         args.yes,
         "batch transaction",
-    )?;
+    )?
+    .with_fee_stroops(tx_result.fee)
+    .for_non_contract();
 
     p::info("Submitting batch transaction…");
     let submit_result = horizon::submit_payment_with_signing(
@@ -316,6 +785,19 @@ fn batch_operation_to_payment(op: &tx_batch::BatchOperation) -> Result<horizon::
             })
         }
     }
+}
+
+/// Convert the validated decimal amount to stroops without going through a
+/// lossy `f64` round-trip where possible.
+fn amount_f64_to_stroops(amount: &f64) -> Result<i64> {
+    let stroops = (amount * 10_000_000.0).round();
+    if !stroops.is_finite() || stroops < 0.0 {
+        anyhow::bail!("amount '{}' is not a valid transfer amount", amount);
+    }
+    if stroops > i64::MAX as f64 {
+        anyhow::bail!("amount '{}' exceeds the maximum i64 stroop value", amount);
+    }
+    Ok(stroops as i64)
 }
 
 async fn handle_send(args: SendArgs) -> Result<()> {
@@ -420,28 +902,60 @@ async fn handle_send(args: SendArgs) -> Result<()> {
         }
     }
 
-    // Step 3: Build and simulate transaction
-    p::step(3, 3, "Building and simulating transaction…");
-    let tx_result = horizon::build_and_simulate_payment(
-        &wallet.public_key,
-        &args.to,
-        &args.amount,
-        asset_code.as_deref(),
-        asset_issuer.as_deref(),
-        &source_account.sequence,
-        &args.network,
-    )?;
+    // Step 3: Build the real payment envelope
+    p::step(3, 3, "Building transaction…");
+    let base_fee = fee_payer::resolve_base_fee(&args.network).await;
 
-    p::kv(
-        "Estimated Fee",
-        &format!("{:.7} XLM", tx_result.fee as f64 / 10_000_000.0),
-    );
+    let amount_stroops = amount_f64_to_stroops(&amount_f64)?;
+    let payment_request = tx_builder::PaymentRequest {
+        source: wallet.public_key.clone(),
+        destination: args.to.clone(),
+        amount: amount_stroops,
+        asset: match (&asset_code, &asset_issuer) {
+            (Some(code), Some(issuer)) => Some((code.clone(), issuer.clone())),
+            _ => None,
+        },
+        sequence: source_account.sequence.trim().parse::<i64>().map_err(|_| {
+            anyhow::anyhow!(
+                "Horizon returned an unreadable sequence for {}: '{}'",
+                wallet.public_key,
+                source_account.sequence
+            )
+        })?,
+        base_fee,
+    };
+    let plain_envelope = tx_builder::build_payment(&payment_request)?;
+
+    // Sign the inner payment as the sender, then optionally wrap it in a fee
+    // bump paid by a different wallet. Both layers are verified before this
+    // returns, so nothing unverifiable can reach Horizon.
+    let signed = fee_payer::sign_and_wrap(
+        plain_envelope,
+        &fee_payer::WrapOptions {
+            network: &args.network,
+            base_fee,
+            source_wallet: wallet,
+            hardware: args.hardware,
+            hd_path: &args.hd_path,
+            fee_payer: args.fee_payer.as_deref(),
+        },
+    )?;
+    let breakdown = signed.breakdown.clone();
+    let transaction_xdr = signed.xdr().to_string();
+
+    if args.fee_payer.is_some() {
+        p::header("Who Pays What");
+        for (key, value) in breakdown.rows() {
+            p::kv(key, &value);
+        }
+        p::separator();
+    }
+
+    p::kv("Network Fee", &tx_builder::stroops_xlm(breakdown.outer_fee));
+    p::kv("Fee Payer", breakdown.fee_payer.as_str());
     p::kv(
         "Transaction XDR",
-        &format!(
-            "{}...",
-            &tx_result.transaction_xdr[..tx_result.transaction_xdr.len().min(20)]
-        ),
+        &format!("{}...", &transaction_xdr[..transaction_xdr.len().min(20)]),
     );
 
     // Build operation summary for confirmation
@@ -451,7 +965,7 @@ async fn handle_send(args: SendArgs) -> Result<()> {
         confirmation::RiskLevel::Medium
     };
 
-    let summary = confirmation::OperationSummary::new(
+    let mut summary = confirmation::OperationSummary::new(
         "Send Stellar Payment".to_string(),
         args.network.clone(),
         risk_level,
@@ -460,10 +974,11 @@ async fn handle_send(args: SendArgs) -> Result<()> {
     .add("From Address", &wallet.public_key)
     .add("To Address", &args.to)
     .add("Amount", format!("{} {}", args.amount, args.asset))
-    .add(
-        "Estimated Fee",
-        format!("{:.7} XLM", tx_result.fee as f64 / 10_000_000.0),
-    );
+    .add("Network Fee", tx_builder::stroops_xlm(breakdown.outer_fee))
+    .add("Fee Payer", breakdown.fee_payer.as_str());
+    if let Some(payer) = &args.fee_payer {
+        summary = summary.add("Fee Bump Signed By", payer);
+    }
 
     let confirm_config = confirmation::ConfirmationConfig {
         risk_level,
@@ -484,25 +999,13 @@ async fn handle_send(args: SendArgs) -> Result<()> {
         return Ok(());
     }
 
-    // Submit transaction
+    // Submit the already-signed envelope. Both the inner payment and the fee
+    // bump were signed before confirmation so the preview showed a real,
+    // verified fee split rather than an estimate.
     println!();
 
-    let signing_request = wallet_signer::SigningRequest::from_options(
-        Some(wallet),
-        args.hardware,
-        Some(&args.hd_path),
-        &args.network,
-        args.yes,
-        "payment transaction",
-    )?;
-
     p::info("Submitting transaction…");
-    let submit_result = horizon::submit_payment_with_signing(
-        &tx_result.transaction_xdr,
-        &signing_request,
-        &args.network,
-    )
-    .await?;
+    let submit_result = horizon::submit_signed_envelope(&transaction_xdr, &args.network).await?;
 
     println!();
     p::separator();

@@ -154,6 +154,32 @@ impl ContextualHelp {
 
 // ── Core entry point ──────────────────────────────────────────────────────────
 
+/// Map a user-typed help topic onto a registry key.
+///
+/// ADR 0007 moved most verbs under a noun, so `starforge help test` and
+/// `starforge help contract test` both have to keep working. Resolution order:
+/// an exact registry key, then the legacy spelling from the deprecation table,
+/// then the leading noun of a noun-verb path.
+fn resolve_topic(topic: &str) -> &str {
+    fn known(name: &str) -> bool {
+        help_metadata::HELP_REGISTRY.iter().any(|c| c.name == name)
+    }
+
+    if known(topic) {
+        return topic;
+    }
+    if let Some(entry) = crate::commands::deprecations::DEPRECATED_COMMANDS
+        .iter()
+        .find(|entry| entry.old == topic)
+    {
+        return resolve_topic(entry.new);
+    }
+    match topic.split_once(' ') {
+        Some((noun, _)) if known(noun) => noun,
+        _ => topic,
+    }
+}
+
 /// Build a [[ContextualHelp]] for the request described by `ctx`.
 ///
 /// Behaviour:
@@ -169,9 +195,9 @@ pub fn generate_help(ctx: &HelpContext<'_>) -> ContextualHelp {
     // Normalise to lower-case so case-insensitive lookups succeed. The
     // registry stores canonical lower-case names.
     let cmd_lower = ctx.command.trim().to_lowercase();
-    let cmd = cmd_lower.as_str();
 
     // 1. Static metadata
+    let cmd = resolve_topic(&cmd_lower);
     let meta = help_metadata::HELP_REGISTRY.iter().find(|c| c.name == cmd);
 
     if let Some(meta) = meta {

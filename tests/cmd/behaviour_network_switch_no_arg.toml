@@ -1,0 +1,3 @@
+# Golden CLI case: network switch requires NAME
+description = "network switch requires NAME"
+args = ["network", "switch"]

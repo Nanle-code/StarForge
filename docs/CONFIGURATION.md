@@ -93,6 +93,10 @@ Security model:
 - `starforge config show` tells you which lockfile (if any) is participating,
   so an override is never mistaken for a personal setting.
 
+The lockfile can also declare `[[smoke_tests]]`, which `starforge deploy
+--execute` runs after a successful deploy. These entries are not config
+overrides. See [SMOKE_TESTS.md](SMOKE_TESTS.md) for the schema.
+
 Commands that only read configuration use the effective config. Commands
 that write configuration still operate on the user config only — project
 overrides are an input, never something persisted back.
@@ -166,6 +170,42 @@ if they are absent from the `networks` map.
 
 ---
 
+## Per-wallet signing policies
+
+Each wallet may carry an independent policy, enforced immediately before local
+or hardware signing. Empty allowlists and an omitted fee cap leave that
+dimension unrestricted; `max_fee` is expressed in stroops. A configured fee
+cap requires a fee estimate at signing time, and an unavailable estimate blocks
+signing. `allowed_contracts` applies to contract transactions; deployments are
+blocked when the wallet has a contract allowlist because the new contract ID is
+not known before deployment.
+
+```toml
+[[wallets]]
+name = "mainnet-admin"
+public_key = "G..."
+network = "mainnet"
+created_at = "2026-09-28T00:00:00Z"
+funded = true
+allowed_networks = ["mainnet"]
+max_fee = 500000
+allowed_contracts = ["C..."]
+require_confirmation = true
+```
+
+`require_confirmation = true` always prompts at signing time, including when
+the command was started with `--yes`. Policy failures are written to the audit
+trail as `wallet_policy_violation` entries. Errors include one of these codes:
+
+| Code | Meaning |
+|---|---|
+| `WALLET_POLICY_NETWORK_DENIED` | Requested network is not allowlisted |
+| `WALLET_POLICY_FEE_EXCEEDED` | Estimated transaction fee exceeds `max_fee` |
+| `WALLET_POLICY_FEE_UNKNOWN` | A fee cap is set but no fee estimate is available |
+| `WALLET_POLICY_CONTRACT_DENIED` | Contract ID is not allowlisted |
+| `WALLET_POLICY_CONTRACT_UNKNOWN` | Contract target is missing while an allowlist is set |
+| `WALLET_POLICY_CONFIRMATION_DECLINED` | User declined the required signing confirmation |
+
 ## Migration note
 
 `validate_network_exists` used to fall back to loading the on-disk
@@ -188,11 +228,36 @@ the duplicate silently shadowed the other on lookup.
 
 ---
 
+## Secret storage backend (OS keychain)
+
+Wallet secrets can be moved out of the configuration and into an OS-native
+secret store (macOS Keychain, Windows Credential Manager, or the freedesktop
+Secret Service):
+
+```bash norun
+$ starforge wallet migrate --to keychain
+```
+
+- The backend is opt-in at build time via the `keychain` cargo feature (no new
+  dependency; it shells out to the platform tool) and at runtime via the
+  command above.
+- After migration the configuration stores only a `keychain:<key>` reference
+  per wallet; the secret itself lives in the OS store. `validate_config`
+  accepts those references.
+- Migration is idempotent and never drops a key: re-running it reports the
+  wallets as already migrated.
+- **Headless-CI fallback.** When the `keychain` feature is disabled or the
+  platform tool is missing, the command writes secrets to a
+  permission-restricted `secrets.json` next to the config (0600 on Unix) and
+  prints a notice, so CI jobs still migrate without a live keychain.
+
+---
+
 ## Security
 
-- Wallet secrets in a configuration are stored either as plaintext StrKeys or
-  as encrypted bundles; `validate_config` accepts both shapes but never logs
-  either. Error messages quote the wallet name, not the key.
+- Wallet secrets in a configuration are stored either as plaintext StrKeys,
+  encrypted bundles, or `keychain:` references created by a keychain
+  migration; `validate_config` accepts all shapes but never logs any of them. Error messages quote the wallet name, not the key.
 - An overlay cannot replace an existing wallet, so a hostile overlay file
   cannot swap out a deployer key.
 - An overlay cannot set `install_id`, which is used for deterministic
@@ -238,6 +303,77 @@ exports — goes through `config::atomic_write`:
   interrupted rollback can no longer leave a half-written `config.toml`.
 - `write_config_backup` previously wrote backups with a non-atomic `fs::write`.
   It now uses `atomic_write`. Existing backup files remain valid and unchanged.
+
+---
+
+## Outbound HTTP: proxy, custom CAs, and user agent (#902)
+
+Every HTTP request StarForge makes is built by one factory
+([`src/utils/http_client.rs`](../src/utils/http_client.rs)), so a setting
+applies to the CLI as a whole instead of to whichever module remembered to
+honour it.
+
+### What the factory applies
+
+- **User agent** — `starforge/<version>` on every request, taken from the crate
+  version so it cannot drift from the release.
+- **Timeouts** — a 30s request timeout and a 10s connect timeout by default;
+  call sites that need a different budget ask for that profile and share the
+  resulting pool.
+- **Connection pooling** — up to 32 idle connections per host, kept for 90s,
+  with a 60s TCP keepalive.
+- **Retries** — `http_client::send_with_retry` retries connection errors, `5xx`
+  and `429` up to three attempts with exponential backoff (150ms doubling, at
+  most 5s between attempts).
+- **Proxy** and **custom root CAs**, below.
+
+### Proxy
+
+| Variable | Meaning |
+| --- | --- |
+| `HTTPS_PROXY` / `https_proxy` | proxy for HTTPS traffic (highest priority) |
+| `HTTP_PROXY` / `http_proxy` | proxy for HTTP traffic |
+| `ALL_PROXY` / `all_proxy` | proxy for every scheme |
+| `NO_PROXY` / `no_proxy` | comma-separated hosts that bypass the proxy |
+
+Priority is `HTTPS_PROXY`, then `HTTP_PROXY`, then `ALL_PROXY`; the first
+non-empty value wins, so an empty `HTTPS_PROXY=` does not mask a configured
+`HTTP_PROXY`. `NO_PROXY` applies to the selected proxy and accepts hostnames,
+domains (`.example.com`), IP literals, CIDR ranges and `*`.
+
+### Custom root CAs
+
+A private Horizon or Soroban deployment behind an internal CA is configured per
+network:
+
+```bash
+starforge config set network.ca_bundle /etc/ssl/certs/internal-ca.pem
+starforge network show            # prints the bundle for every network
+starforge config show             # prints it for the active network
+starforge config set network.ca_bundle none   # clear it again
+```
+
+- The bundle must be PEM (`-----BEGIN CERTIFICATE-----`); every certificate in
+  the file is trusted, so a bundle may carry a whole chain. The file is parsed
+  before it is stored, so a typo is reported by the command that made it.
+- Certificates are **added** to the platform roots, never replaced with them.
+- `STARFORGE_CA_BUNDLE=/path/to/ca.pem` overrides the configured bundle for a
+  single invocation, which is handy in CI where the config should stay clean.
+- `starforge config doctor` reports whether the active network's bundle exists
+  and parses, so a broken path shows up before the first request fails.
+- An unreadable bundle is reported on stderr and the request proceeds without
+  it, rather than leaving the CLI unusable; the config itself only rejects an
+  *empty* value, so an unmounted share cannot make the config unloadable.
+
+### Adding a client
+
+Do not build `reqwest::Client` directly. `tests/http_client.rs` fails the suite
+when `Client::new()` or `Client::builder()` appears anywhere under `src/`
+outside the factory. Ask for a profile instead:
+
+```rust
+let client = crate::utils::http_client::client_with_timeout(Duration::from_secs(10));
+```
 
 ---
 

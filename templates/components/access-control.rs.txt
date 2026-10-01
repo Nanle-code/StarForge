@@ -1,0 +1,14 @@
+    pub fn grant_role(env: soroban_sdk::Env, admin: soroban_sdk::Address, account: soroban_sdk::Address, role: soroban_sdk::Symbol) {
+        admin.require_auth();
+        let key = (soroban_sdk::symbol_short!("ROLE"), role, account);
+        env.storage().persistent().set(&key, &true);
+    }
+    pub fn revoke_role(env: soroban_sdk::Env, admin: soroban_sdk::Address, account: soroban_sdk::Address, role: soroban_sdk::Symbol) {
+        admin.require_auth();
+        let key = (soroban_sdk::symbol_short!("ROLE"), role, account);
+        env.storage().persistent().remove(&key);
+    }
+    pub fn has_role(env: soroban_sdk::Env, account: soroban_sdk::Address, role: soroban_sdk::Symbol) -> bool {
+        let key = (soroban_sdk::symbol_short!("ROLE"), role, account);
+        env.storage().persistent().get(&key).unwrap_or(false)
+    }

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
+  <!-- StarForge activity-bar icon: a stylised forge anvil with a star spark -->
+  <rect x="3" y="9" width="10" height="5" rx="1" fill="#a78bfa"/>
+  <rect x="2" y="7" width="12" height="3" rx="1" fill="#7c3aed"/>
+  <polygon points="8,1 9,4 12,4 9.5,6 10.5,9 8,7 5.5,9 6.5,6 4,4 7,4" fill="#fbbf24"/>
+</svg>

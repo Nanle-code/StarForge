@@ -1,0 +1,6 @@
+# Plugin manifest read by `starforge plugin install` before the library is
+# opened. `name` must match the install name and `Plugin::name()`.
+name = "hello"
+version = "0.1.0"
+starforge_version = "0.1.0"
+description = "Prints a greeting (plugin cookbook example)"

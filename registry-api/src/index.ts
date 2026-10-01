@@ -25,6 +25,14 @@ app.use(
   cors({
     origin: process.env.CORS_ORIGIN || "*",
     credentials: true,
+    // Let browser clients read the fair-use headers so they can back off.
+    exposedHeaders: [
+      "RateLimit-Limit",
+      "RateLimit-Remaining",
+      "RateLimit-Reset",
+      "RateLimit-Policy",
+      "Retry-After",
+    ],
   }),
 );
 

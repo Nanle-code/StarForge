@@ -28,3 +28,4 @@ You should submit an ADR alongside your PR when a change:
 | [0004](./0004-telemetry-privacy-and-opt-in-defaults.md) | Privacy-Preserving Telemetry & Strict Opt-In | Accepted | 2026-09-15 |
 | [0005](./0005-deterministic-simulation-profiles.md) | Deterministic Soroban Simulation Profiles for CI | Accepted | 2026-09-20 |
 | [0006](./0006-config-schema-migrations.md) | Versioned Configuration Schema Migrations | Accepted | 2026-09-22 |
+| [0007](./0007-noun-verb-command-tree.md) | Noun-Verb Command Tree for the `starforge` CLI | Accepted | 2026-09-27 |

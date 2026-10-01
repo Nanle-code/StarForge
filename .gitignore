@@ -162,6 +162,9 @@ Cargo.toml.local
 local-dev/
 sandbox/
 playground/
+/proposal_*.json
+/.issue-*
+/.kiro/
 
 # Security and secrets
 *.pem
@@ -197,3 +200,4 @@ test_snapshots/
 
 # Python bytecode (release/notes script tests)
 __pycache__/
+.vendor/
