@@ -31,6 +31,12 @@ pub enum DeployTree {
         args: commands::deploy::DeployArgs,
     },
 
+    /// Run pre-mainnet deployment verification checks
+    Checklist {
+        #[command(flatten)]
+        args: commands::deploy_checklist::DeployChecklistArgs,
+    },
+
     /// Deployment history, rollback, verification, and dashboard
     #[command(subcommand)]
     History(commands::deployments::DeploymentsCommands),
@@ -196,6 +202,7 @@ pub enum ToolTree {
 pub async fn handle_deploy(cmd: DeployTree) -> Result<()> {
     match cmd {
         DeployTree::Run { args } => commands::deploy::handle(args).await,
+        DeployTree::Checklist { args } => commands::deploy_checklist::handle(args).await,
         DeployTree::History(cmd) => commands::deployments::handle(cmd).await,
         DeployTree::Env(cmd) => commands::environment::handle(cmd),
         DeployTree::Schedule(cmd) => commands::schedule::handle(cmd).await,

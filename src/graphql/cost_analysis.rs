@@ -5,12 +5,7 @@
 //! depth and complexity ceilings, with clear GraphQL errors on limit breach and
 //! opt-in rejection metrics.
 
-#[cfg(test)]
-extern crate serde_derive;
-#[cfg(not(test))]
 use serde::{Deserialize, Serialize};
-#[cfg(test)]
-use serde_derive::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, RwLock};
 

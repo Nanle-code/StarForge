@@ -72,6 +72,10 @@ struct Cli {
     /// This is unsafe and should only be used for deliberate legacy operations.
     #[arg(long, global = true)]
     allow_plaintext_mainnet: bool,
+
+    /// Show all help flags, including advanced/power-user options that are hidden by default
+    #[arg(long, global = true)]
+    help_all: bool,
 }
 
 #[derive(Subcommand)]
@@ -94,51 +98,13 @@ enum Commands {
 
     /// Manage community contract templates, versions, and the registry
     #[command(subcommand)]
-    Wallet(commands::wallet::WalletCommands),
-    /// On-chain account lifecycle with sponsored reserves (CAP-33)
-    #[command(subcommand)]
-    Account(commands::account::AccountCommands),
-    /// Natural language command interface
-    Nl(commands::nl::NlArgs),
+    Template(commands::template::TemplateCommands),
 
     /// Manage third-party plugins
     #[command(subcommand)]
     Plugin(commands::plugin::PluginCommands),
 
-    /// Contract operations (invoke, inspect, etc.)
-    #[command(subcommand)]
-    Contract(commands::contract::ContractCommands),
-    /// Generate smart contracts from natural language prompts
-    #[command(subcommand)]
-    Generate(commands::generate::GenerateCommands),
-    /// Smart contract completion assistant
-    #[command(subcommand)]
-    Complete(commands::complete::CompleteCommands),
-    /// External plugins
-    #[command(external_subcommand)]
-    External(Vec<String>),
-    /// Debug Soroban contracts with breakpoints, stepping, and inspection
-    #[command(subcommand)]
-    Debug(commands::debug::DebugCommands),
-    /// Deep contract storage inspection (state, key, storage)
-    #[command(subcommand)]
-    Inspect(commands::inspect::InspectCommands),
-    /// Deploy a compiled Soroban contract (.wasm)
-    Deploy(commands::deploy::DeployArgs),
-    /// Watch contract sources and rebuild/redeploy on save
-    Dev(commands::dev::DevArgs),
-    /// Deployment history, rollback, verification, and dashboard
-    #[command(subcommand)]
-    Deployments(commands::deployments::DeploymentsCommands),
-    /// Manage deployment environments (dev/staging/production): configuration, promotion, isolation, and a dashboard
-    #[command(subcommand)]
-    Environment(commands::environment::EnvironmentCommands),
-    /// Show starforge config and environment info
-    Info,
-    /// Manage AI prompt templates and versioning
-    #[command(subcommand)]
-    Prompts(commands::prompts::PromptsCommands),
-    /// Analyze and explain smart contract code using AI
+    /// AI-assisted development: local assistant, audits, tests, search, planning
     #[command(subcommand)]
     Ai(commands::tree::AiTree),
 
@@ -154,6 +120,10 @@ enum Commands {
     #[command(subcommand)]
     Tool(commands::tree::ToolTree),
 
+    /// Classic Stellar assets: SAC contract id lookup and wrap/deploy
+    #[command(subcommand)]
+    Asset(commands::asset::AssetCommands),
+
     /// Generate shell completions for bash, zsh, fish, and powershell
     #[command(subcommand)]
     Completions(commands::completions::CompletionShell),
@@ -161,6 +131,17 @@ enum Commands {
     /// Generate or install man pages
     #[command(subcommand)]
     Man(commands::man::ManCommand),
+
+    /// On-chain account lifecycle with sponsored reserves (CAP-33)
+    #[command(subcommand)]
+    Account(commands::account::AccountCommands),
+
+    /// Watch contract sources and rebuild/redeploy on save
+    Dev(commands::dev::DevArgs),
+
+    /// Manage per-network contract and account aliases
+    #[command(subcommand)]
+    Alias(commands::alias::AliasCommands),
 
     /// Smart autocomplete — suggest and record commands
     #[command(hide = true)]
@@ -193,6 +174,10 @@ enum Commands {
     /// Manage per-network contract and account aliases
     #[command(subcommand)]
     Alias(commands::alias::AliasCommands),
+
+    /// Signing agent: hold unlocked keys in locked memory with a session timeout
+    #[command(subcommand)]
+    Agent(commands::agent::AgentCommands),
 
     /// Terminal User Interface for wallets, contracts, and transactions
     #[cfg(feature = "ui")]
@@ -233,7 +218,11 @@ fn main() {
 
 #[tokio::main]
 async fn run() {
-    let cli = Cli::parse();
+    // ADR 0007: rewrite deprecated top-level spellings to noun-verb paths
+    // before clap sees them, warning on stderr.
+    let mut argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
+    commands::deprecations::rewrite_argv(&mut argv);
+    let cli = Cli::parse_from(argv);
 
     // Handle --help-all: show information about progressive disclosure
     if cli.help_all {
@@ -263,8 +252,8 @@ async fn run() {
     // subcommand): record it so every command handler can short-circuit its
     // mutations behind a shared plan. Detection also scans the raw arguments
     // so it does not depend on where clap attached the global value.
-    let dry_run_requested = cli.dry_run
-        || std::env::args_os().any(|arg| arg.to_str() == Some("--dry-run"));
+    let dry_run_requested =
+        cli.dry_run || std::env::args_os().any(|arg| arg.to_str() == Some("--dry-run"));
     utils::dry_run::set_enabled(dry_run_requested);
     if utils::output::is_plain_mode_enabled() {
         // Global override: neutralizes every `colored` call in the codebase,
@@ -316,17 +305,6 @@ async fn run() {
         Commands::Wallet(_) => "wallet",
         Commands::Contract(_) => "contract",
         Commands::Deploy(_) => "deploy",
-        Commands::Dev(_) => "dev",
-        Commands::Deployments(_) => "deployments",
-        Commands::Environment(_) => "environment",
-        Commands::Info => "info",
-        Commands::BugReport(_) => "bug-report",
-        Commands::Prompts(_) => "prompts",
-        Commands::Explain(_) => "explain",
-        Commands::Config(_) => "config",
-        Commands::Telemetry(_) => "telemetry",
-        Commands::Tx(_) => "tx",
-        Commands::Sep10(_) => "sep10",
         Commands::Network(_) => "network",
         Commands::Template(_) => "template",
         Commands::Plugin(_) => "plugin",
@@ -334,8 +312,12 @@ async fn run() {
         Commands::Config(_) => "config",
         Commands::Project(_) => "project",
         Commands::Tool(_) => "tool",
+        Commands::Asset(_) => "asset",
         Commands::Completions(_) => "completions",
         Commands::Man(_) => "man",
+        Commands::Account(_) => "account",
+        Commands::Dev(_) => "dev",
+        Commands::Alias(_) => "alias",
         Commands::Autocomplete { .. } => "autocomplete",
         Commands::External(_) => "external",
         Commands::Verify(_) => "verify",
@@ -345,6 +327,7 @@ async fn run() {
         Commands::AiSecurityTraining(_) => "ai-security-training",
         Commands::ContractMonitor(_) => "contract-monitor",
         Commands::Alias(_) => "alias",
+        Commands::Agent(_) => "agent",
         #[cfg(feature = "ui")]
         Commands::Ui(_) => "ui",
     }
@@ -365,25 +348,8 @@ async fn run() {
         // Every handler lives in the module that owns the command; the noun
         // enums added by ADR 0007 forward to those modules unchanged.
         Commands::Wallet(cmd) => commands::wallet::handle(cmd).await,
-        Commands::Account(cmd) => commands::account::handle(cmd).await,
-        Commands::Nl(args) => commands::nl::handle(args).await,
-        Commands::New(cmd) => commands::new::handle(cmd).await,
-        Commands::Generate(cmd) => commands::generate::handle(&cmd).await,
         Commands::Contract(cmd) => commands::contract::handle(cmd).await,
-        Commands::Inspect(cmd) => commands::inspect::handle(cmd).await,
-        Commands::Debug(cmd) => commands::debug::handle(cmd).await,
-        Commands::Deploy(args) => commands::deploy::handle(args).await,
-        Commands::Dev(args) => commands::dev::handle(args).await,
-        Commands::Deployments(cmd) => commands::deployments::handle(cmd).await,
-        Commands::Environment(cmd) => commands::environment::handle(cmd),
-        Commands::Info => commands::info::handle().await,
-        Commands::BugReport(args) => commands::bug_report::handle(args).await,
-        Commands::Prompts(cmd) => commands::prompts::handle(&cmd).await,
-        Commands::Explain(ref cmd) => commands::explain::handle(cmd).await,
-        Commands::Config(cmd) => commands::config::handle(cmd).await,
-        Commands::Telemetry(cmd) => commands::telemetry::handle(cmd).await,
-        Commands::Tx(args) => commands::tx::handle(args).await,
-        Commands::Sep10(args) => commands::sep::handle(args).await,
+        Commands::Deploy(cmd) => commands::tree::handle_deploy(cmd).await,
         Commands::Network(cmd) => commands::network::handle(cmd).await,
         Commands::Template(cmd) => commands::template::handle(cmd).await,
         Commands::Plugin(cmd) => commands::plugin::handle(cmd).await,
@@ -391,8 +357,12 @@ async fn run() {
         Commands::Config(cmd) => commands::config::handle(cmd).await,
         Commands::Project(cmd) => commands::project::handle(cmd).await,
         Commands::Tool(cmd) => commands::tree::handle_tool(cmd).await,
+        Commands::Asset(cmd) => commands::asset::handle(cmd).await,
         Commands::Completions(shell) => commands::completions::handle(shell).await,
         Commands::Man(cmd) => commands::man::handle(cmd).await,
+        Commands::Account(cmd) => commands::account::handle(cmd).await,
+        Commands::Dev(args) => commands::dev::handle(args).await,
+        Commands::Alias(cmd) => commands::alias::handle(cmd).await,
         Commands::Autocomplete {
             suggest,
             record,
@@ -416,6 +386,7 @@ async fn run() {
         Commands::AiSecurityTraining(cmd) => commands::ai_security_training::handle(cmd).await,
         Commands::ContractMonitor(cmd) => commands::contract_monitor::handle(cmd).await,
         Commands::Alias(cmd) => commands::alias::handle(cmd).await,
+        Commands::Agent(cmd) => commands::agent::handle(cmd).await,
         #[cfg(feature = "ui")]
         Commands::Ui(args) => commands::ui::handle(args).await,
     };

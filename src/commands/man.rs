@@ -59,6 +59,7 @@ const KNOWN_PAGES: &[&str] = &[
     "contract health",
     "deploy",
     "deploy run",
+    "deploy checklist",
     "deploy history",
     "deploy env",
     "deploy schedule",

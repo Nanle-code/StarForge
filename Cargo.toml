@@ -81,16 +81,18 @@ single_match = "allow"
 await_holding_lock = "allow"
 
 [dependencies]
-clap     = { version = "=4.4.18", features = ["derive", "color"] }
+# Caret ranges: MSRV-aware resolution (see `.cargo/config.toml` and CONTRIBUTING.md).
+clap     = { version = "4.4", features = ["derive", "color"] }
 serde    = { version = "1.0",     features = ["derive"] }
 serde_json = "1.0"
 regex    = "1.10"
-toml     = "=0.8.8"
+toml     = "0.8"
 semver   = "1.0"
 spdx     = "0.13.5"
-colored  = "=2.1.0"
+colored  = "2.1"
+# Pinned: 7.1.2+ pulls unicode-width 0.2 which requires a newer MSRV than 1.80.
 comfy-table  = "=7.1.1"
-dirs     = "=5.0.1"
+dirs     = "5.0"
 anyhow   = "1.0"
 thiserror = "2.0"
 chrono   = { version = "0.4", features = ["serde"] }
@@ -98,16 +100,18 @@ rand     = "0.9"
 ed25519-dalek = ">=2.1.1, <3"
 reqwest    = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 tokio      = { version = "1", features = ["full"] }
-tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-serde_json-1"] }
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 futures-util = "0.3"
 ctrlc      = "3.4"
-clap_complete  = "=4.4.10"
+clap_complete  = "4.4"
 dialoguer  = { version = "0.11", features = ["fuzzy-select", "password"] }
 aes-gcm = "0.10.3"
 argon2 = "0.5.3"
+# Pinned: strkey encoding must stay aligned with stellar-xdr 22.x fixtures.
 stellar-strkey = "=0.0.10"
-stellar-xdr = { version = "22.0.0", features = ["serde"] }
-base64     = "0.21"
+stellar-xdr = { version = "22.0.0", features = ["serde", "base64"] }
+base64     = "0.22"
 urlencoding = "2.1"
 sha2 = "0.10"
 indicatif = "0.17.7"
@@ -116,6 +120,7 @@ wasmtime = { version = "24.0.7", default-features = false, features = ["cranelif
 uuid = { version = "1.6.1", features = ["v4", "serde"] }
 hidapi = { version = "2.6.5", optional = true }
 trezor-client = { version = "0.1.5", default-features = false, features = ["stellar"], optional = true }
+# Pinned: 3.2+ bumps MSRV past 1.80.
 zxcvbn = "=3.1.1"
 zeroize = { version = "1", features = ["derive"] }
 hex = "0.4"
@@ -125,7 +130,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"]
 tracing-appender = "0.2"
 bip39 = { version = "3", features = ["rand", "std"] }
 hmac = "0.12"
-rustyline = "13.0"
+rustyline = "18.0"
 zip = "2.3"
 tempfile = "3.8"
 wasm-bindgen = "0.2"
@@ -138,6 +143,11 @@ async-trait = "0.1"
 futures = "0.3.33"
 ratatui = { version = "0.30", optional = true }
 crossterm = { version = "0.29", optional = true }
+# mlock/munlock for the signing agent key store (Unix only).
+# The Windows signing agent uses VirtualLock via the winapi crate which is
+# already available through the standard Rust `windows-sys` transitive dep.
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.29", default-features = false, features = ["mman"] }
 
 [features]
 ai = []
@@ -174,7 +184,7 @@ opt-level = 3
 lto = true
 
 [build-dependencies]
-clap = { version = "4.4.18", features = ["derive"] }
-clap_complete = "4.4.10"
+clap = { version = "4.4", features = ["derive"] }
+clap_complete = "4.4"
+# Pinned: clap_mangen 0.2.31+ requires clap 4.5 APIs not guaranteed on MSRV 1.80.
 clap_mangen = "=0.2.30"
-tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-serde_json-1"] }

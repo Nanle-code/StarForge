@@ -27,3 +27,10 @@ If you omit `--locked` or `--release`, the build will fail explicitly, as these 
 ## CI Verification
 
 StarForge verifies hash equality across two completely clean builds in CI to ensure that this tooling produces stable and deterministic output.
+
+For a mainnet release, record the reviewed artifact's SHA-256 in
+`starforge-project.toml` as
+`[deployment_checklist].expected_wasm_hash`. Then
+`starforge deploy checklist --wasm <FILE> --network mainnet` verifies the
+artifact against that release pin before the deploy gate can pass. See
+[DEPLOY_CHECKLIST.md](DEPLOY_CHECKLIST.md).

@@ -26,19 +26,19 @@ Complete reference for all StarForge commands, options, and utilities.
 starforge [OPTIONS] <COMMAND>
 ```
 
-| Option | Description |
-|--------|-------------|
-| `-q, --quiet` | Suppress ASCII banner and decorative output |
-| `-h, --help` | Print help information |
-| `-V, --version` | Print version information |
+| Option          | Description                                 |
+| --------------- | ------------------------------------------- |
+| `-q, --quiet`   | Suppress ASCII banner and decorative output |
+| `-h, --help`    | Print help information                      |
+| `-V, --version` | Print version information                   |
 
 ### Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `STARFORGE_CONFIG_DIR` | Configuration directory | `~/.starforge` |
-| `STARFORGE_TELEMETRY` | Enable/disable telemetry | `true` |
-| `RUST_LOG` | Logging level | `info` |
+| Variable               | Description              | Default        |
+| ---------------------- | ------------------------ | -------------- |
+| `STARFORGE_CONFIG_DIR` | Configuration directory  | `~/.starforge` |
+| `STARFORGE_TELEMETRY`  | Enable/disable telemetry | `true`         |
+| `RUST_LOG`             | Logging level            | `info`         |
 
 ---
 
@@ -49,19 +49,23 @@ starforge [OPTIONS] <COMMAND>
 Create a new Stellar keypair and save it locally.
 
 **Usage:**
+
 ```bash
 starforge wallet create <NAME> [OPTIONS]
 ```
 
 **Arguments:**
+
 - `<NAME>` - Friendly name for the wallet (alphanumeric, dash, underscore)
 
 **Options:**
+
 - `--fund` - Fund the wallet via Friendbot immediately (testnet only)
 - `--network <NETWORK>` - Network to associate with wallet (`testnet`, `mainnet`)
 - `--encrypt` - Encrypt the secret key with a passphrase
 
 **Examples:**
+
 ```bash
 # Create basic wallet
 starforge wallet create alice
@@ -77,6 +81,7 @@ starforge wallet create mainnet-wallet --network mainnet
 ```
 
 **Output:**
+
 ```
 ◆ Creating wallet 'alice'
 
@@ -99,11 +104,13 @@ View it with: starforge wallet show alice
 List all saved wallets.
 
 **Usage:**
+
 ```bash
 starforge wallet list
 ```
 
 **Output:**
+
 ```
 ◆ Saved Wallets
 ─────────────────────────────────────────────────────────────
@@ -127,17 +134,21 @@ starforge wallet list
 Show details of a saved wallet including live balance.
 
 **Usage:**
+
 ```bash
 starforge wallet show <NAME> [OPTIONS]
 ```
 
 **Arguments:**
+
 - `<NAME>` - Wallet name
 
 **Options:**
+
 - `--reveal` - Show the secret key in plaintext
 
 **Examples:**
+
 ```bash
 # Show wallet details
 starforge wallet show alice
@@ -147,6 +158,7 @@ starforge wallet show alice --reveal
 ```
 
 **Output:**
+
 ```
 ◆ Wallet: alice
 ─────────────────────────────────────────────────────────────
@@ -171,14 +183,17 @@ XLM            : 10000.0000000 XLM
 Fund a wallet via Friendbot (testnet only).
 
 **Usage:**
+
 ```bash
 starforge wallet fund <NAME>
 ```
 
 **Arguments:**
+
 - `<NAME>` - Wallet name to fund
 
 **Example:**
+
 ```bash
 starforge wallet fund alice
 ```
@@ -190,14 +205,17 @@ starforge wallet fund alice
 Remove a wallet from local storage.
 
 **Usage:**
+
 ```bash
 starforge wallet remove <NAME>
 ```
 
 **Arguments:**
+
 - `<NAME>` - Wallet name to remove
 
 **Example:**
+
 ```bash
 starforge wallet remove alice
 ```
@@ -209,15 +227,18 @@ starforge wallet remove alice
 Rename a wallet.
 
 **Usage:**
+
 ```bash
 starforge wallet rename <OLD_NAME> <NEW_NAME>
 ```
 
 **Arguments:**
+
 - `<OLD_NAME>` - Current wallet name
 - `<NEW_NAME>` - New wallet name
 
 **Example:**
+
 ```bash
 starforge wallet rename alice alice-testnet
 ```
@@ -229,22 +250,27 @@ starforge wallet rename alice alice-testnet
 Export a wallet to a JSON backup file.
 
 **Usage:**
+
 ```bash
 starforge wallet export <NAME> --output <FILE>
 ```
 
 **Arguments:**
+
 - `<NAME>` - Wallet name to export
 
 **Options:**
+
 - `--output <FILE>` - Output file path for the backup JSON
 
 **Example:**
+
 ```bash
 starforge wallet export alice --output ./wallet-backup.json
 ```
 
 **Notes:**
+
 - Secrets are written only to the backup file and are never printed to stdout.
 
 ---
@@ -254,14 +280,17 @@ starforge wallet export alice --output ./wallet-backup.json
 Import wallets from a JSON backup file.
 
 **Usage:**
+
 ```bash
 starforge wallet import --file <FILE>
 ```
 
 **Options:**
+
 - `--file <FILE>` - Path to a wallet backup JSON file
 
 **Example:**
+
 ```bash
 starforge wallet import --file ./wallet-backup.json
 ```
@@ -273,18 +302,22 @@ starforge wallet import --file ./wallet-backup.json
 Sign an arbitrary message using a wallet.
 
 **Usage:**
+
 ```bash
 starforge wallet sign <NAME> <MESSAGE> [OPTIONS]
 ```
 
 **Arguments:**
+
 - `<NAME>` - Wallet name to use for signing
 - `<MESSAGE>` - Message to sign (UTF-8 string)
 
 **Options:**
+
 - `--hardware <DEVICE>` - Use hardware wallet (`ledger`, `trezor`)
 
 **Examples:**
+
 ```bash
 # Sign with local key
 starforge wallet sign alice "Hello, Stellar!"
@@ -353,6 +386,7 @@ Signing later requires the same physical device and an explicit on-device
 approval.
 
 **Security notes:**
+
 - Every signing operation (`wallet sign --hardware`, `tx send --hardware`,
   `wallet multisig sign --hardware`) requires interactive approval on the
   device screen; there is no non-interactive/headless signing path.
@@ -387,19 +421,23 @@ Multi-signature account management.
 Create a multi-sig configuration.
 
 **Usage:**
+
 ```bash
 starforge wallet multisig create <NAME> --threshold <N> --signers <WALLETS>
 ```
 
 **Arguments:**
+
 - `<NAME>` - Multi-sig account name
 
 **Options:**
+
 - `--threshold <N>` - Required signature weight
 - `--signers <WALLETS>` - Comma-separated wallet names
 - `--network <NETWORK>` - Network override
 
 **Example:**
+
 ```bash
 starforge wallet multisig create treasury \
   --threshold 2 \
@@ -411,18 +449,22 @@ starforge wallet multisig create treasury \
 Sign a multi-sig transaction.
 
 **Usage:**
+
 ```bash
 starforge wallet multisig sign <NAME> --transaction <FILE> [OPTIONS]
 ```
 
 **Arguments:**
+
 - `<NAME>` - Multi-sig account name
 
 **Options:**
+
 - `--transaction <FILE>` - Path to transaction JSON
 - `--output <FILE>` - Output file (defaults to in-place update)
 
 **Example:**
+
 ```bash
 starforge wallet multisig sign treasury --transaction tx.json
 ```
@@ -432,6 +474,7 @@ starforge wallet multisig sign treasury --transaction tx.json
 List multi-sig accounts.
 
 **Usage:**
+
 ```bash
 starforge wallet multisig list
 ```
@@ -441,6 +484,7 @@ starforge wallet multisig list
 Show multi-sig account details.
 
 **Usage:**
+
 ```bash
 starforge wallet multisig show <NAME>
 ```
@@ -450,11 +494,13 @@ starforge wallet multisig show <NAME>
 Submit a fully-signed multi-sig transaction.
 
 **Usage:**
+
 ```bash
 starforge wallet multisig submit <NAME> --transaction <FILE> [OPTIONS]
 ```
 
 **Options:**
+
 - `--transaction <FILE>` - Path to signed transaction JSON
 - `--network <NETWORK>` - Network to submit on
 
@@ -467,11 +513,13 @@ starforge wallet multisig submit <NAME> --transaction <FILE> [OPTIONS]
 Initialize template registry with example templates.
 
 **Usage:**
+
 ```bash
 starforge template init
 ```
 
 **Output:**
+
 ```
 ◆ Initialize Template Registry
 
@@ -496,17 +544,21 @@ Browse templates:
 Search for templates in the marketplace.
 
 **Usage:**
+
 ```bash
 starforge template search <QUERY> [OPTIONS]
 ```
 
 **Arguments:**
+
 - `<QUERY>` - Search query (matches name, description, tags)
 
 **Options:**
+
 - `--tags <TAGS>` - Filter by tags (comma-separated)
 
 **Examples:**
+
 ```bash
 # Search by keyword
 starforge template search defi
@@ -519,6 +571,7 @@ starforge template search governance
 ```
 
 **Output:**
+
 ```
 ◆ Template Marketplace — Search
 Query          : defi
@@ -549,6 +602,7 @@ Use a template:
 List all available templates.
 
 **Usage:**
+
 ```bash
 starforge template list
 ```
@@ -560,19 +614,23 @@ starforge template list
 Show details of a specific template.
 
 **Usage:**
+
 ```bash
 starforge template show <NAME>
 ```
 
 **Arguments:**
+
 - `<NAME>` - Template name
 
 **Example:**
+
 ```bash
 starforge template show uniswap-v2
 ```
 
 **Output:**
+
 ```
 ◆ Template: uniswap-v2
 ─────────────────────────────────────────────────────────────
@@ -605,14 +663,17 @@ Use this template:
 Publish a template to the local marketplace.
 
 **Usage:**
+
 ```bash
 starforge template publish <PATH> [OPTIONS]
 ```
 
 **Arguments:**
+
 - `<PATH>` - Path to template directory
 
 **Options:**
+
 - `--name <NAME>` - Template name
 - `--description <DESC>` - Template description
 - `--author <AUTHOR>` - Author name
@@ -620,6 +681,7 @@ starforge template publish <PATH> [OPTIONS]
 - `--version <VERSION>` - Version (default: 1.0.0)
 
 **Examples:**
+
 ```bash
 # Publish with all options
 starforge template publish ./my-template \
@@ -640,14 +702,17 @@ starforge template publish ./my-template
 Remove a template from the local marketplace.
 
 **Usage:**
+
 ```bash
 starforge template remove <NAME>
 ```
 
 **Arguments:**
+
 - `<NAME>` - Template name to remove
 
 **Example:**
+
 ```bash
 starforge template remove my-template
 ```
@@ -661,14 +726,17 @@ starforge template remove my-template
 Scaffold a new Soroban smart contract project.
 
 **Usage:**
+
 ```bash
 starforge new contract <NAME> [OPTIONS]
 ```
 
 **Arguments:**
+
 - `<NAME>` - Project name
 
 **Options:**
+
 - `--template <TEMPLATE>` - Template to use (`hello-world`, `token`, `nft`, `voting`)
 - `--interactive` - Interactively customize the contract
 - `--from <SOURCE>` - Use template from source (`marketplace`)
@@ -677,6 +745,7 @@ starforge new contract <NAME> [OPTIONS]
 - `--ci` - Generate `.github/workflows/stellar-ci.yml` (cargo test + WASM size checks)
 
 **Examples:**
+
 ```bash
 # Basic contract
 starforge new contract my-contract
@@ -704,18 +773,22 @@ starforge new contract my-contract --ci
 Inspect a deployed contract instance.
 
 **Usage:**
+
 ```bash
 starforge contract inspect <CONTRACT_ID> [OPTIONS]
 ```
 
 **Arguments:**
+
 - `<CONTRACT_ID>` - Contract ID (starts with 'C')
 
 **Options:**
+
 - `--network <NETWORK>` - Network to use
 - `--json` - Print machine-readable JSON output
 
 **Example:**
+
 ```bash
 starforge contract inspect CCPYZFKEAXHHS5VVW5J45TOU7S2EODJ7TZNJIA5LKDVL3PESCES6FNCI
 ```
@@ -725,18 +798,18 @@ This command is the reference implementation for the CLI JSON stability
 contract. See [`docs/CLI_JSON_STABILITY.md`](docs/CLI_JSON_STABILITY.md) and
 [`docs/contracts/cli-json-fields.json`](docs/contracts/cli-json-fields.json).
 
-| Field | Type | Stability | Notes |
-| --- | --- | --- | --- |
-| `contract_id` | string | stable | Inspected contract ID |
-| `executable` | string | stable | Contract executable type |
-| `wasm_hash` | string\|null | stable | WASM hash when available |
-| `storage_durability` | string | stable | Storage durability class |
-| `latest_ledger` | number | stable | Latest observed ledger |
-| `last_modified_ledger_seq` | number\|null | stable | Last modified ledger when available |
-| `live_until_ledger_seq` | number\|null | stable | Expiration ledger when available |
-| `instance_storage` | array of objects | stable | Instance storage entries |
-| `instance_storage[].key` | string | stable | Decoded storage key |
-| `instance_storage[].value` | string | stable | Decoded storage value |
+| Field                      | Type             | Stability | Notes                               |
+| -------------------------- | ---------------- | --------- | ----------------------------------- |
+| `contract_id`              | string           | stable    | Inspected contract ID               |
+| `executable`               | string           | stable    | Contract executable type            |
+| `wasm_hash`                | string\|null     | stable    | WASM hash when available            |
+| `storage_durability`       | string           | stable    | Storage durability class            |
+| `latest_ledger`            | number           | stable    | Latest observed ledger              |
+| `last_modified_ledger_seq` | number\|null     | stable    | Last modified ledger when available |
+| `live_until_ledger_seq`    | number\|null     | stable    | Expiration ledger when available    |
+| `instance_storage`         | array of objects | stable    | Instance storage entries            |
+| `instance_storage[].key`   | string           | stable    | Decoded storage key                 |
+| `instance_storage[].value` | string           | stable    | Decoded storage value               |
 
 ---
 
@@ -745,17 +818,21 @@ contract. See [`docs/CLI_JSON_STABILITY.md`](docs/CLI_JSON_STABILITY.md) and
 Generate typed client wrappers from Soroban contract metadata embedded in a WASM file.
 
 **Usage:**
+
 ```bash
 starforge contract generate-bindings <WASM_FILE> --lang <LANG>
 ```
 
 **Arguments:**
+
 - `<WASM_FILE>` - Path to a compiled Soroban WASM file with `contractspecv0` metadata
 
 **Options:**
+
 - `--lang <LANG>` - Output language (`rust`, `ts`)
 
 **Examples:**
+
 ```bash
 starforge contract generate-bindings ./target/wasm32-unknown-unknown/release/my_contract.wasm --lang rust
 starforge contract generate-bindings ./target/wasm32-unknown-unknown/release/my_contract.wasm --lang ts
@@ -763,16 +840,18 @@ starforge contract generate-bindings ./target/wasm32-unknown-unknown/release/my_
 
 ---
 
-### `starforge deploy`
+### `starforge deploy run`
 
 Deploy a compiled Soroban contract.
 
 **Usage:**
+
 ```bash
-starforge deploy --wasm <FILE> [OPTIONS]
+starforge deploy run --wasm <FILE> [OPTIONS]
 ```
 
 **Options:**
+
 - `--wasm <FILE>` - Path to compiled .wasm file (required)
 - `--network <NETWORK>` - Network to deploy to (`testnet`, `mainnet`)
 - `--wallet <NAME>` - Wallet name to use for deployment
@@ -780,30 +859,46 @@ starforge deploy --wasm <FILE> [OPTIONS]
 - `--simulate` - Simulate deploy via Soroban RPC (fee estimate, error check)
 - `--yes` - Skip confirmation prompt
 - `--execute` - Execute `stellar contract deploy ...` when `stellar` CLI is on PATH (default is dry-run)
+- `--override-checklist` - Explicitly acknowledge failed required checks for an executed mainnet deployment
 
 **Examples:**
+
 ```bash
 # Deploy to testnet
-starforge deploy --wasm target/wasm32-unknown-unknown/release/my_contract.wasm
+starforge deploy run --wasm target/wasm32-unknown-unknown/release/my_contract.wasm
 
 # Deploy to mainnet with specific wallet
-starforge deploy \
+starforge deploy run \
   --wasm ./my_contract.wasm \
   --network mainnet \
   --wallet deployer
 
 # Skip confirmation (for CI)
-starforge deploy --wasm ./my_contract.wasm --yes
+starforge deploy run --wasm ./my_contract.wasm --yes
 
 # Simulate fees before confirming
-starforge deploy --wasm ./my_contract.wasm --simulate --wallet deployer
+starforge deploy run --wasm ./my_contract.wasm --simulate --wallet deployer
 
 # Execute immediately (requires stellar CLI on PATH)
-starforge deploy --wasm ./my_contract.wasm --execute
+starforge deploy run --wasm ./my_contract.wasm --execute
 
 # Optimize before deployment
-starforge deploy --wasm ./my_contract.wasm --optimize
+starforge deploy run --wasm ./my_contract.wasm --optimize
 ```
+
+---
+
+### `starforge deploy checklist`
+
+Run the project-configured pre-mainnet checklist without submitting a
+transaction. Provide `--wasm <FILE>` and optionally `--network`, `--wallet`,
+`--hardware`, or `--json`. The report checks the pinned reproducible WASM hash,
+Soroban simulation, deployer balance, authorization setup, and network identity.
+Failed required checks block `starforge deploy run --execute --network mainnet`
+unless that deploy explicitly includes `--override-checklist`.
+
+See [docs/DEPLOY_CHECKLIST.md](docs/DEPLOY_CHECKLIST.md) for project
+configuration and examples.
 
 ---
 
@@ -814,6 +909,7 @@ starforge deploy --wasm ./my_contract.wasm --optimize
 Show current network and available networks.
 
 **Usage:**
+
 ```bash
 starforge network show
 ```
@@ -825,14 +921,17 @@ starforge network show
 Switch the active network.
 
 **Usage:**
+
 ```bash
 starforge network switch <NETWORK>
 ```
 
 **Arguments:**
+
 - `<NETWORK>` - Target network (`testnet`, `mainnet`, or custom)
 
 **Example:**
+
 ```bash
 starforge network switch mainnet
 ```
@@ -844,18 +943,22 @@ starforge network switch mainnet
 Add a custom network endpoint.
 
 **Usage:**
+
 ```bash
 starforge network add <NAME> --horizon-url <URL> [OPTIONS]
 ```
 
 **Arguments:**
+
 - `<NAME>` - Network name
 
 **Options:**
+
 - `--horizon-url <URL>` - Horizon API URL (required)
 - `--soroban-rpc-url <URL>` - Soroban RPC URL (optional)
 
 **Example:**
+
 ```bash
 starforge network add mynet \
   --horizon-url https://my-horizon.example.com \
@@ -869,14 +972,17 @@ starforge network add mynet \
 Test connectivity to a network.
 
 **Usage:**
+
 ```bash
 starforge network test [NETWORK]
 ```
 
 **Arguments:**
+
 - `[NETWORK]` - Network to test (defaults to current)
 
 **Example:**
+
 ```bash
 starforge network test mainnet
 ```
@@ -890,11 +996,13 @@ starforge network test mainnet
 Send a Stellar payment transaction.
 
 **Usage:**
+
 ```bash
 starforge tx send --from <WALLET> --to <ADDRESS> --amount <AMOUNT> [OPTIONS]
 ```
 
 **Options:**
+
 - `--from <WALLET>` - Source wallet name (required)
 - `--to <ADDRESS>` - Destination public key (required)
 - `--amount <AMOUNT>` - Amount to send (required)
@@ -903,6 +1011,7 @@ starforge tx send --from <WALLET> --to <ADDRESS> --amount <AMOUNT> [OPTIONS]
 - `--yes` - Skip confirmation prompt
 
 **Examples:**
+
 ```bash
 # Send XLM
 starforge tx send --from alice --to GDEF... --amount 100
@@ -925,17 +1034,20 @@ starforge tx send --from alice --to GDEF... --amount 10 --yes
 Submit multiple Stellar operations in a single transaction from a JSON file.
 
 **Usage:**
+
 ```bash
 starforge tx batch --file <FILE> --from <WALLET> [OPTIONS]
 ```
 
 **Options:**
+
 - `--file <FILE>` - Path to operations JSON (required)
 - `--from <WALLET>` - Source wallet name (required)
 - `--network <NETWORK>` - Network to use (`testnet` or `mainnet`, default: `testnet`)
 - `--yes` - Skip confirmation prompt
 
 **Operations file schema:**
+
 ```json
 {
   "operations": [
@@ -952,6 +1064,7 @@ starforge tx batch --file <FILE> --from <WALLET> [OPTIONS]
 Supported operation types: `payment` (`to`, `amount`, optional `asset` as `XLM` or `CODE:ISSUER`).
 
 **Examples:**
+
 ```bash
 starforge tx batch --file operations.json --from alice
 starforge tx batch --file ops.json --from alice --network testnet --yes
@@ -964,14 +1077,17 @@ starforge tx batch --file ops.json --from alice --network testnet --yes
 Fetch and display recent transactions.
 
 **Usage:**
+
 ```bash
 starforge tx history <PUBLIC_KEY> [OPTIONS]
 ```
 
 **Arguments:**
+
 - `<PUBLIC_KEY>` - Account public key
 
 **Options:**
+
 - `-l, --limit <N>` - Number of transactions (max 200, default: 10)
 - `-n, --network <NETWORK>` - Network to use
 - `--cursor <CURSOR>` - Pagination cursor
@@ -981,6 +1097,7 @@ starforge tx history <PUBLIC_KEY> [OPTIONS]
 - `--details` - Show full transaction details
 
 **Examples:**
+
 ```bash
 # Recent transactions
 starforge tx history GABC...
@@ -1007,6 +1124,7 @@ starforge tx history GABC... --details
 Show starforge config and environment info.
 
 **Usage:**
+
 ```bash
 starforge info
 ```
@@ -1018,14 +1136,17 @@ starforge info
 Generate shell completions.
 
 **Usage:**
+
 ```bash
 starforge completions <SHELL>
 ```
 
 **Arguments:**
+
 - `<SHELL>` - Shell type (`bash`, `zsh`, `fish`)
 
 **Examples:**
+
 ```bash
 # Bash
 starforge completions bash > ~/.bash_completion.d/starforge
@@ -1044,16 +1165,19 @@ starforge completions fish > ~/.config/fish/completions/starforge.fish
 Interactive REPL for local contract testing.
 
 **Usage:**
+
 ```bash
 starforge shell --contract <WASM>
 ```
 
 **Options:**
+
 - `--contract <WASM>` - Path to compiled contract
 - `--no-history` - Disable persistent history for this session
 - `--history-max-lines <N>` - Max lines to keep in `~/.starforge/history` (default: 1000)
 
 **Example:**
+
 ```bash
 starforge shell --contract target/wasm32-unknown-unknown/release/my_contract.wasm
 ```
@@ -1065,11 +1189,13 @@ starforge shell --contract target/wasm32-unknown-unknown/release/my_contract.was
 Live monitoring of contracts or wallets.
 
 **Usage:**
+
 ```bash
 starforge monitor [OPTIONS]
 ```
 
 **Options:**
+
 - `--contract <ID>` - Contract ID to monitor
 - `--events <EVENTS>` - Comma-separated event names to filter
 - `--wallet <NAME>` - Wallet name to monitor
@@ -1078,6 +1204,7 @@ starforge monitor [OPTIONS]
 - `--interval <SECONDS>` - Poll interval (default: 2)
 
 **Examples:**
+
 ```bash
 # Monitor contract events
 starforge monitor --contract CCPYZ... --events transfer,mint
@@ -1093,16 +1220,19 @@ starforge monitor --wallet alice --threshold 1000
 Run contract tests.
 
 **Usage:**
+
 ```bash
 starforge test --wasm <FILE> [OPTIONS]
 ```
 
 **Options:**
+
 - `--wasm <FILE>` - Path to compiled wasm (required)
 - `--coverage` - Collect coverage report
 - `--report <FORMAT>` - Output report format (`html`, `json`)
 
 **Example:**
+
 ```bash
 starforge test --wasm target/wasm32-unknown-unknown/release/my_contract.wasm --coverage
 ```
@@ -1118,15 +1248,18 @@ Gas analysis and optimization.
 Analyze gas costs, resource usage, and optimization opportunities.
 
 **Usage:**
+
 ```bash
 starforge gas analyze --wasm <FILE> [OPTIONS]
 ```
 
 **Options:**
+
 - `--wasm <FILE>` - Path to wasm file (required)
 - `--network <NETWORK>` - Network to use
 
 **Output includes:**
+
 - WASM size and SHA256 fingerprint
 - Heuristic score and gas risk level
 - Estimated CPU instructions, memory bytes, storage bytes, and fee in stroops
@@ -1138,11 +1271,13 @@ starforge gas analyze --wasm <FILE> [OPTIONS]
 Optimize wasm for gas efficiency.
 
 **Usage:**
+
 ```bash
 starforge gas optimize --target <INPUT> --output <OUTPUT>
 ```
 
 **Options:**
+
 - `--target <INPUT>` - Input wasm file (required)
 - `--output <OUTPUT>` - Output wasm file (required)
 
@@ -1151,15 +1286,18 @@ starforge gas optimize --target <INPUT> --output <OUTPUT>
 Compare two wasm builds side-by-side and detect estimated gas regressions.
 
 **Usage:**
+
 ```bash
 starforge gas diff <OLD_WASM> <NEW_WASM>
 ```
 
 **Arguments:**
+
 - `<OLD_WASM>` - Baseline wasm file
 - `<NEW_WASM>` - Candidate wasm file
 
 **Output includes:**
+
 - Old/new wasm size
 - Old/new estimated fee in stroops
 - Old/new estimated CPU instructions
@@ -1174,16 +1312,19 @@ starforge gas diff <OLD_WASM> <NEW_WASM>
 List decoded storage entries for a contract scope.
 
 **Usage:**
+
 ```bash
 starforge inspect storage <CONTRACT_ID> [OPTIONS]
 ```
 
 **Options:**
+
 - `--scope <SCOPE>` - `instance`, `persistent`, or `temporary`
 - `--network <NETWORK>` - Network to use (`testnet`, `mainnet`)
 - `--json` - Print machine-readable JSON output
 
 **JSON schema (`--json`):**
+
 - `contract_id` (string)
 - `scope` (string)
 - `entries` (array of objects): `{ "key": string, "value": string }`
@@ -1195,6 +1336,7 @@ starforge inspect storage <CONTRACT_ID> [OPTIONS]
 Performance benchmarking.
 
 **Usage:**
+
 ```bash
 starforge benchmark [OPTIONS]
 ```
@@ -1210,6 +1352,7 @@ Manage third-party plugins.
 Install a plugin.
 
 **Usage:**
+
 ```bash
 starforge plugin install <NAME> --path <LIB>
 ```
@@ -1219,6 +1362,7 @@ starforge plugin install <NAME> --path <LIB>
 List installed plugins.
 
 **Usage:**
+
 ```bash
 starforge plugin list
 ```
@@ -1228,6 +1372,7 @@ starforge plugin list
 Load and verify plugins.
 
 **Usage:**
+
 ```bash
 starforge plugin load
 ```
@@ -1268,14 +1413,14 @@ soroban_rpc_url = "https://mainnet.sorobanrpc.com"
 
 ## Exit Codes
 
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | General error |
-| 2 | Invalid arguments |
-| 3 | Configuration error |
-| 4 | Network error |
-| 5 | Validation error |
+| Code | Meaning             |
+| ---- | ------------------- |
+| 0    | Success             |
+| 1    | General error       |
+| 2    | Invalid arguments   |
+| 3    | Configuration error |
+| 4    | Network error       |
+| 5    | Validation error    |
 
 ---
 
@@ -1283,11 +1428,11 @@ soroban_rpc_url = "https://mainnet.sorobanrpc.com"
 
 When creating templates, use these placeholders:
 
-| Placeholder | Description | Example |
-|-------------|-------------|---------|
-| `{{PROJECT_NAME}}` | Original project name | my-project |
-| `{{PROJECT_NAME_SNAKE}}` | Snake case | my_project |
-| `{{PROJECT_NAME_PASCAL}}` | Pascal case | MyProject |
+| Placeholder               | Description           | Example    |
+| ------------------------- | --------------------- | ---------- |
+| `{{PROJECT_NAME}}`        | Original project name | my-project |
+| `{{PROJECT_NAME_SNAKE}}`  | Snake case            | my_project |
+| `{{PROJECT_NAME_PASCAL}}` | Pascal case           | MyProject  |
 
 ---
 
@@ -1296,6 +1441,7 @@ When creating templates, use these placeholders:
 ### Common Errors
 
 **Wallet not found:**
+
 ```
 ✗ Error: Wallet 'alice' not found
 
@@ -1303,6 +1449,7 @@ Try: starforge wallet list
 ```
 
 **Network unreachable:**
+
 ```
 ✗ Error: Failed to reach Horizon on testnet
 
@@ -1310,6 +1457,7 @@ Check your internet connection or try: starforge network test
 ```
 
 **Invalid public key:**
+
 ```
 ✗ Error: Invalid public key: must start with 'G'
 

@@ -120,13 +120,14 @@ jobs:
             let summary = '## ⏱ CLI Latency Budget Check\n\n';
             if (fs.existsSync(reportPath)) {
               const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
-              let details = '';
+              summary += '| Status | Budget | Max (ms) | Actual (ms) | Result |\n';
+              summary += '|---|---|---:|---:|---|\n';
               for (const check of report.checks) {
                 const icon = check.status === 'PASS' ? '✅' :
                              check.status === 'FAIL' ? '❌' :
                              check.status === 'NOISY' ? '⚠️' :
                              check.status === 'SKIPPED' ? '⏭️' : '❗';
-                summary += `| ${icon} ${check.budget} | ${check.budget_max_ms} ms | ${check.actual_median_ms} ms | ${check.status} |\n`;
+                summary += `| ${icon} | ${check.budget} | ${check.budget_max_ms} | ${check.actual_median_ms} | ${check.status} |\n`;
               }
               if (report.any_fail) summary += '\n❌ **Some budgets were violated.**';
               else summary += '\n✅ **All budgets met.**';
