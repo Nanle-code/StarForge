@@ -102,6 +102,11 @@ reqwest    = { version = "0.12", features = ["json", "rustls-tls"], default-feat
 tokio      = { version = "1", features = ["full"] }
 tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-serde_json-1"] }
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+actix-web = "4"
+# Pinned: 7.0.13+ requires Rust 1.81, 7.1+ requires Rust 1.89, both past this
+# crate's MSRV of 1.80 (see the other MSRV pins in this file).
+async-graphql = "=7.0.11"
+async-graphql-actix-web = "=7.0.11"
 futures-util = "0.3"
 ctrlc      = "3.4"
 clap_complete  = "4.4"
@@ -143,6 +148,7 @@ async-trait = "0.1"
 futures = "0.3.33"
 ratatui = { version = "0.30", optional = true }
 crossterm = { version = "0.29", optional = true }
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-serde_json-1"] }
 
 [features]
 ai = []
@@ -183,4 +189,3 @@ clap = { version = "4.4", features = ["derive"] }
 clap_complete = "4.4"
 # Pinned: clap_mangen 0.2.31+ requires clap 4.5 APIs not guaranteed on MSRV 1.80.
 clap_mangen = "=0.2.30"
-tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-serde_json-1"] }

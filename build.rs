@@ -36,11 +36,15 @@ enum Commands {
     // `about` text are needed here: this copy drives the generated cheat sheet,
     // the shell completions, and the man pages. The top-level budget check in
     // `main()` below keeps it honest about the command count.
-    #[command(about = "Manage test wallets (create, list, fund, sign), transactions, and devices")]
+    #[command(about = "Manage test wallets (create, list, fund, show, remove)")]
     Wallet,
-    #[command(
-        about = "Contract operations (invoke, build, test, audit, upgrade, inspect, monitor, ttl)"
-    )]
+    #[command(about = "On-chain account lifecycle with sponsored reserves (CAP-33)")]
+    Account,
+    #[command(about = "Natural language command interface")]
+    Nl,
+    #[command(about = "Generate Soroban project boilerplate")]
+    New,
+    #[command(about = "Contract operations (invoke, inspect, etc.)")]
     Contract,
     #[command(about = "Deploy a compiled Soroban contract and manage the deployment lifecycle")]
     Deploy,
