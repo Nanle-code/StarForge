@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StarForge Project Manifest",
+  "description": "Schema for starforge.toml project configuration",
+  "type": "object",
+  "required": [
+    "version"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Manifest schema version (must be \"1\")"
+    },
+    "package": {
+      "type": "object",
+      "description": "Package metadata",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Project package name"
+        },
+        "version": {
+          "type": "string",
+          "description": "Project version"
+        },
+        "description": {
+          "type": "string",
+          "description": "Short description"
+        },
+        "authors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Package authors"
+        },
+        "license": {
+          "type": "string",
+          "description": "SPDX License identifier"
+        }
+      },
+      "additionalProperties": false
+    },
+    "contracts": {
+      "type": "object",
+      "description": "Smart contract target specifications",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Path to contract source directory"
+          },
+          "wasm": {
+            "type": "string",
+            "description": "Path to compiled WASM artifact"
+          },
+          "init_args": {
+            "description": "Contract constructor or init arguments"
+          },
+          "build": {
+            "type": "string",
+            "description": "Contract build command"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "networks": {
+      "type": "object",
+      "description": "Network definitions and overrides",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "horizon_url": {
+            "type": "string",
+            "description": "Horizon RPC URL"
+          },
+          "soroban_rpc_url": {
+            "type": "string",
+            "description": "Soroban RPC URL"
+          },
+          "friendbot_url": {
+            "type": "string",
+            "description": "Friendbot funding URL"
+          },
+          "network_passphrase": {
+            "type": "string",
+            "description": "Stellar network passphrase"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "deploy": {
+      "type": "object",
+      "description": "Environment deployment targets",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "network": {
+            "type": "string",
+            "description": "Target network name"
+          },
+          "contracts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of contracts to deploy"
+          },
+          "fee": {
+            "type": "integer",
+            "description": "Deployment transaction base fee"
+          },
+          "source_wallet": {
+            "type": "string",
+            "description": "Deployment wallet name"
+          },
+          "init_args": {
+            "description": "Environment-specific init arguments"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "scripts": {
+      "type": "object",
+      "description": "Custom task scripts",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

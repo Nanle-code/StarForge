@@ -9,9 +9,9 @@ use std::path::PathBuf;
 
 #[derive(Args)]
 pub struct TestArgs {
-    /// Path to the compiled wasm
+    /// Path to the compiled wasm (optional if starforge.toml project manifest exists)
     #[arg(long)]
-    pub wasm: PathBuf,
+    pub wasm: Option<PathBuf>,
 
     /// JSON/TOML contract testing fixture with mocks, scenarios, and assertions
     #[arg(long)]
@@ -154,14 +154,37 @@ pub struct TestArgs {
     pub optimize_html: bool,
 }
 
+fn resolve_test_wasm(args: &TestArgs) -> Result<PathBuf> {
+    if let Some(ref wasm_path) = args.wasm {
+        Ok(wasm_path.clone())
+    } else {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        if let Some((manifest_path, manifest)) = crate::manifest::find_and_load_manifest(&cwd)? {
+            let contract_wasm = manifest
+                .contracts
+                .values()
+                .find_map(|c| c.wasm.clone());
+            if let Some(wasm_rel) = contract_wasm {
+                let base_dir = manifest_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+                Ok(base_dir.join(wasm_rel))
+            } else {
+                anyhow::bail!("No contract WASM specified in starforge.toml. Please pass --wasm <path>.");
+            }
+        } else {
+            anyhow::bail!("Missing --wasm argument and no starforge.toml project manifest found.");
+        }
+    }
+}
+
 pub async fn handle(args: TestArgs) -> Result<()> {
+    let target_wasm = resolve_test_wasm(&args)?;
     let coverage_goals = build_coverage_goals(&args)?;
     let coverage_requested = args.coverage
         || args.coverage_out.is_some()
         || args.coverage_ci
         || coverage_goals.has_goals();
 
-    config::validate_file_path(&args.wasm, Some("wasm"))?;
+    config::validate_file_path(&target_wasm, Some("wasm"))?;
     if let Some(fixture) = &args.fixture {
         config::validate_file_path(fixture, None)?;
     }
@@ -182,7 +205,7 @@ pub async fn handle(args: TestArgs) -> Result<()> {
         let source = args.source.as_ref().expect("source checked above");
         let path = test_coverage::write_coverage_ci_workflow(
             workflow_out,
-            &args.wasm,
+            &target_wasm,
             source,
             &coverage_goals,
         )?;
@@ -190,7 +213,7 @@ pub async fn handle(args: TestArgs) -> Result<()> {
     }
 
     p::header("Contract Test Runner");
-    p::kv("Wasm", &args.wasm.display().to_string());
+    p::kv("Wasm", &target_wasm.display().to_string());
     p::kv("Coverage", if coverage_requested { "yes" } else { "no" });
     p::kv("Generate", if args.generate { "yes" } else { "no" });
     p::kv("Parallel", if args.parallel { "yes" } else { "no" });
@@ -236,7 +259,7 @@ pub async fn handle(args: TestArgs) -> Result<()> {
         p::info("Running contract rollback safety harness...");
         let report = rollback_testing::run_rollback_tests(rollback_testing::RollbackTestOptions {
             previous_wasm,
-            upgraded_wasm: args.wasm.clone(),
+            upgraded_wasm: target_wasm.clone(),
             scenario_paths: args.rollback_scenario.clone(),
             performance_budget_ms: args.rollback_performance_budget_ms,
             report_format: args.report.clone(),
@@ -277,7 +300,7 @@ pub async fn handle(args: TestArgs) -> Result<()> {
 
     if let Some(fixture) = &args.fixture {
         let mut report = contract_testing::run_contract_framework(
-            &args.wasm,
+            &target_wasm,
             fixture,
             contract_testing::FrameworkRunOptions {
                 coverage: coverage_requested,
@@ -351,7 +374,7 @@ pub async fn handle(args: TestArgs) -> Result<()> {
 
                 p::info("Running tests in parallel...");
                 let runner = test_automation::ParallelTestRunner::new(args.workers);
-                let report = runner.run_tests(&suite, &args.wasm)?;
+                let report = runner.run_tests(&suite, &target_wasm)?;
 
                 // Export report
                 if let Some(report_format) = &args.report {
@@ -422,7 +445,7 @@ pub async fn handle(args: TestArgs) -> Result<()> {
         || args.optimize_html;
 
     if optimization_requested || args.parallel {
-        let wasm_bytes = std::fs::read(&args.wasm)?;
+        let wasm_bytes = std::fs::read(&target_wasm)?;
         let wasm_hash = hex::encode(sha2::Sha256::digest(&wasm_bytes));
         let mut optimizer = crate::utils::test_optimizer::TestOptimizer::new()?;
 
@@ -480,7 +503,7 @@ pub async fn handle(args: TestArgs) -> Result<()> {
                 if suite_path.exists() {
                     let suite_content = std::fs::read_to_string(&suite_path)?;
                     let suite: test_automation::TestSuite = serde_json::from_str(&suite_content)?;
-                    let report = runner.run_tests(&suite, &args.wasm)?;
+                    let report = runner.run_tests(&suite, &target_wasm)?;
 
                     // Record results for flaky detection
                     for result in &report.results {
@@ -692,7 +715,7 @@ pub async fn handle(args: TestArgs) -> Result<()> {
 
     // Fall back to original test runner
     let mut result = test_runner::run_contract_tests(
-        &args.wasm,
+        &target_wasm,
         test_runner::TestOptions {
             coverage: coverage_requested,
             report_format: args.report.clone(),
