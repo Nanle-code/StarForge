@@ -7,12 +7,38 @@ use crate::utils::network_simulator::deterministic::{
     derive_contract_id, derive_public_key, derive_tx_hash, DeterministicConfig, SeededRng,
 };
 use crate::utils::network_simulator::failure::{failure_to_rpc_error, FailureInjector};
-use crate::utils::network_simulator::state::SnapshotManager;
+use crate::utils::network_simulator::state::{SnapshotManager, StateSnapshot};
 use crate::utils::network_simulator::time::TimeController;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::path::Path;
+use std::time::Duration;
+
+#[derive(Deserialize)]
+struct LegacySimLedgerState {
+    ledger_sequence: u32,
+    timestamp: u64,
+    contracts: HashMap<String, LegacySimContract>,
+    accounts: HashMap<String, u64>,
+    events: Vec<LegacySimEvent>,
+}
+
+#[derive(Deserialize)]
+struct LegacySimContract {
+    contract_id: String,
+    wasm_hash: String,
+    storage: HashMap<String, String>,
+}
+
+#[derive(Deserialize)]
+struct LegacySimEvent {
+    ledger: u32,
+    contract_id: String,
+    topic: String,
+    data: String,
+}
 
 // ── Mode ──────────────────────────────────────────────────────────────────────
 
@@ -146,6 +172,7 @@ pub struct NetworkSimulator {
     pub tx_history: Vec<TransactionReceipt>,
     /// Simulated WASM store (wasm_hash → bytes).
     wasm_store: HashMap<String, Vec<u8>>,
+    latency_ms: u64,
 }
 
 impl NetworkSimulator {
@@ -169,6 +196,7 @@ impl NetworkSimulator {
             tx_nonce: 0,
             tx_history: Vec::new(),
             wasm_store: HashMap::new(),
+            latency_ms: 0,
             config,
         }
     }
@@ -194,6 +222,7 @@ impl NetworkSimulator {
             tx_nonce: 0,
             tx_history: Vec::new(),
             wasm_store: HashMap::new(),
+            latency_ms: 0,
             config: config.clone(),
         };
 
@@ -312,6 +341,20 @@ impl NetworkSimulator {
         self.ledger.sequence
     }
 
+    /// Advance simulated wall-clock time without advancing the ledger.
+    pub fn advance_time(&mut self, seconds: u64) {
+        self.time_controller.ledger_time.timestamp = self
+            .time_controller
+            .ledger_time
+            .timestamp
+            .saturating_add(i64::try_from(seconds).unwrap_or(i64::MAX));
+    }
+
+    /// Add a fixed delay to contract deployments and invocations.
+    pub fn set_latency(&mut self, milliseconds: u64) {
+        self.latency_ms = milliseconds;
+    }
+
     // ── Accounts ──────────────────────────────────────────────────────────────
 
     /// Create an account with a deterministic public key and initial balance.
@@ -401,6 +444,9 @@ impl NetworkSimulator {
         wasm_hash: &str,
         deployer: &str,
     ) -> Result<ContractInstance, String> {
+        self.check_failure("deployContract", None, Some(deployer))?;
+        self.simulate_latency();
+
         if !self.wasm_store.contains_key(wasm_hash) {
             // Auto-register the WASM if not found (simplifies testing).
             self.wasm_store
@@ -419,6 +465,33 @@ impl NetworkSimulator {
         };
 
         self.contracts.insert(contract_id, instance.clone());
+        self.advance_ledger();
+        Ok(instance)
+    }
+
+    /// Deploy a contract at a caller-specified ID, primarily for scripted scenarios.
+    pub fn deploy_contract_with_id(
+        &mut self,
+        contract_id: &str,
+        wasm_hash: &str,
+        deployer: &str,
+    ) -> Result<ContractInstance, String> {
+        self.check_failure("deployContract", Some(contract_id), Some(deployer))?;
+        self.simulate_latency();
+
+        if !self.wasm_store.contains_key(wasm_hash) {
+            self.wasm_store
+                .insert(wasm_hash.to_string(), vec![0, 0x61, 0x73, 0x6d]);
+        }
+
+        let instance = ContractInstance {
+            contract_id: contract_id.to_string(),
+            wasm_hash: wasm_hash.to_string(),
+            deployer: deployer.to_string(),
+            storage: HashMap::new(),
+        };
+        self.contracts
+            .insert(contract_id.to_string(), instance.clone());
         self.advance_ledger();
         Ok(instance)
     }
@@ -470,17 +543,12 @@ impl NetworkSimulator {
         args: &[String],
         source_account: &str,
     ) -> Result<SimulationOutcome, String> {
-        // Check failure injection.
-        let prob = self.rng.probability();
-        if let Some(mode) = self.failure_injector.check(
+        self.check_failure(
             "simulateTransaction",
             Some(contract_id),
             Some(source_account),
-            prob,
-        ) {
-            let (code, message) = failure_to_rpc_error(&mode);
-            return Err(format!("RPC error {}: {}", code, message));
-        }
+        )?;
+        self.simulate_latency();
 
         // Validate contract exists.
         let _contract = self
@@ -725,6 +793,163 @@ impl NetworkSimulator {
             }
             _ => format!("0x{}", hex::encode(&hash[..8])),
         }
+    }
+
+    fn check_failure(
+        &mut self,
+        rpc_method: &str,
+        contract_id: Option<&str>,
+        account: Option<&str>,
+    ) -> Result<(), String> {
+        let probability = self.rng.probability();
+        if let Some(mode) = self
+            .failure_injector
+            .check(rpc_method, contract_id, account, probability)
+        {
+            let (code, message) = failure_to_rpc_error(&mode);
+            return Err(format!("RPC error {}: {}", code, message));
+        }
+        Ok(())
+    }
+
+    fn simulate_latency(&self) {
+        if self.latency_ms > 0 {
+            std::thread::sleep(Duration::from_millis(self.latency_ms));
+        }
+    }
+
+    /// Persist the current simulator state as a canonical state snapshot.
+    pub fn save_to_file(&self, path: &Path) -> Result<(), String> {
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+            }
+        }
+        let snapshot = StateSnapshot {
+            id: "file-export".to_string(),
+            label: "file-export".to_string(),
+            created_at: chrono::Utc::now().to_rfc3339(),
+            ledger_info: self.ledger.clone(),
+            accounts: self.accounts.values().cloned().collect(),
+            contracts: self.contracts.values().cloned().collect(),
+            ledger_time: self.time_controller.ledger_time,
+            tx_count: self.tx_count(),
+            metadata: HashMap::new(),
+        };
+        let data = serde_json::to_vec_pretty(&snapshot).map_err(|error| error.to_string())?;
+        std::fs::write(path, data).map_err(|error| error.to_string())
+    }
+
+    /// Restore a simulator from a canonical state snapshot.
+    pub fn load_from_file(path: &Path, seed: u64) -> Result<Self, String> {
+        let data = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
+        let value: serde_json::Value =
+            serde_json::from_str(&data).map_err(|error| error.to_string())?;
+        let snapshot = if value.get("ledger_info").is_some() {
+            serde_json::from_value::<StateSnapshot>(value).map_err(|error| error.to_string())?
+        } else {
+            legacy_state_snapshot(
+                serde_json::from_value::<LegacySimLedgerState>(value)
+                    .map_err(|error| error.to_string())?,
+                seed,
+            )
+        };
+        let config = SimulatorConfig {
+            deterministic: DeterministicConfig {
+                seed,
+                ..Default::default()
+            },
+            initial_ledger_sequence: snapshot.ledger_info.sequence,
+            protocol_version: snapshot.ledger_info.protocol_version,
+            max_contract_size: snapshot.ledger_info.max_contract_size_bytes,
+            base_reserve: snapshot.ledger_info.base_reserve,
+            ..Default::default()
+        };
+        let mut simulator = Self::with_config(config);
+        simulator.ledger = snapshot.ledger_info;
+        simulator.accounts = snapshot
+            .accounts
+            .into_iter()
+            .map(|account| (account.public_key.clone(), account))
+            .collect();
+        simulator.contracts = snapshot
+            .contracts
+            .into_iter()
+            .map(|contract| (contract.contract_id.clone(), contract))
+            .collect();
+        simulator.time_controller.ledger_time = snapshot.ledger_time;
+        simulator.tx_nonce = snapshot.tx_count;
+        if let Some(history) = snapshot.metadata.get("legacy_tx_history") {
+            simulator.tx_history =
+                serde_json::from_str(history).map_err(|error| error.to_string())?;
+        }
+        Ok(simulator)
+    }
+}
+
+fn legacy_state_snapshot(state: LegacySimLedgerState, seed: u64) -> StateSnapshot {
+    let ledger_time = crate::utils::network_simulator::time::LedgerTime {
+        sequence: state.ledger_sequence,
+        timestamp: i64::try_from(state.timestamp).unwrap_or(i64::MAX),
+        ..crate::utils::network_simulator::time::LedgerTime::genesis_at(
+            i64::try_from(state.timestamp).unwrap_or(i64::MAX),
+        )
+    };
+    let accounts: Vec<AccountInfo> = state
+        .accounts
+        .into_iter()
+        .map(|(public_key, balance)| AccountInfo {
+            public_key,
+            balance: balance as f64,
+            sequence: 1,
+            num_subentries: 0,
+            trustlines: Vec::new(),
+        })
+        .collect();
+    let contracts: Vec<ContractInstance> = state
+        .contracts
+        .into_values()
+        .map(|contract| ContractInstance {
+            contract_id: contract.contract_id,
+            wasm_hash: contract.wasm_hash,
+            deployer: String::new(),
+            storage: contract.storage,
+        })
+        .collect();
+    let tx_history: Vec<TransactionReceipt> = state
+        .events
+        .into_iter()
+        .enumerate()
+        .map(|(index, event)| TransactionReceipt {
+            hash: derive_tx_hash(seed, index as u64 + 1),
+            status: "success".to_string(),
+            ledger: event.ledger,
+            contract_id: event.contract_id,
+            function: event.topic,
+            return_value: String::new(),
+            fee_stroops: 0,
+            events: vec![event.data],
+        })
+        .collect();
+    let tx_count = tx_history.len() as u64;
+    let metadata = HashMap::from([(
+        "legacy_tx_history".to_string(),
+        serde_json::to_string(&tx_history).unwrap_or_default(),
+    )]);
+
+    StateSnapshot {
+        id: "legacy-import".to_string(),
+        label: "legacy-import".to_string(),
+        created_at: chrono::Utc::now().to_rfc3339(),
+        ledger_info: LedgerInfo {
+            sequence: state.ledger_sequence,
+            ..LedgerInfo::default()
+        },
+        accounts,
+        contracts,
+        ledger_time,
+        tx_count,
+        metadata,
     }
 }
 
@@ -995,5 +1220,67 @@ mod tests {
         assert!(sim.accounts.is_empty());
         assert!(sim.contracts.is_empty());
         assert_eq!(sim.ledger.sequence, 1);
+    }
+
+    #[test]
+    fn snapshot_file_round_trip_restores_canonical_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("simulator.json");
+        let mut sim = NetworkSimulator::new().with_deterministic_seed(17);
+        let account = sim.create_account(500.0);
+        let contract = sim
+            .deploy_contract_with_id("C_FIXED", "wasm-hash", &account.public_key)
+            .unwrap();
+        sim.write_contract_storage(&contract.contract_id, "key", "value".to_string())
+            .unwrap();
+        sim.advance_time(30);
+        sim.save_to_file(&path).unwrap();
+
+        let restored = NetworkSimulator::load_from_file(&path, 17).unwrap();
+        assert_eq!(restored.current_ledger(), sim.current_ledger());
+        assert_eq!(restored.get_account(&account.public_key).unwrap().balance, 500.0);
+        assert_eq!(
+            restored.read_contract_storage("C_FIXED", "key"),
+            Some(&"value".to_string())
+        );
+        assert_eq!(
+            restored.time_controller.ledger_time.timestamp,
+            sim.time_controller.ledger_time.timestamp
+        );
+    }
+
+    #[test]
+    fn legacy_simulator_state_file_loads_into_canonical_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("legacy-simulator.json");
+        let legacy = serde_json::json!({
+            "ledger_sequence": 9,
+            "timestamp": 1234,
+            "contracts": {
+                "C_LEGACY": {
+                    "contract_id": "C_LEGACY",
+                    "wasm_hash": "legacy-wasm",
+                    "storage": { "key": "value" }
+                }
+            },
+            "accounts": { "G_LEGACY": 321 },
+            "events": [{
+                "ledger": 8,
+                "contract_id": "C_LEGACY",
+                "topic": "increment",
+                "data": "1"
+            }]
+        });
+        std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+
+        let restored = NetworkSimulator::load_from_file(&path, 5).unwrap();
+        assert_eq!(restored.current_ledger(), 9);
+        assert_eq!(restored.get_account("G_LEGACY").unwrap().balance, 321.0);
+        assert_eq!(
+            restored.read_contract_storage("C_LEGACY", "key"),
+            Some(&"value".to_string())
+        );
+        assert_eq!(restored.tx_count(), 1);
+        assert_eq!(restored.list_transactions()[0].function, "increment");
     }
 }

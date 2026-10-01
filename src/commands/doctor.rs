@@ -57,6 +57,17 @@ pub async fn run() -> Result<()> {
         Err(e) => findings.push(config::DoctorFinding::fail("soroban", e.to_string())),
     }
 
+    match soroban::get_protocol_version(&network).await {
+        Ok(protocol_version) => findings.push(config::DoctorFinding::pass(
+            "protocol",
+            format!("Soroban protocol version {protocol_version} detected for '{network}'"),
+        )),
+        Err(e) => findings.push(config::DoctorFinding::fail(
+            "protocol",
+            format!("Soroban protocol version detection failed for '{network}': {e:#}"),
+        )),
+    }
+
     if let Some(cli_path) = info::detect_stellar_cli() {
         findings.push(config::DoctorFinding::pass(
             "stellar",

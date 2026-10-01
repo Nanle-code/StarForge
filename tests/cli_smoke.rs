@@ -675,6 +675,96 @@ fn write_config(home: &std::path::Path, contents: &str) {
     std::fs::write(dir.join("config.toml"), contents).expect("write config");
 }
 
+fn write_mock_network_config(home: &std::path::Path, horizon_url: &str, rpc_url: &str) {
+    write_config(
+        home,
+        &format!(
+            r#"
+version = "1"
+network = "testnet"
+telemetry_enabled = false
+wallets = []
+
+[networks.testnet]
+horizon_url = "{horizon_url}"
+soroban_rpc_url = "{rpc_url}"
+passphrase = "Test SDF Network ; September 2015"
+"#
+        ),
+    );
+}
+
+fn write_mock_deploy_config(home: &std::path::Path, rpc_url: &str) {
+    write_config(
+        home,
+        &format!(
+            r#"
+version = "1"
+network = "testnet"
+telemetry_enabled = false
+
+[networks.testnet]
+horizon_url = "http://127.0.0.1:1"
+soroban_rpc_url = "{rpc_url}"
+passphrase = "Test SDF Network ; September 2015"
+
+[[wallets]]
+name = "deployer"
+public_key = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+network = "testnet"
+created_at = "2026-01-01T00:00:00Z"
+funded = false
+"#
+        ),
+    );
+}
+
+fn constructor_wasm() -> Vec<u8> {
+    let mut wasm = vec![0, 0x61, 0x73, 0x6d, 1, 0, 0, 0];
+    wasm.extend_from_slice(&[1, 4, 1, 0x60, 0, 0]);
+    wasm.extend_from_slice(&[3, 2, 1, 0]);
+
+    let constructor = b"__constructor";
+    let mut exports = vec![1, constructor.len() as u8];
+    exports.extend_from_slice(constructor);
+    exports.extend_from_slice(&[0, 0]);
+    wasm.extend_from_slice(&[7, exports.len() as u8]);
+    wasm.extend_from_slice(&exports);
+    wasm.extend_from_slice(&[10, 4, 1, 2, 0, 0x0b]);
+    wasm
+}
+
+fn mock_horizon(server: &mut mockito::Server) -> mockito::Mock {
+    server
+        .mock("GET", "/")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            r#"{"history_latest_ledger":123,"protocol_version":21,"horizon_version":"test"}"#,
+        )
+        .create()
+}
+
+fn mock_rpc_method(server: &mut mockito::Server, method: &str, result: &str) -> mockito::Mock {
+    let params = if method == "getLatestLedger" {
+        serde_json::json!([])
+    } else {
+        serde_json::json!({})
+    };
+    server
+        .mock("POST", "/")
+        .match_body(mockito::Matcher::Json(serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": method,
+            "params": params
+        })))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(result)
+        .create()
+}
+
 #[test]
 fn config_doctor_smoke_in_isolated_home() {
     let home = isolated_home();
@@ -690,6 +780,255 @@ fn config_doctor_smoke_in_isolated_home() {
         stdout.contains("no config.toml found") || stdout.contains("config version is"),
         "expected default schema finding, got: {stdout}"
     );
+}
+
+#[test]
+fn config_doctor_reports_detected_protocol_version() {
+    let home = isolated_home();
+    let mut horizon = mockito::Server::new();
+    let mut rpc = mockito::Server::new();
+    let horizon_mock = mock_horizon(&mut horizon);
+    let health_mock = mock_rpc_method(
+        &mut rpc,
+        "getHealth",
+        r#"{"jsonrpc":"2.0","id":1,"result":{"status":"healthy"}}"#,
+    );
+    let version_mock = mock_rpc_method(
+        &mut rpc,
+        "getNetwork",
+        r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":22}}"#,
+    );
+    write_mock_network_config(home.path(), &horizon.url(), &rpc.url());
+
+    let output = starforge(home.path())
+        .args(["config", "doctor"])
+        .output()
+        .expect("spawn config doctor");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Soroban protocol version 22"), "{stdout}");
+    assert!(
+        stdout.contains("soroban"),
+        "existing RPC health finding should remain: {stdout}"
+    );
+
+    horizon_mock.assert();
+    health_mock.assert();
+    version_mock.assert();
+}
+
+#[test]
+fn config_doctor_reports_protocol_failure_without_hiding_rpc_health() {
+    let home = isolated_home();
+    let mut horizon = mockito::Server::new();
+    let mut rpc = mockito::Server::new();
+    let horizon_mock = mock_horizon(&mut horizon);
+    let health_mock = mock_rpc_method(
+        &mut rpc,
+        "getHealth",
+        r#"{"jsonrpc":"2.0","id":1,"result":{"status":"healthy"}}"#,
+    );
+    let version_mock = mock_rpc_method(
+        &mut rpc,
+        "getNetwork",
+        r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}}"#,
+    );
+    write_mock_network_config(home.path(), &horizon.url(), &rpc.url());
+
+    let output = starforge(home.path())
+        .args(["config", "doctor"])
+        .output()
+        .expect("spawn config doctor");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Soroban RPC reachable for 'testnet'"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("protocol version detection failed")
+            && stdout.contains("Method not found"),
+        "{stdout}"
+    );
+
+    horizon_mock.assert();
+    health_mock.assert();
+    version_mock.assert();
+}
+
+#[test]
+fn network_test_reports_soroban_protocol_version_in_human_output() {
+    let home = isolated_home();
+    let mut horizon = mockito::Server::new();
+    let mut rpc = mockito::Server::new();
+    let horizon_mock = mock_horizon(&mut horizon);
+    let latest_mock = mock_rpc_method(
+        &mut rpc,
+        "getLatestLedger",
+        r#"{"jsonrpc":"2.0","id":1,"result":{"latestLedger":123}}"#,
+    );
+    let version_mock = mock_rpc_method(
+        &mut rpc,
+        "getNetwork",
+        r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":22}}"#,
+    );
+    write_mock_network_config(home.path(), &horizon.url(), &rpc.url());
+
+    let output = starforge(home.path())
+        .args(["network", "test"])
+        .output()
+        .expect("spawn network test");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("Soroban protocol version"), "{stdout}");
+    assert!(stdout.contains("22"), "{stdout}");
+
+    horizon_mock.assert();
+    latest_mock.assert();
+    version_mock.assert();
+}
+
+#[test]
+fn network_test_json_keeps_horizon_and_soroban_protocol_versions_distinct() {
+    let home = isolated_home();
+    let mut horizon = mockito::Server::new();
+    let mut rpc = mockito::Server::new();
+    let horizon_mock = mock_horizon(&mut horizon);
+    let latest_mock = mock_rpc_method(
+        &mut rpc,
+        "getLatestLedger",
+        r#"{"jsonrpc":"2.0","id":1,"result":{"latestLedger":123}}"#,
+    );
+    let version_mock = mock_rpc_method(
+        &mut rpc,
+        "getNetwork",
+        r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":22}}"#,
+    );
+    write_mock_network_config(home.path(), &horizon.url(), &rpc.url());
+
+    let output = starforge(home.path())
+        .args(["--json", "network", "test"])
+        .output()
+        .expect("spawn network test --json");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("valid JSON output");
+    assert_eq!(parsed["data"]["horizon"]["protocol_version"], 21);
+    assert_eq!(parsed["data"]["soroban_protocol_version"], 22);
+
+    horizon_mock.assert();
+    latest_mock.assert();
+    version_mock.assert();
+}
+
+#[cfg(unix)]
+#[test]
+fn constructor_deploy_with_protocol_21_fails_before_stellar_cli() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let home = isolated_home();
+    let mut rpc = mockito::Server::new();
+    let version_mock = mock_rpc_method(
+        &mut rpc,
+        "getNetwork",
+        r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":21}}"#,
+    );
+    write_mock_deploy_config(home.path(), &rpc.url());
+
+    let wasm_path = home.path().join("constructor.wasm");
+    std::fs::write(&wasm_path, constructor_wasm()).expect("write constructor WASM");
+    let bin_dir = home.path().join("bin");
+    std::fs::create_dir_all(&bin_dir).expect("create fake binary directory");
+    let stellar_path = bin_dir.join("stellar");
+    std::fs::write(
+        &stellar_path,
+        "#!/bin/sh\nprintf called > \"$STARFORGE_TEST_STELLAR_CALLED\"\nexit 0\n",
+    )
+    .expect("write fake Stellar CLI");
+    let mut permissions = std::fs::metadata(&stellar_path)
+        .expect("read fake Stellar CLI metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&stellar_path, permissions)
+        .expect("make fake Stellar CLI executable");
+    let called_path = home.path().join("stellar-called");
+    let path = format!("{}:{}", bin_dir.display(), std::env::var("PATH").unwrap_or_default());
+
+    let output = starforge(home.path())
+        .args([
+            "deploy",
+            "--wasm",
+            wasm_path.to_str().expect("WASM path is UTF-8"),
+            "--wallet",
+            "deployer",
+            "--execute",
+            "--yes",
+        ])
+        .env("PATH", path)
+        .env("STARFORGE_TEST_STELLAR_CALLED", &called_path)
+        .output()
+        .expect("spawn constructor deploy");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!output.status.success(), "{combined}");
+    assert!(combined.contains("detected protocol 21"), "{combined}");
+    assert!(combined.contains("protocol 22"), "{combined}");
+    assert!(combined.contains("constructor"), "{combined}");
+    assert!(!called_path.exists(), "Stellar CLI ran despite the protocol gate");
+    version_mock.assert();
+}
+
+#[test]
+fn non_constructor_deploy_does_not_request_protocol_version() {
+    let home = isolated_home();
+    let mut rpc = mockito::Server::new();
+    let version_mock = rpc
+        .mock("POST", "/")
+        .match_body(mockito::Matcher::Json(serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getNetwork",
+            "params": {}
+        })))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":22}}"#)
+        .expect(0)
+        .create();
+    write_mock_deploy_config(home.path(), &rpc.url());
+
+    let wasm_path = home.path().join("without-constructor.wasm");
+    std::fs::write(&wasm_path, [0, 0x61, 0x73, 0x6d, 1, 0, 0, 0])
+        .expect("write non-constructor WASM");
+    let output = starforge(home.path())
+        .args([
+            "deploy",
+            "--wasm",
+            wasm_path.to_str().expect("WASM path is UTF-8"),
+            "--wallet",
+            "deployer",
+            "--execute",
+            "--yes",
+        ])
+        .output()
+        .expect("spawn non-constructor deploy");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!output.status.success(), "{combined}");
+    assert!(combined.contains("no local secret key"), "{combined}");
+    version_mock.assert();
 }
 
 #[test]

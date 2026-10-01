@@ -3,6 +3,7 @@ use crate::utils::{
     dry_run::{self, DryRunPlan, PlannedOperation},
     output,
     print as p,
+    soroban,
 };
 use anyhow::Result;
 use clap::Subcommand;
@@ -175,6 +176,7 @@ fn dry_run_plan(cmd: &NetworkCommands) -> Option<DryRunPlan> {
             .writes_filesystem(),
         ),
         NetworkCommands::Show { .. } | NetworkCommands::Test { .. } => None,
+        NetworkCommands::Node(_) | NetworkCommands::Simulate(_) | NetworkCommands::Snapshot(_) => None,
     }
 }
 
@@ -370,6 +372,8 @@ pub struct NetworkHealthReport {
     pub timestamp: String,
     pub horizon: HorizonHealthDetails,
     pub soroban_rpc: Option<EndpointHealth>,
+    pub soroban_protocol_version: Option<u32>,
+    pub soroban_protocol_version_error: Option<String>,
     pub friendbot: Option<EndpointHealth>,
 }
 
@@ -442,6 +446,8 @@ async fn test_network(network_name: Option<String>, json: bool) -> Result<()> {
 
     // Test Soroban RPC if available
     let mut soroban_health = None;
+    let mut soroban_protocol_version = None;
+    let mut soroban_protocol_version_error = None;
     if let Some(ref soroban_url) = net_cfg.soroban_rpc_url {
         if !emit_json {
             p::info(&format!("Soroban RPC: {}", soroban_url));
@@ -500,6 +506,22 @@ async fn test_network(network_name: Option<String>, json: bool) -> Result<()> {
                 });
             }
         }
+
+        match soroban::get_protocol_version_for_url(soroban_url).await {
+            Ok(version) => {
+                soroban_protocol_version = Some(version);
+                if !emit_json {
+                    p::kv("Soroban protocol version", &version.to_string());
+                }
+            }
+            Err(error) => {
+                let message = format!("Soroban protocol version unavailable: {error:#}");
+                if !emit_json {
+                    p::warn(&message);
+                }
+                soroban_protocol_version_error = Some(message);
+            }
+        }
     }
 
     // Test Friendbot if available
@@ -538,6 +560,8 @@ async fn test_network(network_name: Option<String>, json: bool) -> Result<()> {
             error: horizon_err,
         },
         soroban_rpc: soroban_health,
+        soroban_protocol_version,
+        soroban_protocol_version_error,
         friendbot: friendbot_health,
     };
 

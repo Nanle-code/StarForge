@@ -1,7 +1,7 @@
-use anyhow::{Context, Result};
+use crate::utils::hardware_wallet::{self, HardwareWalletKind};
+use anyhow::Result;
 use clap::Args;
 use colored::*;
-use std::process::Command;
 
 #[derive(Args, Debug)]
 pub struct DiagnosticsArgs {
@@ -10,53 +10,58 @@ pub struct DiagnosticsArgs {
     pub wallet: Option<String>,
 }
 
-/// Handles the `starforge diagnostics` command by bridging execution
-/// to the internal TypeScript/JavaScript hardware utility layer.
+/// Handles hardware-wallet diagnostics through StarForge's native Rust
+/// hardware-wallet implementation.
 pub fn handle(args: DiagnosticsArgs) -> Result<()> {
-    println!(
-        "{}",
-        "🔍 Checking system environment for Node.js runtime...".dimmed()
-    );
+    println!("{}", "Checking hardware-wallet connectivity...".cyan());
 
-    // 1. Verify Node.js is installed on the user's machine to run TS diagnostics
-    let node_check = Command::new("node").arg("-v").output();
-
-    if node_check.is_err() {
-        anyhow::bail!(
-            "{}\n{}",
-            "✗ Error: Node.js runtime environment not found.".red().bold(),
-            "Hardware wallet diagnostics require Node.js. Please install Node.js (v16+) and try again."
-        );
-    }
-
-    // 2. Prepare arguments to pass downstream to the TypeScript runner
-    // Assumes your built runner script is located in the distribution path or run via ts-node/bundler
-    let mut runner = Command::new("node");
-
-    // Path points to your project's diagnostics script executor
-    runner.arg("./dist/diagnostics/run.js");
-
-    if let Some(wallet_type) = args.wallet {
-        runner.arg("--wallet").arg(wallet_type);
-    }
-
-    println!(
-        "{}",
-        "🚀 Running hardware wallet connectivity utility...".cyan()
-    );
-    println!(
-        "{}\n",
-        "--------------------------------------------------".dimmed()
-    );
-
-    // 3. Execute the process and inherit standard output streams so colors/formatting are preserved
-    let status = runner
-        .status()
-        .context("Failed to execute the hardware wallet diagnostics subsystem")?;
-
-    if !status.success() {
-        anyhow::bail!("Hardware diagnostic engine exited with an error status.");
+    for kind in selected_wallets(args.wallet.as_deref())? {
+        match hardware_wallet::device_status(kind) {
+            Ok(status) => println!("{}", format!("✔ {status}").green()),
+            Err(error) => {
+                println!("{}", format!("✘ {kind}: unavailable").red());
+                println!("  Error: {error}");
+                println!(
+                    "  Recovery: Connect and unlock the device, open the Stellar app, and close other wallet applications."
+                );
+            }
+        }
     }
 
     Ok(())
+}
+
+fn selected_wallets(wallet: Option<&str>) -> Result<Vec<HardwareWalletKind>> {
+    match wallet {
+        None => Ok(vec![HardwareWalletKind::Ledger, HardwareWalletKind::Trezor]),
+        Some(wallet) => match wallet.to_ascii_lowercase().as_str() {
+            "ledger" => Ok(vec![HardwareWalletKind::Ledger]),
+            "trezor" => Ok(vec![HardwareWalletKind::Trezor]),
+            _ => anyhow::bail!("Unsupported wallet type '{wallet}'. Choose 'ledger' or 'trezor'."),
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{selected_wallets, HardwareWalletKind};
+
+    #[test]
+    fn diagnostics_selects_both_wallets_by_default() {
+        let wallets = selected_wallets(None).unwrap();
+        assert!(matches!(wallets[0], HardwareWalletKind::Ledger));
+        assert!(matches!(wallets[1], HardwareWalletKind::Trezor));
+    }
+
+    #[test]
+    fn diagnostics_wallet_filter_is_case_insensitive() {
+        let wallets = selected_wallets(Some("LEDGER")).unwrap();
+        assert_eq!(wallets.len(), 1);
+        assert!(matches!(wallets[0], HardwareWalletKind::Ledger));
+    }
+
+    #[test]
+    fn diagnostics_rejects_unknown_wallet_filter() {
+        assert!(selected_wallets(Some("other")).is_err());
+    }
 }

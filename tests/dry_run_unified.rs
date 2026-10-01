@@ -26,7 +26,9 @@ fn starforge(home: &Path) -> Command {
 }
 
 fn run(cmd: &mut Command, label: &str) -> std::process::Output {
-    let output = cmd.output().unwrap_or_else(|e| panic!("spawn {label}: {e}"));
+    let output = cmd
+        .output()
+        .unwrap_or_else(|e| panic!("spawn {label}: {e}"));
     assert!(
         output.status.success(),
         "{label} failed: {}",

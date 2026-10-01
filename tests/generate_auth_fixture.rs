@@ -1,6 +1,6 @@
 use stellar_xdr::curr::{
-    Hash, ScAddress, ScSymbol, ScVal, SorobanAuthorizationEntry, SorobanAuthorizedFunction,
-    SorobanAuthorizedInvocation, SorobanCredentials, VecM, WriteXdr, Limits,
+    Hash, Limits, ScAddress, ScSymbol, ScVal, SorobanAuthorizationEntry, SorobanAuthorizedFunction,
+    SorobanAuthorizedInvocation, SorobanCredentials, VecM, WriteXdr,
 };
 
 #[test]
@@ -53,11 +53,11 @@ fn test_auth_tree_snapshot() {
         "events": [],
         "returnValue": "AAAAAA=="
     });
-    
+
     // I would use build_simulation_result here but it's private.
     // However, I can test it through the JSON deserialize if I had it exposed,
     // or we just save this JSON to a fixture.
-    
+
     let path = std::path::PathBuf::from("tests/fixtures/soroban_rpc/simulate_nested_auth.json");
     std::fs::write(&path, serde_json::to_string_pretty(&json).unwrap()).unwrap();
 }

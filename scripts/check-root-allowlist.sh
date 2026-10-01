@@ -18,7 +18,7 @@ while IFS= read -r -d '' file; do
     DOCKER_SETUP.md|DOCTEST_GUIDELINES.md|Documentation.md|\
     ENCRYPTION_FIX_SUMMARY.txt|install.sh|Jenkinsfile|LICENSE|plan.md|\
     PROGRESSIVE_DISCLOSURE.md|pr_body.md|QUICK_START_TEMPLATES.md|README.md|\
-    RPC_BUDGETING.md|STABILITY.md|starforge-deploy-policy.example.toml|\
+    RPC_BUDGETING.md|SECURITY_THREAT_MODEL.md|STABILITY.md|starforge-deploy-policy.example.toml|\
     starforge-gates.example.toml|starforge-project.example.toml|\
     starforge-simulation-profiles.toml|starforge-size-budget.example.toml|\
     TEMPLATE_COMPATIBILITY_MATRIX.md|TEMPLATE_TESTS_QUICK_REFERENCE.txt|\

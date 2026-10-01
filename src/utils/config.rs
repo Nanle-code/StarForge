@@ -776,6 +776,11 @@ fn is_false(value: &bool) -> bool {
 }
 
 impl WalletEntry {
+    /// True when this entry has no local secret and cannot sign without hardware.
+    pub fn is_watch_only(&self) -> bool {
+        self.secret_key.is_none()
+    }
+
     /// Get explicit or extracted KDF metadata for this wallet entry if encrypted.
     pub fn kdf_metadata(&self) -> Option<crypto::KdfMetadata> {
         let secret = self.secret_key.as_ref()?;
