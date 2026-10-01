@@ -1,6 +1,9 @@
 use crate::utils::template_integration;
 use crate::utils::template_performance;
 use crate::utils::template_provenance;
+use crate::utils::template_security_scanner::{
+    scan_template_security, ScanLevel, TemplateSecurityScannerConfig,
+};
 use crate::utils::{
     dry_run::{self, DryRunPlan, PlannedOperation},
     output, print as p, template_customization_ai, templates,
@@ -416,10 +419,11 @@ async fn handle_cache(cmd: TemplateCacheCommands) -> Result<()> {
 /// and printing docs to stdout are read-only and return `None`.
 fn dry_run_plan(cmd: &TemplateCommands) -> Option<DryRunPlan> {
     match cmd {
-        TemplateCommands::Install { path, name, sign, .. } => {
-            let target = name
-                .clone()
-                .unwrap_or_else(|| path.display().to_string());
+        TemplateCommands::Cache { .. } => None,
+        TemplateCommands::Install {
+            path, name, sign, ..
+        } => {
+            let target = name.clone().unwrap_or_else(|| path.display().to_string());
             Some(
                 DryRunPlan::new("template install", format!("Install template '{target}'"))
                     .operation(
@@ -434,10 +438,10 @@ fn dry_run_plan(cmd: &TemplateCommands) -> Option<DryRunPlan> {
                     .writes_filesystem(),
             )
         }
-        TemplateCommands::Publish { path, name, sign, .. } => {
-            let target = name
-                .clone()
-                .unwrap_or_else(|| path.display().to_string());
+        TemplateCommands::Publish {
+            path, name, sign, ..
+        } => {
+            let target = name.clone().unwrap_or_else(|| path.display().to_string());
             Some(
                 DryRunPlan::new("template publish", format!("Publish template '{target}'"))
                     .operation(
@@ -503,7 +507,8 @@ fn dry_run_plan(cmd: &TemplateCommands) -> Option<DryRunPlan> {
             let target = if *all {
                 "all installed templates".to_string()
             } else {
-                name.clone().unwrap_or_else(|| "installed templates".to_string())
+                name.clone()
+                    .unwrap_or_else(|| "installed templates".to_string())
             };
             Some(
                 DryRunPlan::new("template update", format!("Update {target}"))
@@ -1202,7 +1207,6 @@ async fn remove(name: String, purge: bool) -> Result<()> {
     Ok(())
 }
 
-
 fn template_lint(path: PathBuf) -> Result<()> {
     if !path.is_dir() {
         anyhow::bail!("Template directory does not exist: {}", path.display());
@@ -1227,11 +1231,18 @@ fn template_lint(path: PathBuf) -> Result<()> {
 
     let license = templates::validate_template_publish_requirements(&path, None)
         .map_err(|err| anyhow::anyhow!("License and attribution check failed: {}", err))?;
-    p::success(&format!("License and attribution checks passed ({})", license));
+    p::success(&format!(
+        "License and attribution checks passed ({})",
+        license
+    ));
 
     let security_path = {
         let src = path.join("src");
-        if src.is_dir() { src } else { path.clone() }
+        if src.is_dir() {
+            src
+        } else {
+            path.clone()
+        }
     };
 
     let config = TemplateSecurityScannerConfig {
@@ -1269,7 +1280,10 @@ fn template_new(name: String, output: PathBuf) -> Result<()> {
 
     let template_dir = output.join(&name);
     if template_dir.exists() {
-        anyhow::bail!("Template directory already exists: {}", template_dir.display());
+        anyhow::bail!(
+            "Template directory already exists: {}",
+            template_dir.display()
+        );
     }
 
     std::fs::create_dir_all(template_dir.join("src"))?;
@@ -1812,7 +1826,6 @@ async fn template_test(name: String, verbose: bool) -> Result<()> {
     }
 }
 
-
 // ─── template docs ────────────────────────────────────────────────────────────
 
 async fn template_docs(name: String, output: Option<std::path::PathBuf>) -> Result<()> {
@@ -2155,11 +2168,7 @@ mod template_authoring_tests {
         let temp = tempfile::tempdir().expect("tempdir");
         std::fs::create_dir_all(temp.path().join("src")).expect("create src");
 
-        let result = template_test(
-            temp.path().to_string_lossy().to_string(),
-            false,
-        )
-        .await;
+        let result = template_test(temp.path().to_string_lossy().to_string(), false).await;
 
         assert!(result.is_err());
         let error = result.expect_err("missing fixture should fail");

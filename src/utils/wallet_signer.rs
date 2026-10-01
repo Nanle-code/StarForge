@@ -39,6 +39,16 @@ impl SigningRequest {
             .unwrap_or_else(|| hardware_wallet::STELLAR_HD_PATH.to_string());
 
         if let Some(kind) = hardware {
+            // Pure watch-only entries (no hardware derivation path) cannot sign
+            // even when --hardware is supplied — they are address book records.
+            if let Some(wallet) = wallet {
+                if wallet.is_watch_only() && wallet.derivation_path.is_none() {
+                    anyhow::bail!(
+                        "Wallet '{}' is watch-only and cannot sign. Import a secret key or use a signing wallet.",
+                        wallet.name
+                    );
+                }
+            }
             let public_key = wallet
                 .map(|w| w.public_key.as_str())
                 .unwrap_or("(derived from device)");
@@ -202,10 +212,7 @@ pub fn prompt_hardware_confirmation(
 }
 
 /// Resolve a plaintext secret key from a wallet entry, decrypting when needed.
-fn enforce_mainnet_plaintext_policy(
-    wallet: &config::WalletEntry,
-    network: &str,
-) -> Result<()> {
+fn enforce_mainnet_plaintext_policy(wallet: &config::WalletEntry, network: &str) -> Result<()> {
     enforce_mainnet_plaintext_policy_with_override(
         wallet,
         network,
@@ -243,7 +250,10 @@ fn enforce_mainnet_plaintext_policy_with_override(
     details.insert("network".to_string(), "mainnet".to_string());
     details.insert("wallet".to_string(), wallet.name.clone());
     details.insert("plaintext_secret".to_string(), "true".to_string());
-    details.insert("override".to_string(), "allow-plaintext-mainnet".to_string());
+    details.insert(
+        "override".to_string(),
+        "allow-plaintext-mainnet".to_string(),
+    );
 
     if let Err(e) = crate::utils::audit::log_action(
         "allow_plaintext_mainnet_signing",
@@ -268,10 +278,17 @@ pub fn resolve_local_secret(
     wallet_name: &str,
 ) -> Result<Zeroizing<String>> {
     let sk = wallet.secret_key.as_ref().ok_or_else(|| {
-        anyhow::anyhow!(
-            "Wallet '{}' has no local secret key. Use --hardware ledger or --hardware trezor.",
-            wallet_name
-        )
+        if wallet.derivation_path.is_some() {
+            anyhow::anyhow!(
+                "Wallet '{}' has no local secret key. Use --hardware ledger or --hardware trezor.",
+                wallet_name
+            )
+        } else {
+            anyhow::anyhow!(
+                "Wallet '{}' is watch-only and cannot sign. Import a secret key or use a signing wallet.",
+                wallet_name
+            )
+        }
     })?;
 
     if !sk.contains(':') && sk.starts_with('S') && sk.len() == 56 {

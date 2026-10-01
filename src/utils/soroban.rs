@@ -30,7 +30,7 @@ static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
 });
 
 /// Global RPC budget manager (thread-safe for concurrent access).
-static RPC_BUDGET_MANAGER: Lazy<Mutex<RpcBudgetManager>> = 
+static RPC_BUDGET_MANAGER: Lazy<Mutex<RpcBudgetManager>> =
     Lazy::new(|| Mutex::new(RpcBudgetManager::new()));
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,11 +102,11 @@ pub struct ContractStorageEntry {
 }
 
 #[derive(Debug, Serialize)]
-struct SorobanRpcRequest {
-    jsonrpc: String,
-    id: u64,
-    method: String,
-    params: serde_json::Value,
+pub(crate) struct SorobanRpcRequest {
+    pub(crate) jsonrpc: String,
+    pub(crate) id: u64,
+    pub(crate) method: String,
+    pub(crate) params: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -143,6 +143,34 @@ struct RpcLedgerEntry {
 pub struct InvokeOutcome {
     pub simulation: SimulationResult,
     pub transaction: Option<TransactionResult>,
+    /// True when a restore preamble was detected and a restore tx was submitted.
+    pub restored: bool,
+    /// Restore resource fee shown to the user before confirmation, when any.
+    pub restore_fee_stroops: Option<u64>,
+    /// Hash of the submitted restore transaction, when one ran.
+    pub restore_tx_hash: Option<String>,
+}
+
+/// How to handle a `restorePreamble` returned by simulation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RestoreMode {
+    /// Never restore; surface the preamble to the caller.
+    #[default]
+    Never,
+    /// Prompt the operator (or honour `--yes` / unsafe skip) before restoring.
+    Prompt,
+    /// Restore without an interactive prompt (`--auto-restore`).
+    Auto,
+}
+
+/// Options for [`invoke_contract`].
+#[derive(Debug, Clone, Default)]
+pub struct InvokeOptions {
+    pub restore: RestoreMode,
+    /// When true, skip the interactive restore confirmation (scripted `--yes`).
+    pub yes: bool,
+    /// When true and `wallet` is provided, submit the invoke after simulation/restore.
+    pub submit: bool,
 }
 
 pub async fn invoke_contract(
@@ -154,9 +182,134 @@ pub async fn invoke_contract(
     wallet: Option<&WalletEntry>,
     signing: Option<&SigningRequest>,
 ) -> Result<InvokeOutcome> {
-    let simulation = simulate_transaction(contract_id, function, args, arg_types, network).await?;
-    let transaction = match wallet {
-        Some(w) => Some(
+    invoke_contract_with_options(
+        contract_id,
+        function,
+        args,
+        arg_types,
+        network,
+        wallet,
+        signing,
+        InvokeOptions {
+            submit: wallet.is_some(),
+            ..InvokeOptions::default()
+        },
+    )
+    .await
+}
+
+pub async fn invoke_contract_with_options(
+    contract_id: &str,
+    function: &str,
+    args: &[String],
+    arg_types: &[String],
+    network: &str,
+    wallet: Option<&WalletEntry>,
+    signing: Option<&SigningRequest>,
+    options: InvokeOptions,
+) -> Result<InvokeOutcome> {
+    let mut simulation =
+        simulate_transaction(contract_id, function, args, arg_types, network).await?;
+    let mut restored = false;
+    let mut restore_fee_stroops = None;
+    let mut restore_tx_hash = None;
+
+    if let Some(resources) = simulation.resources.as_ref() {
+        if resources.requires_restore() {
+            restore_fee_stroops = resources.restore_fee_stroops;
+            let tx_data = resources.restore_transaction_data.clone();
+            let fee = resources.restore_fee_stroops.unwrap_or(0);
+
+            match options.restore {
+                RestoreMode::Never => {}
+                RestoreMode::Prompt | RestoreMode::Auto => {
+                    let wallet = wallet.ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "Simulation requires restoring archived ledger entries \
+                             (restore fee ~{fee} stroops). Provide a wallet and \
+                             --auto-restore / confirm to restore, then re-invoke."
+                        )
+                    })?;
+                    let signing = signing.ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "A signing configuration is required to submit the restore transaction."
+                        )
+                    })?;
+                    let tx_data = tx_data.ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "restorePreamble is missing transactionData; cannot build RestoreFootprintOp."
+                        )
+                    })?;
+
+                    let should_restore = match options.restore {
+                        RestoreMode::Auto => true,
+                        RestoreMode::Never => false,
+                        RestoreMode::Prompt => {
+                            if options.yes {
+                                true
+                            } else {
+                                use crate::utils::confirmation::{
+                                    confirm_operation, ConfirmationConfig, OperationSummary,
+                                    RiskLevel,
+                                };
+                                let summary = OperationSummary::new(
+                                    "Restore Archived Ledger Entries".to_string(),
+                                    network.to_string(),
+                                    if network == "mainnet" {
+                                        RiskLevel::High
+                                    } else {
+                                        RiskLevel::Medium
+                                    },
+                                )
+                                .add("Contract ID", contract_id)
+                                .add(
+                                    "Restore fee",
+                                    format!("{fee} stroops ({:.7} XLM)", fee as f64 / 10_000_000.0),
+                                );
+                                let cfg = ConfirmationConfig {
+                                    risk_level: if network == "mainnet" {
+                                        RiskLevel::High
+                                    } else {
+                                        RiskLevel::Medium
+                                    },
+                                    network: network.to_string(),
+                                    skip_confirm: false,
+                                    dry_run: false,
+                                    prompt: Some(
+                                        "Submit restore transaction before invoke?".to_string(),
+                                    ),
+                                    require_type_confirmation: network == "mainnet",
+                                    ..Default::default()
+                                };
+                                confirm_operation(&summary, &cfg)?
+                            }
+                        }
+                    };
+
+                    if !should_restore {
+                        anyhow::bail!("Restore cancelled; invoke aborted.");
+                    }
+
+                    let hash = crate::utils::contract_ttl::restore_from_preamble(
+                        network, wallet, signing, &tx_data, fee,
+                    )
+                    .await?;
+                    restored = true;
+                    restore_tx_hash = Some(hash);
+
+                    simulation =
+                        simulate_transaction(contract_id, function, args, arg_types, network)
+                            .await?;
+                }
+            }
+        }
+    }
+
+    let transaction = if options.submit {
+        let w = wallet.ok_or_else(|| {
+            anyhow::anyhow!("submit requested but no wallet was provided for signing")
+        })?;
+        Some(
             submit_transaction(
                 contract_id,
                 function,
@@ -168,12 +321,16 @@ pub async fn invoke_contract(
                 simulation.fee,
             )
             .await?,
-        ),
-        None => None,
+        )
+    } else {
+        None
     };
     Ok(InvokeOutcome {
         simulation,
         transaction,
+        restored,
+        restore_fee_stroops,
+        restore_tx_hash,
     })
 }
 
@@ -418,7 +575,7 @@ pub async fn check_soroban_rpc_url(url: &str) -> bool {
     }
 }
 
-async fn rpc_request_with_url<T>(rpc_url: &str, request: SorobanRpcRequest) -> Result<T>
+pub(crate) async fn rpc_request_with_url<T>(rpc_url: &str, request: SorobanRpcRequest) -> Result<T>
 where
     T: DeserializeOwned,
 {
@@ -427,7 +584,7 @@ where
         let mut manager = RPC_BUDGET_MANAGER.lock().unwrap();
         manager.get_budget(rpc_url)
     };
-    
+
     let _permit = budget.acquire_permit().await.with_context(|| {
         format!("RPC budget exhausted for {}. Wait or increase STARFORGE_RPC_MAX_QPS/STARFORGE_RPC_MAX_CONCURRENT.", rpc_url)
     })?;
@@ -471,10 +628,11 @@ fn build_contract_instance_key(contract_id: &str) -> Result<LedgerKey> {
 }
 
 fn ledger_key_to_xdr_base64(key: &LedgerKey) -> Result<String> {
-    use base64::{engine::general_purpose, Engine as _};
-    // Simplified XDR encoding - in production use proper stellar-xdr encoding
-    let mock_xdr = format!("ledger_key_{:?}", key);
-    Ok(general_purpose::STANDARD.encode(mock_xdr))
+    use stellar_xdr::curr::{Limits, WriteXdr};
+    let bytes = key
+        .to_xdr(Limits::none())
+        .context("Failed to encode LedgerKey as XDR")?;
+    Ok(BASE64.encode(bytes))
 }
 
 #[allow(dead_code)]
@@ -697,7 +855,10 @@ fn extract_auth(result: &serde_json::Value) -> Result<Vec<AuthNode>> {
             if let Some(auth_array) = res.get("auth").and_then(|a| a.as_array()) {
                 for auth_entry_val in auth_array {
                     if let Some(auth_b64) = auth_entry_val.as_str() {
-                        if let Ok(entry) = SorobanAuthorizationEntry::from_xdr_base64(auth_b64, stellar_xdr::curr::Limits::none()) {
+                        if let Ok(entry) = SorobanAuthorizationEntry::from_xdr_base64(
+                            auth_b64,
+                            stellar_xdr::curr::Limits::none(),
+                        ) {
                             auth_trees.push(parse_auth_invocation(&entry.root_invocation));
                         }
                     }
@@ -719,12 +880,14 @@ fn parse_auth_invocation(inv: &stellar_xdr::curr::SorobanAuthorizedInvocation) -
             let args = call.args.iter().map(format_scval).collect();
             (contract_id, function, args)
         }
-        _ => {
-            ("Host".to_string(), "CreateContract".to_string(), vec![])
-        }
+        _ => ("Host".to_string(), "CreateContract".to_string(), vec![]),
     };
 
-    let sub_invocations = inv.sub_invocations.iter().map(parse_auth_invocation).collect();
+    let sub_invocations = inv
+        .sub_invocations
+        .iter()
+        .map(parse_auth_invocation)
+        .collect();
 
     AuthNode {
         contract_id,

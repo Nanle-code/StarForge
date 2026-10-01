@@ -578,7 +578,10 @@ fn build_update_report(
                 (None, Some(max)) => format!("<= {}", max),
                 (None, None) => "compatible".to_string(),
             };
-            format!("Requires Soroban SDK {} but running version is {}", range, found_version)
+            format!(
+                "Requires Soroban SDK {} but running version is {}",
+                range, found_version
+            )
         }
     };
 
@@ -1235,8 +1238,7 @@ pub fn fetch_template_cached(entry: &TemplateEntry, force_refresh: bool) -> Resu
             if let Some(ref m) = meta {
                 if let Ok(cached_time) = chrono::DateTime::parse_from_rfc3339(&m.cached_at) {
                     let now = Utc::now();
-                    if now.signed_duration_since(cached_time).num_seconds()
-                        >= ttl.as_secs() as i64
+                    if now.signed_duration_since(cached_time).num_seconds() >= ttl.as_secs() as i64
                     {
                         should_refresh = true;
                     }
@@ -1428,7 +1430,10 @@ pub fn list_cached_templates() -> Result<Vec<CachedTemplateInfo>> {
                         if !digest_matches {
                             (
                                 false,
-                                Some("Digest mismatch: cache entry tampered or corrupted".to_string()),
+                                Some(
+                                    "Digest mismatch: cache entry tampered or corrupted"
+                                        .to_string(),
+                                ),
                                 actual,
                             )
                         } else if let Some(prov) = provenance {
@@ -1486,8 +1491,9 @@ pub fn clear_cached_template(name: Option<&str>) -> Result<usize> {
         let dest = cache_root.join(target);
         let meta_file = template_cache_metadata_path(target)?;
         if dest.exists() {
-            fs::remove_dir_all(&dest)
-                .with_context(|| format!("Failed to remove cached template at {}", dest.display()))?;
+            fs::remove_dir_all(&dest).with_context(|| {
+                format!("Failed to remove cached template at {}", dest.display())
+            })?;
             count += 1;
         }
         if meta_file.exists() {
@@ -1498,8 +1504,9 @@ pub fn clear_cached_template(name: Option<&str>) -> Result<usize> {
             let entry = entry?;
             let path = entry.path();
             if path.is_dir() {
-                fs::remove_dir_all(&path)
-                    .with_context(|| format!("Failed to remove cached directory at {}", path.display()))?;
+                fs::remove_dir_all(&path).with_context(|| {
+                    format!("Failed to remove cached directory at {}", path.display())
+                })?;
                 count += 1;
             } else if path.is_file() {
                 let _ = fs::remove_file(&path);
@@ -2048,13 +2055,15 @@ pub async fn get_template(name: &str) -> Result<TemplateEntry> {
         .filter(|t| t.name == name)
         .cloned()
         .collect();
-        
+
     versions.sort_by(|a, b| {
-        let a_ver = semver::Version::parse(&a.version).unwrap_or_else(|_| semver::Version::new(0, 0, 0));
-        let b_ver = semver::Version::parse(&b.version).unwrap_or_else(|_| semver::Version::new(0, 0, 0));
+        let a_ver =
+            semver::Version::parse(&a.version).unwrap_or_else(|_| semver::Version::new(0, 0, 0));
+        let b_ver =
+            semver::Version::parse(&b.version).unwrap_or_else(|_| semver::Version::new(0, 0, 0));
         b_ver.cmp(&a_ver)
     });
-    
+
     versions.into_iter().next().ok_or_else(|| {
         let names: Vec<&str> = registry.templates.iter().map(|t| t.name.as_str()).collect();
         let suggestion = crate::utils::suggestion::did_you_mean(name, &names).unwrap_or_default();
@@ -2190,7 +2199,11 @@ pub async fn get_template_by_name_and_version(
     }
 
     if let Some(v) = version {
-        anyhow::bail!("Template '{}@{}' not found in registry or local cache", name, v)
+        anyhow::bail!(
+            "Template '{}@{}' not found in registry or local cache",
+            name,
+            v
+        )
     } else {
         anyhow::bail!("Template '{}' not found in registry or local cache", name)
     }
@@ -2881,9 +2894,11 @@ pub fn validate_template_publish_requirements(
 
     let has_authors = match manifest.get("authors") {
         Some(serde_json::Value::String(authors)) => !authors.trim().is_empty(),
-        Some(serde_json::Value::Array(authors)) => authors
-            .iter()
-            .any(|author| author.as_str().is_some_and(|author| !author.trim().is_empty())),
+        Some(serde_json::Value::Array(authors)) => authors.iter().any(|author| {
+            author
+                .as_str()
+                .is_some_and(|author| !author.trim().is_empty())
+        }),
         _ => false,
     };
     let has_attribution = manifest
@@ -3577,7 +3592,8 @@ mod tests {
 
         let file = fs::File::create(zip_path).unwrap();
         let mut zip = ZipWriter::new(file);
-        zip.start_file(raw_name, FileOptions::<()>::default()).unwrap();
+        zip.start_file(raw_name, FileOptions::<()>::default())
+            .unwrap();
         std::io::Write::write_all(&mut zip, contents).unwrap();
         zip.finish().unwrap();
     }
@@ -3616,7 +3632,8 @@ mod tests {
         let zip_path = tmp.path().join("mixed.zip");
         let file = fs::File::create(&zip_path).unwrap();
         let mut zip = ZipWriter::new(file);
-        zip.start_file("README.md", FileOptions::<()>::default()).unwrap();
+        zip.start_file("README.md", FileOptions::<()>::default())
+            .unwrap();
         std::io::Write::write_all(&mut zip, b"# ok").unwrap();
         zip.start_file("../escaped.txt", FileOptions::<()>::default())
             .unwrap();
@@ -4720,7 +4737,9 @@ mod tests {
         // Verification function directly rejects it
         let direct_err =
             verify_cache_entry_integrity(&entry.name, &tpl_dir, Some(&digest), None).unwrap_err();
-        assert!(direct_err.to_string().contains("tampered with or corrupted"));
+        assert!(direct_err
+            .to_string()
+            .contains("tampered with or corrupted"));
     }
 
     #[tokio::test]

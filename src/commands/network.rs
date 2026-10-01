@@ -1,8 +1,7 @@
 use crate::utils::{
     config,
     dry_run::{self, DryRunPlan, PlannedOperation},
-    output,
-    print as p,
+    output, print as p,
 };
 use anyhow::Result;
 use clap::Subcommand;
@@ -175,6 +174,7 @@ fn dry_run_plan(cmd: &NetworkCommands) -> Option<DryRunPlan> {
             .writes_filesystem(),
         ),
         NetworkCommands::Show { .. } | NetworkCommands::Test { .. } => None,
+        NetworkCommands::Node(_) | NetworkCommands::Simulate(_) | NetworkCommands::Snapshot(_) => None,
     }
 }
 

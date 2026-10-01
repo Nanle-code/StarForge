@@ -35,6 +35,28 @@ fn test_hardware_wallet_command_availability() {
 }
 
 #[test]
+fn test_hardware_wallet_diagnostics_uses_native_cli() {
+    let home = isolated_home();
+    let output = starforge(home.path())
+        .args(["wallet", "diagnostics", "--wallet", "ledger"])
+        .output()
+        .expect("Hardware-wallet diagnostics should run without Node.js");
+
+    assert!(
+        output.status.success(),
+        "Diagnostics should report device status without treating a missing device as a CLI failure"
+    );
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    )
+    .to_lowercase();
+    assert!(combined.contains("ledger"));
+    assert!(!combined.contains("node.js runtime"));
+}
+
+#[test]
 fn test_hardware_wallet_detection_graceful_fallback() {
     let home = isolated_home();
     let output = starforge(home.path())
