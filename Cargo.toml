@@ -153,6 +153,8 @@ nix = { version = "0.29", default-features = false, features = ["mman"] }
 
 [features]
 ai = []
+graphql = []
+wasm-bindings = ["dep:wasm-bindgen"]
 # OS-native secret storage (macOS Keychain, Windows Credential Manager, Linux
 # Secret Service). Dependency-free: the backend shells out to the platform
 # tool, so enabling it does not change `Cargo.lock`.
