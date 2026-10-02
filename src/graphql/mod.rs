@@ -2,6 +2,7 @@ pub mod auth;
 pub mod cost_analysis;
 pub mod resolvers;
 pub mod schema;
+pub mod schema_deprecations;
 pub mod subscription;
 pub mod types;
 

@@ -844,8 +844,7 @@ fn config_doctor_reports_protocol_failure_without_hiding_rpc_health() {
         "{stdout}"
     );
     assert!(
-        stdout.contains("protocol version detection failed")
-            && stdout.contains("Method not found"),
+        stdout.contains("protocol version detection failed") && stdout.contains("Method not found"),
         "{stdout}"
     );
 
@@ -955,10 +954,13 @@ fn constructor_deploy_with_protocol_21_fails_before_stellar_cli() {
         .expect("read fake Stellar CLI metadata")
         .permissions();
     permissions.set_mode(0o755);
-    std::fs::set_permissions(&stellar_path, permissions)
-        .expect("make fake Stellar CLI executable");
+    std::fs::set_permissions(&stellar_path, permissions).expect("make fake Stellar CLI executable");
     let called_path = home.path().join("stellar-called");
-    let path = format!("{}:{}", bin_dir.display(), std::env::var("PATH").unwrap_or_default());
+    let path = format!(
+        "{}:{}",
+        bin_dir.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
 
     let output = starforge(home.path())
         .args([
@@ -983,7 +985,10 @@ fn constructor_deploy_with_protocol_21_fails_before_stellar_cli() {
     assert!(combined.contains("detected protocol 21"), "{combined}");
     assert!(combined.contains("protocol 22"), "{combined}");
     assert!(combined.contains("constructor"), "{combined}");
-    assert!(!called_path.exists(), "Stellar CLI ran despite the protocol gate");
+    assert!(
+        !called_path.exists(),
+        "Stellar CLI ran despite the protocol gate"
+    );
     version_mock.assert();
 }
 
@@ -1273,20 +1278,22 @@ fn onboarding_completes_offline_and_failed_checkpoints_do_not_advance() {
             "--demo",
         ],
     );
-    assert_success(&start, "starforge tool tutorial start onboarding-15-minute --demo");
-
-    let installed = onboarding_command(
-        home.path(),
-        working_dir.path(),
-        &["--version"],
+    assert_success(
+        &start,
+        "starforge tool tutorial start onboarding-15-minute --demo",
     );
+
+    let installed = onboarding_command(home.path(), working_dir.path(), &["--version"]);
     assert_success(&installed, "starforge --version");
     let first_next = onboarding_command(
         home.path(),
         working_dir.path(),
         &["tool", "tutorial", "next"],
     );
-    assert_success(&first_next, "starforge tool tutorial next (install checkpoint)");
+    assert_success(
+        &first_next,
+        "starforge tool tutorial next (install checkpoint)",
+    );
 
     let missing_wallet = onboarding_command(
         home.path(),
@@ -1308,9 +1315,7 @@ fn onboarding_completes_offline_and_failed_checkpoints_do_not_advance() {
         &["tool", "tutorial", "status"],
     );
     assert_success(&status, "starforge tool tutorial status");
-    assert!(
-        String::from_utf8_lossy(&status.stdout).contains("step 2 of 4 (1 completed)")
-    );
+    assert!(String::from_utf8_lossy(&status.stdout).contains("step 2 of 4 (1 completed)"));
 
     let wallet = onboarding_command(
         home.path(),
@@ -1323,7 +1328,10 @@ fn onboarding_completes_offline_and_failed_checkpoints_do_not_advance() {
         working_dir.path(),
         &["tool", "tutorial", "next"],
     );
-    assert_success(&wallet_next, "starforge tool tutorial next (wallet checkpoint)");
+    assert_success(
+        &wallet_next,
+        "starforge tool tutorial next (wallet checkpoint)",
+    );
 
     let missing_project = onboarding_command(
         home.path(),
@@ -1359,18 +1367,15 @@ fn onboarding_completes_offline_and_failed_checkpoints_do_not_advance() {
         working_dir.path(),
         &["tool", "tutorial", "next"],
     );
-    assert_success(&scaffold_next, "starforge tool tutorial next (scaffold checkpoint)");
+    assert_success(
+        &scaffold_next,
+        "starforge tool tutorial next (scaffold checkpoint)",
+    );
 
     let simulation = onboarding_command(
         home.path(),
         working_dir.path(),
-        &[
-            "network",
-            "simulate",
-            "run",
-            "--scenario",
-            "simple-counter",
-        ],
+        &["network", "simulate", "run", "--scenario", "simple-counter"],
     );
     assert_success(
         &simulation,
@@ -1381,7 +1386,10 @@ fn onboarding_completes_offline_and_failed_checkpoints_do_not_advance() {
         working_dir.path(),
         &["tool", "tutorial", "next"],
     );
-    assert_success(&completed, "starforge tool tutorial next (simulation checkpoint)");
+    assert_success(
+        &completed,
+        "starforge tool tutorial next (simulation checkpoint)",
+    );
     let completed_output = String::from_utf8_lossy(&completed.stdout);
     assert!(completed_output.contains("Tutorial complete!"));
     assert!(completed_output.contains("Elapsed"));

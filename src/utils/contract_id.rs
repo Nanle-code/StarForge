@@ -25,7 +25,11 @@ use stellar_xdr::curr::{
 fn padded_hex_from_str(hex_str: &str, expected_len: usize) -> Result<Vec<u8>> {
     let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
     if hex_str.len() > expected_len * 2 {
-        return Err(anyhow::anyhow!("Hex string too long: expected {} bytes, got {}", expected_len, hex_str.len() / 2));
+        return Err(anyhow::anyhow!(
+            "Hex string too long: expected {} bytes, got {}",
+            expected_len,
+            hex_str.len() / 2
+        ));
     }
     let padded = format!("{:0>width$}", hex_str, width = expected_len * 2);
     hex::decode(&padded).map_err(|e| anyhow::anyhow!("Invalid hex string: {}", e))
@@ -68,7 +72,9 @@ pub fn derive_contract_id_preimage(
     let network_passphrase = config::get_network_passphrase(network);
     let network_id = Hash(Sha256::digest(network_passphrase.as_bytes()).into());
 
-    let source_account = AccountId(PublicKey::PublicKeyTypeEd25519(Uint256(*deployer_public_key)));
+    let source_account = AccountId(PublicKey::PublicKeyTypeEd25519(Uint256(
+        *deployer_public_key,
+    )));
     let contract_id_preimage = ContractIdPreimage::Address(ContractIdPreimageFromAddress {
         address: ScAddress::Account(source_account),
         salt: Uint256(*salt),
@@ -112,7 +118,9 @@ fn get_contract_id(
 
 /// Build the contract ID preimage from deployer address and salt.
 fn contract_preimage(deployer_public_key: &[u8; 32], salt: &[u8; 32]) -> ContractIdPreimage {
-    let source_account = AccountId(PublicKey::PublicKeyTypeEd25519(Uint256(*deployer_public_key)));
+    let source_account = AccountId(PublicKey::PublicKeyTypeEd25519(Uint256(
+        *deployer_public_key,
+    )));
     ContractIdPreimage::Address(ContractIdPreimageFromAddress {
         address: ScAddress::Account(source_account),
         salt: Uint256(*salt),
@@ -140,8 +148,9 @@ pub fn parse_salt(salt_str: &str) -> Result<[u8; 32]> {
 
 /// Parse a deployer address (StrKey G...) into a 32-byte public key.
 pub fn parse_deployer(deployer_str: &str) -> Result<[u8; 32]> {
-    let public_key = ed25519::PublicKey::from_string(deployer_str)
-        .map_err(|_| anyhow::anyhow!("Invalid deployer address: expected StrKey starting with 'G'"))?;
+    let public_key = ed25519::PublicKey::from_string(deployer_str).map_err(|_| {
+        anyhow::anyhow!("Invalid deployer address: expected StrKey starting with 'G'")
+    })?;
     Ok(public_key.0)
 }
 

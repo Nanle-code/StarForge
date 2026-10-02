@@ -160,15 +160,16 @@ fn resolve_test_wasm(args: &TestArgs) -> Result<PathBuf> {
     } else {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         if let Some((manifest_path, manifest)) = crate::manifest::find_and_load_manifest(&cwd)? {
-            let contract_wasm = manifest
-                .contracts
-                .values()
-                .find_map(|c| c.wasm.clone());
+            let contract_wasm = manifest.contracts.values().find_map(|c| c.wasm.clone());
             if let Some(wasm_rel) = contract_wasm {
-                let base_dir = manifest_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+                let base_dir = manifest_path
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new("."));
                 Ok(base_dir.join(wasm_rel))
             } else {
-                anyhow::bail!("No contract WASM specified in starforge.toml. Please pass --wasm <path>.");
+                anyhow::bail!(
+                    "No contract WASM specified in starforge.toml. Please pass --wasm <path>."
+                );
             }
         } else {
             anyhow::bail!("Missing --wasm argument and no starforge.toml project manifest found.");

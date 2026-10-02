@@ -355,10 +355,8 @@ mod tests {
     #[test]
     fn exported_bundle_signature_round_trips_and_verifies() {
         let signing_key = SigningKey::from_bytes(&[19; 32]);
-        let address = stellar_strkey::ed25519::PublicKey(
-            signing_key.verifying_key().to_bytes(),
-        )
-        .to_string();
+        let address =
+            stellar_strkey::ed25519::PublicKey(signing_key.verifying_key().to_bytes()).to_string();
         let payload = [3; 32];
         let signature = signing_key.sign(&payload);
         let bundle = AuthEntryBundle {
@@ -372,9 +370,11 @@ mod tests {
                 signature: Some(hex::encode(signature.to_bytes())),
             }],
         };
-        let path = std::env::temp_dir().join(format!("starforge-auth-{}.json", uuid::Uuid::new_v4()));
+        let path =
+            std::env::temp_dir().join(format!("starforge-auth-{}.json", uuid::Uuid::new_v4()));
         export_bundle(&bundle, &path).unwrap();
-        let imported: AuthEntryBundle = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let imported: AuthEntryBundle =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         std::fs::remove_file(path).unwrap();
         assert_eq!(imported, bundle);
     }

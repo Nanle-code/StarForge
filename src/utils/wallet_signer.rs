@@ -109,10 +109,7 @@ impl SigningRequest {
     ///
     /// Used by the signing agent's keystore to sign without going through the
     /// StrKey → seed → `SigningKey` round-trip a second time.
-    pub fn local_secret_raw(
-        signing_key: &ed25519_dalek::SigningKey,
-        network: &str,
-    ) -> Self {
+    pub fn local_secret_raw(signing_key: &ed25519_dalek::SigningKey, network: &str) -> Self {
         use stellar_strkey::ed25519::PrivateKey;
         let secret_str = PrivateKey::from_bytes(signing_key.as_bytes()).to_string();
         Self::local_secret(Zeroizing::new(secret_str), network)
@@ -980,10 +977,7 @@ pub async fn sign_with_agent_fallback(
 
 /// Build a human-readable one-line preview for a signing request.
 fn build_signing_preview(transaction_xdr: &str, request: &SigningRequest) -> String {
-    let wallet = request
-        .wallet_name
-        .as_deref()
-        .unwrap_or("(unknown)");
+    let wallet = request.wallet_name.as_deref().unwrap_or("(unknown)");
     let network = &request.network;
     match &request.target {
         SigningTarget::Contract(Some(id)) => {

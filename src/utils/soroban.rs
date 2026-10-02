@@ -28,8 +28,7 @@ fn build_http_client(timeout: Duration) -> Client {
     crate::utils::http_client::client_with_timeout(timeout)
 }
 
-static HTTP_CLIENT: Lazy<Client> =
-    Lazy::new(|| build_http_client(Duration::from_secs(30)));
+static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| build_http_client(Duration::from_secs(30)));
 
 /// Global RPC budget manager (thread-safe for concurrent access).
 static RPC_BUDGET_MANAGER: Lazy<Mutex<RpcBudgetManager>> =
@@ -65,7 +64,9 @@ pub fn require_feature(feature: ProtocolFeature, protocol_version: u32) -> Resul
         .map(|(_, minimum)| *minimum)
         .expect("all protocol features have a minimum version");
     let capability = match feature {
-        ProtocolFeature::ContractConstructor => "contract constructor (create_contract_with_constructor)",
+        ProtocolFeature::ContractConstructor => {
+            "contract constructor (create_contract_with_constructor)"
+        }
     };
 
     anyhow::bail!(
@@ -233,11 +234,11 @@ pub async fn invoke_contract(
 ) -> Result<InvokeOutcome> {
     let source_wallet = match wallet {
         Some(wallet) => wallet.clone(),
-        None => config::load()?
-            .wallets
-            .into_iter()
-            .next()
-            .ok_or_else(|| anyhow::anyhow!("Simulation needs a source wallet; add one with `starforge wallet create`"))?,
+        None => config::load()?.wallets.into_iter().next().ok_or_else(|| {
+            anyhow::anyhow!(
+                "Simulation needs a source wallet; add one with `starforge wallet create`"
+            )
+        })?,
     };
     let mut simulation = simulate_transaction_from(
         contract_id,
@@ -261,9 +262,8 @@ pub async fn invoke_contract(
                 simulation.fee,
             )
             .await?,
-        )
-    } else {
-        None
+        ),
+        None => None,
     };
     Ok(InvokeOutcome {
         simulation,
@@ -281,11 +281,9 @@ pub async fn simulate_transaction(
     arg_types: &[String],
     network: &str,
 ) -> Result<SimulationResult> {
-    let wallet = config::load()?
-        .wallets
-        .into_iter()
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("Simulation needs a source wallet; add one with `starforge wallet create`"))?;
+    let wallet = config::load()?.wallets.into_iter().next().ok_or_else(|| {
+        anyhow::anyhow!("Simulation needs a source wallet; add one with `starforge wallet create`")
+    })?;
     simulate_transaction_from(contract_id, function, args, arg_types, network, &wallet).await
 }
 
@@ -521,11 +519,8 @@ pub async fn get_protocol_version(network: &str) -> Result<u32> {
 }
 
 pub async fn get_protocol_version_for_url(rpc_url: &str) -> Result<u32> {
-    if let Some((cached_at, protocol_version)) = PROTOCOL_VERSION_CACHE
-        .lock()
-        .unwrap()
-        .get(rpc_url)
-        .copied()
+    if let Some((cached_at, protocol_version)) =
+        PROTOCOL_VERSION_CACHE.lock().unwrap().get(rpc_url).copied()
     {
         if cached_at.elapsed() < PROTOCOL_VERSION_CACHE_TTL {
             return Ok(protocol_version);
@@ -1635,8 +1630,14 @@ mod tests {
             .create_async()
             .await;
 
-        assert_eq!(get_protocol_version_for_url(&server.url()).await.unwrap(), 22);
-        assert_eq!(get_protocol_version_for_url(&server.url()).await.unwrap(), 22);
+        assert_eq!(
+            get_protocol_version_for_url(&server.url()).await.unwrap(),
+            22
+        );
+        assert_eq!(
+            get_protocol_version_for_url(&server.url()).await.unwrap(),
+            22
+        );
         mock.assert_async().await;
     }
 

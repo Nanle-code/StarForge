@@ -738,7 +738,10 @@ fn set_ca_bundle(value: &str) -> Result<()> {
                 "network.ca_bundle for '{}' cleared (was '{}').",
                 network, previous
             )),
-            None => p::info(&format!("network.ca_bundle for '{}' was already unset.", network)),
+            None => p::info(&format!(
+                "network.ca_bundle for '{}' was already unset.",
+                network
+            )),
         },
     }
 

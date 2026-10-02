@@ -1515,20 +1515,29 @@ pub fn validate_config_integrity(cfg: &Config) -> Vec<DoctorFinding> {
     // #902: a CA bundle that cannot be read is a connectivity failure waiting
     // to happen, so `doctor` reports it instead of leaving it to the first
     // HTTPS request.
-    match cfg.networks.get(&cfg.network).and_then(|net| net.ca_bundle.as_ref()) {
+    match cfg
+        .networks
+        .get(&cfg.network)
+        .and_then(|net| net.ca_bundle.as_ref())
+    {
         None => findings.push(DoctorFinding::pass(
             "network.ca_bundle",
             "no custom CA bundle for the active network",
         )),
-        Some(path) => match crate::utils::http_client::load_ca_certificates(
-            std::path::Path::new(path.trim()),
-        ) {
-            Ok(certificates) => findings.push(DoctorFinding::pass(
-                "network.ca_bundle",
-                format!("{} trusted root certificate(s) from {}", certificates.len(), path),
-            )),
-            Err(e) => findings.push(DoctorFinding::fail("network.ca_bundle", e.to_string())),
-        },
+        Some(path) => {
+            match crate::utils::http_client::load_ca_certificates(std::path::Path::new(path.trim()))
+            {
+                Ok(certificates) => findings.push(DoctorFinding::pass(
+                    "network.ca_bundle",
+                    format!(
+                        "{} trusted root certificate(s) from {}",
+                        certificates.len(),
+                        path
+                    ),
+                )),
+                Err(e) => findings.push(DoctorFinding::fail("network.ca_bundle", e.to_string())),
+            }
+        }
     }
 
     if cfg.wallets.is_empty() {
@@ -2181,20 +2190,13 @@ pub fn set_network_ca_bundle(
 ) -> Result<Option<String>> {
     if let Some(path) = &ca_bundle {
         let as_str = path.to_str().ok_or_else(|| {
-            anyhow::anyhow!(
-                "CA bundle path '{}' is not valid UTF-8",
-                path.display()
-            )
+            anyhow::anyhow!("CA bundle path '{}' is not valid UTF-8", path.display())
         })?;
         if as_str.trim().is_empty() {
             anyhow::bail!("CA bundle path is empty");
         }
-        crate::utils::http_client::load_ca_certificates(path).with_context(|| {
-            format!(
-                "'{}' is not usable as a CA bundle",
-                path.display()
-            )
-        })?;
+        crate::utils::http_client::load_ca_certificates(path)
+            .with_context(|| format!("'{}' is not usable as a CA bundle", path.display()))?;
     }
 
     let entry = config

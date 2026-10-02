@@ -1,0 +1,40 @@
+name: GraphQL Schema Lint
+
+# Enforces the 90-day deprecation SLA from GRAPHQL_SCHEMA_VERSIONING.md.
+# Runs on every push/PR that touches GraphQL source or schema docs.
+
+on:
+  push:
+    paths:
+      - "src/graphql/**"
+      - "GRAPHQL_*.md"
+      - "scripts/check-graphql-deprecations.sh"
+  pull_request:
+    paths:
+      - "src/graphql/**"
+      - "GRAPHQL_*.md"
+      - "scripts/check-graphql-deprecations.sh"
+
+jobs:
+  graphql-schema-lint:
+    name: GraphQL Schema Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Make lint script executable
+        run: chmod +x scripts/check-graphql-deprecations.sh
+
+      - name: Check GraphQL deprecation windows
+        run: bash scripts/check-graphql-deprecations.sh
+
+      - name: Verify schema_deprecations.rs compiles
+        # Compile only the graphql module to catch any Rust errors in the
+        # deprecation registry before they reach the main CI build job.
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libudev-dev
+
+      - name: Compile graphql module (deprecation registry check)
+        run: cargo check --locked 2>&1 | grep -E "^error" && exit 1 || true

@@ -14,7 +14,11 @@ use stellar_xdr::curr::{
 fn padded_hex_from_str(hex_str: &str, expected_len: usize) -> Result<Vec<u8>, String> {
     let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
     if hex_str.len() > expected_len * 2 {
-        return Err(format!("Hex string too long: expected {} bytes, got {}", expected_len, hex_str.len() / 2));
+        return Err(format!(
+            "Hex string too long: expected {} bytes, got {}",
+            expected_len,
+            hex_str.len() / 2
+        ));
     }
     let padded = format!("{:0>width$}", hex_str, width = expected_len * 2);
     hex::decode(&padded).map_err(|e| format!("Invalid hex string: {}", e))
@@ -31,7 +35,9 @@ fn derive_contract_id(
     let network_id = Hash(Sha256::digest(network_passphrase.as_bytes()).into());
 
     // Contract ID preimage = Address(deployer_account, salt)
-    let source_account = AccountId(PublicKey::PublicKeyTypeEd25519(Uint256(*deployer_public_key)));
+    let source_account = AccountId(PublicKey::PublicKeyTypeEd25519(Uint256(
+        *deployer_public_key,
+    )));
     let contract_id_preimage = ContractIdPreimage::Address(ContractIdPreimageFromAddress {
         address: ScAddress::Account(source_account),
         salt: Uint256(*salt),
@@ -64,7 +70,9 @@ fn derive_contract_id_preimage(
 ) -> Result<ContractIdPreimageComponents, String> {
     let network_id = Hash(Sha256::digest(network_passphrase.as_bytes()).into());
 
-    let source_account = AccountId(PublicKey::PublicKeyTypeEd25519(Uint256(*deployer_public_key)));
+    let source_account = AccountId(PublicKey::PublicKeyTypeEd25519(Uint256(
+        *deployer_public_key,
+    )));
     let contract_id_preimage = ContractIdPreimage::Address(ContractIdPreimageFromAddress {
         address: ScAddress::Account(source_account),
         salt: Uint256(*salt),
@@ -107,32 +115,33 @@ fn test_contract_id_derivation_matches_stellar_cli_reference() {
     // Using a known test account: GCKFBEIYTK6W7D4L6K4Q7R7V7W7X7Y7Z7A7B7C7D7E7F7G7H7I7J7K7L7M7N7O
     // This is just a placeholder - actual test would use a valid StrKey
     let deployer_public_key: [u8; 32] = [
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-        0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
-        0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
-        0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20,
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e,
+        0x1f, 0x20,
     ];
 
     // Example salt (32 bytes)
     let salt: [u8; 32] = [
-        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
-        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
-        0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
+        0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d,
+        0x1e, 0x1f,
     ];
 
     // Test testnet
-    let contract_id_testnet = derive_contract_id(&deployer_public_key, &salt, TESTNET_PASSPHRASE).unwrap();
+    let contract_id_testnet =
+        derive_contract_id(&deployer_public_key, &salt, TESTNET_PASSPHRASE).unwrap();
     assert!(contract_id_testnet.starts_with('C'));
     assert_eq!(contract_id_testnet.len(), 56);
 
     // Test mainnet
-    let contract_id_mainnet = derive_contract_id(&deployer_public_key, &salt, MAINNET_PASSPHRASE).unwrap();
+    let contract_id_mainnet =
+        derive_contract_id(&deployer_public_key, &salt, MAINNET_PASSPHRASE).unwrap();
     assert!(contract_id_mainnet.starts_with('C'));
     assert_eq!(contract_id_mainnet.len(), 56);
 
     // Test futurenet
-    let contract_id_futurenet = derive_contract_id(&deployer_public_key, &salt, FUTURENET_PASSPHRASE).unwrap();
+    let contract_id_futurenet =
+        derive_contract_id(&deployer_public_key, &salt, FUTURENET_PASSPHRASE).unwrap();
     assert!(contract_id_futurenet.starts_with('C'));
     assert_eq!(contract_id_futurenet.len(), 56);
 
@@ -145,7 +154,7 @@ fn test_contract_id_derivation_matches_stellar_cli_reference() {
 #[test]
 fn test_contract_id_is_deterministic() {
     const TESTNET_PASSPHRASE: &str = "Test SDF Network ; September 2015";
-    
+
     let deployer_public_key: [u8; 32] = [0x42; 32];
     let salt: [u8; 32] = [0x24; 32];
 
@@ -158,7 +167,7 @@ fn test_contract_id_is_deterministic() {
 #[test]
 fn test_different_salt_produces_different_id() {
     const TESTNET_PASSPHRASE: &str = "Test SDF Network ; September 2015";
-    
+
     let deployer_public_key: [u8; 32] = [0x42; 32];
     let salt1: [u8; 32] = [0x00; 32];
     let salt2: [u8; 32] = [0x01; 32];
@@ -166,13 +175,16 @@ fn test_different_salt_produces_different_id() {
     let id1 = derive_contract_id(&deployer_public_key, &salt1, TESTNET_PASSPHRASE).unwrap();
     let id2 = derive_contract_id(&deployer_public_key, &salt2, TESTNET_PASSPHRASE).unwrap();
 
-    assert_ne!(id1, id2, "Different salts must produce different contract IDs");
+    assert_ne!(
+        id1, id2,
+        "Different salts must produce different contract IDs"
+    );
 }
 
 #[test]
 fn test_different_deployer_produces_different_id() {
     const TESTNET_PASSPHRASE: &str = "Test SDF Network ; September 2015";
-    
+
     let deployer1: [u8; 32] = [0x01; 32];
     let deployer2: [u8; 32] = [0x02; 32];
     let salt: [u8; 32] = [0x00; 32];
@@ -180,7 +192,10 @@ fn test_different_deployer_produces_different_id() {
     let id1 = derive_contract_id(&deployer1, &salt, TESTNET_PASSPHRASE).unwrap();
     let id2 = derive_contract_id(&deployer2, &salt, TESTNET_PASSPHRASE).unwrap();
 
-    assert_ne!(id1, id2, "Different deployers must produce different contract IDs");
+    assert_ne!(
+        id1, id2,
+        "Different deployers must produce different contract IDs"
+    );
 }
 
 #[test]
@@ -202,12 +217,13 @@ fn test_salt_parsing() {
 #[test]
 fn test_preimage_components() {
     const TESTNET_PASSPHRASE: &str = "Test SDF Network ; September 2015";
-    
+
     let deployer_public_key: [u8; 32] = [0x42; 32];
     let salt: [u8; 32] = [0x24; 32];
 
-    let components = derive_contract_id_preimage(&deployer_public_key, &salt, TESTNET_PASSPHRASE).unwrap();
-    
+    let components =
+        derive_contract_id_preimage(&deployer_public_key, &salt, TESTNET_PASSPHRASE).unwrap();
+
     assert_eq!(components.network_passphrase, TESTNET_PASSPHRASE);
     assert_eq!(components.salt_hex, "24".repeat(32)); // 32 bytes of 0x24
     assert!(!components.deployer_address.is_empty());
@@ -219,12 +235,12 @@ fn test_preimage_components() {
 #[test]
 fn test_zero_salt_and_deployer() {
     const TESTNET_PASSPHRASE: &str = "Test SDF Network ; September 2015";
-    
+
     let deployer: [u8; 32] = [0x00; 32];
     let salt: [u8; 32] = [0x00; 32];
 
     let contract_id = derive_contract_id(&deployer, &salt, TESTNET_PASSPHRASE).unwrap();
-    
+
     assert!(contract_id.starts_with('C'));
     assert_eq!(contract_id.len(), 56);
     // The result should be deterministic
@@ -240,16 +256,16 @@ fn test_matches_stellar_cli_known_vectors() {
     // TODO: Add known test vectors from stellar-cli
     // For now, verify the structure is correct
     const TESTNET_PASSPHRASE: &str = "Test SDF Network ; September 2015";
-    
+
     let deployer_public_key: [u8; 32] = [0x01; 32];
     let salt: [u8; 32] = [0x00; 32];
 
     let contract_id = derive_contract_id(&deployer_public_key, &salt, TESTNET_PASSPHRASE).unwrap();
-    
+
     // Verify it's a valid StrKey contract ID
     let parsed = Contract::from_string(&contract_id).expect("Should be a valid contract StrKey");
     assert_eq!(parsed.0.len(), 32);
-    
+
     // The first character should be 'C'
     assert_eq!(contract_id.chars().next(), Some('C'));
 }

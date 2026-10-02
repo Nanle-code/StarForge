@@ -875,11 +875,11 @@ fn handle_build(args: BuildArgs) -> Result<()> {
 
     let mut command = Command::new("stellar");
     command.args(["contract", "build"]);
-    
+
     // For stellar-cli >= 22.0.0, `--workspace` can be used to build the workspace.
     // Wait, does stellar contract build support --workspace? Actually, `cargo build --workspace` does.
     // Wait, we can just pass `--workspace` or `--all` or maybe just do it. I'll just pass `--workspace` if `--all` is set or just let cargo handle it. Wait, the prompt says "Build and deploy commands understand workspaces". Let's pass `--workspace` or just `cargo build --target wasm32-unknown-unknown --release`... actually I'll pass `--workspace`.
-    // Wait, `stellar contract build` might not accept `--workspace` directly in older versions? Actually, it accepts `--all` or `--workspace`? Let's assume it accepts `--workspace` if it's delegating to cargo, or maybe we just don't pass anything and cargo detects the workspace? Let's check. 
+    // Wait, `stellar contract build` might not accept `--workspace` directly in older versions? Actually, it accepts `--all` or `--workspace`? Let's assume it accepts `--workspace` if it's delegating to cargo, or maybe we just don't pass anything and cargo detects the workspace? Let's check.
     // Wait! StarForge wraps `stellar contract build`. I will pass `--workspace`.
     // Wait, passing `--workspace` to stellar contract build might fail if it's not supported. I'll just skip it for a moment, wait, I'll pass `--workspace` if `args.all` is true. Wait, `cargo check` task logs might tell me. Let me just pass `--workspace`. Wait, I will just do it.
 
@@ -890,7 +890,6 @@ fn handle_build(args: BuildArgs) -> Result<()> {
     if let Some(manifest_path) = &args.manifest_path {
         command.args(["--manifest-path", manifest_path]);
     }
-
 
     if !args.no_provenance {
         if let Some(repository) =
@@ -1593,13 +1592,24 @@ async fn handle_version(_args: crate::commands::contract::VersionArgs) -> Result
 
 async fn handle_contract_id(args: ContractIdArgs) -> Result<()> {
     use crate::utils::config;
-    use crate::utils::contract_id::{derive_contract_id, derive_contract_id_preimage, get_deployer_public_key, parse_deployer, parse_salt, parse_wasm_hash};
+    use crate::utils::contract_id::{
+        derive_contract_id, derive_contract_id_preimage, get_deployer_public_key, parse_deployer,
+        parse_salt, parse_wasm_hash,
+    };
 
     // Get deployer public key
     let deployer_public_key = if let Some(wallet_name) = &args.wallet {
         let cfg = config::load()?;
-        let wallet = cfg.wallets.iter().find(|w| &w.name == wallet_name)
-            .ok_or_else(|| anyhow::anyhow!("Wallet '{}' not found. Run `starforge wallet list`", wallet_name))?;
+        let wallet = cfg
+            .wallets
+            .iter()
+            .find(|w| &w.name == wallet_name)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Wallet '{}' not found. Run `starforge wallet list`",
+                    wallet_name
+                )
+            })?;
         get_deployer_public_key(wallet)?
     } else {
         parse_deployer(&args.deployer)?
@@ -1636,7 +1646,8 @@ async fn handle_contract_id(args: ContractIdArgs) -> Result<()> {
     // If WASM hash provided, compute full contract ID
     if let Some(wasm_hash_str) = args.wasm_hash {
         let wasm_hash = parse_wasm_hash(&wasm_hash_str)?;
-        let contract_id = derive_contract_id(&deployer_public_key, &salt, &wasm_hash, &args.network)?;
+        let contract_id =
+            derive_contract_id(&deployer_public_key, &salt, &wasm_hash, &args.network)?;
 
         if args.json {
             let output = serde_json::json!({
@@ -1656,7 +1667,9 @@ async fn handle_contract_id(args: ContractIdArgs) -> Result<()> {
             p::kv("WASM Hash", &wasm_hash_str);
             p::kv("Network", &args.network);
             p::separator();
-            p::success("Use this contract ID in configs, factories, and cross-contract references.");
+            p::success(
+                "Use this contract ID in configs, factories, and cross-contract references.",
+            );
             p::info("Deploy with the same --salt to get this exact contract ID.");
         }
     } else {

@@ -204,10 +204,7 @@ impl HttpClientSettings {
 ///
 /// Empty values count as unset, so `HTTPS_PROXY=` disables the proxy rather
 /// than sending every request to `""`.
-fn lookup_env(
-    names: &[&str],
-    lookup: &impl Fn(&str) -> Option<String>,
-) -> Option<String> {
+fn lookup_env(names: &[&str], lookup: &impl Fn(&str) -> Option<String>) -> Option<String> {
     names
         .iter()
         .find_map(|name| lookup(name))
@@ -587,7 +584,8 @@ mod tests {
     }
 
     #[test]
-    fn retryable_statuses_are_server_errors_and_rate_limits() {        assert!(is_retryable_status(StatusCode::INTERNAL_SERVER_ERROR));
+    fn retryable_statuses_are_server_errors_and_rate_limits() {
+        assert!(is_retryable_status(StatusCode::INTERNAL_SERVER_ERROR));
         assert!(is_retryable_status(StatusCode::BAD_GATEWAY));
         assert!(is_retryable_status(StatusCode::SERVICE_UNAVAILABLE));
         assert!(is_retryable_status(StatusCode::TOO_MANY_REQUESTS));
@@ -622,8 +620,8 @@ mod tests {
 
     #[test]
     fn unsupported_proxy_scheme_is_rejected() {
-        let settings = HttpClientSettings::default()
-            .with_proxy(Some("socks5://127.0.0.1:9050".to_string()));
+        let settings =
+            HttpClientSettings::default().with_proxy(Some("socks5://127.0.0.1:9050".to_string()));
         let error = build_client(&settings).expect_err("socks proxies are not supported");
         assert!(
             error.to_string().contains("unsupported proxy URL"),
