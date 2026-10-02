@@ -405,6 +405,9 @@ pub struct InvokeArgs {
     /// Emit machine-readable JSON (includes `restored` when a restore ran)
     #[arg(long, default_value = "false")]
     pub json: bool,
+    /// Show diagnostic events when simulation reports an error
+    #[arg(long, default_value = "false")]
+    pub verbose: bool,
     /// Sign with a hardware wallet instead of a local secret key
     #[arg(long, value_enum)]
     pub hardware: Option<HardwareWalletKind>,
@@ -1221,17 +1224,19 @@ async fn finalize_invoke_after_sim(
             "contract_id": args.contract_id,
             "function": function_name,
             "network": args.network,
-            "return_value": simulation_result.return_value,
+            "return_value": simulation_result.decoded_return_value,
+            "failed": simulation_result.failed,
             "fee_stroops": simulation_result.fee,
             "restored": outcome.restored,
             "restore_fee_stroops": outcome.restore_fee_stroops,
             "restore_tx_hash": outcome.restore_tx_hash,
-            "events": simulation_result.events,
+            "events": simulation_result.decoded_events,
             "errors": simulation_result.errors,
+            "diagnostic_events": simulation_result.diagnostic_events,
             "submitted": false,
             "tx_hash": serde_json::Value::Null,
         });
-        if !args.submit {
+        if !args.submit || simulation_result.failed {
             println!("{}", serde_json::to_string_pretty(&payload)?);
             return Ok(());
         }
@@ -1246,7 +1251,14 @@ async fn finalize_invoke_after_sim(
                 p::kv("Restore TX", hash);
             }
         }
-        p::kv_accent("Simulation", "✓ Success");
+        p::kv_accent(
+            "Simulation",
+            if simulation_result.failed {
+                "✗ Failed"
+            } else {
+                "✓ Success"
+            },
+        );
         p::kv("Return Value", &simulation_result.return_value);
         p::kv("Fee (stroops)", &simulation_result.fee.to_string());
         p::kv(
@@ -1272,6 +1284,21 @@ async fn finalize_invoke_after_sim(
                 p::kv(&format!("  Event {}", i + 1), event);
             }
         }
+
+        if simulation_result.failed {
+            for error in &simulation_result.errors {
+                p::warn(&format!("Simulation error: {error}"));
+            }
+        }
+        if args.verbose && simulation_result.failed {
+            for (i, event) in simulation_result.diagnostic_events.iter().enumerate() {
+                p::kv(&format!("  Diagnostic {}", i + 1), event);
+            }
+        }
+    }
+
+    if simulation_result.failed {
+        return Ok(());
     }
 
     if args.submit {
@@ -1362,13 +1389,15 @@ async fn finalize_invoke_after_sim(
                 "contract_id": args.contract_id,
                 "function": function_name,
                 "network": args.network,
-                "return_value": tx_result.return_value,
+                "return_value": simulation_result.decoded_return_value,
+                "failed": simulation_result.failed,
                 "fee_stroops": simulation_result.fee,
                 "restored": outcome.restored,
                 "restore_fee_stroops": outcome.restore_fee_stroops,
                 "restore_tx_hash": outcome.restore_tx_hash,
-                "events": simulation_result.events,
+                "events": simulation_result.decoded_events,
                 "errors": simulation_result.errors,
+                "diagnostic_events": simulation_result.diagnostic_events,
                 "submitted": true,
                 "tx_hash": tx_result.hash,
             });
