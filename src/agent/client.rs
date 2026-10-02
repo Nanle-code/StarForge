@@ -2,7 +2,6 @@
 ///
 /// Connects to the running agent over the Unix socket / Windows named pipe,
 /// sends one request, reads one response, and closes the connection.
-
 use anyhow::{Context, Result};
 use std::time::Duration;
 
@@ -24,9 +23,7 @@ pub fn is_running() -> bool {
     let rt = tokio::runtime::Handle::try_current();
     if let Ok(handle) = rt {
         // We're already inside a tokio runtime — use block_in_place.
-        tokio::task::block_in_place(|| {
-            handle.block_on(ping())
-        }).is_ok()
+        tokio::task::block_in_place(|| handle.block_on(ping())).is_ok()
     } else {
         // Spin up a tiny runtime for the ping.
         tokio::runtime::Builder::new_current_thread()
@@ -188,19 +185,16 @@ async fn send_unix(
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     use tokio::net::UnixStream;
 
-    let stream = tokio::time::timeout(
-        CONNECT_TIMEOUT,
-        UnixStream::connect(socket_path.as_path()),
-    )
-    .await
-    .context("Timed out connecting to signing agent")?
-    .with_context(|| {
-        format!(
-            "Cannot connect to signing agent at {}\n\
+    let stream = tokio::time::timeout(CONNECT_TIMEOUT, UnixStream::connect(socket_path.as_path()))
+        .await
+        .context("Timed out connecting to signing agent")?
+        .with_context(|| {
+            format!(
+                "Cannot connect to signing agent at {}\n\
              Is the agent running? Start it with: starforge agent start",
-            socket_path.display()
-        )
-    })?;
+                socket_path.display()
+            )
+        })?;
 
     let (reader, mut writer) = tokio::io::split(stream);
     let mut buf_reader = BufReader::new(reader);

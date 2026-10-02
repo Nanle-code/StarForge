@@ -7,11 +7,16 @@ fn generate_inventory_and_check() {
     let cmd = Cli::command();
     let mut report = String::new();
     report.push_str("# Flag Inventory Report\n\n");
-    
+
     let mut flags_by_name: HashMap<String, Vec<String>> = HashMap::new();
     let mut errors = Vec::new();
 
-    fn walk(cmd: &clap::Command, path: &str, flags_by_name: &mut HashMap<String, Vec<String>>, errors: &mut Vec<String>) {
+    fn walk(
+        cmd: &clap::Command,
+        path: &str,
+        flags_by_name: &mut HashMap<String, Vec<String>>,
+        errors: &mut Vec<String>,
+    ) {
         let current_path = if path.is_empty() {
             cmd.get_name().to_string()
         } else {
@@ -24,10 +29,13 @@ fn generate_inventory_and_check() {
                     .entry(long.to_string())
                     .or_default()
                     .push(current_path.clone());
-                
+
                 match long {
                     "source" => {
-                        errors.push(format!("Command '{}' uses '--source' instead of '--wallet'", current_path));
+                        errors.push(format!(
+                            "Command '{}' uses '--source' instead of '--wallet'",
+                            current_path
+                        ));
                     }
                     "network" | "wallet" | "yes" | "verbose" | "json" | "dry-run" => {
                         // verify the standard properties
@@ -66,6 +74,9 @@ fn generate_inventory_and_check() {
     if !errors.is_empty() {
         // Commented out the panic so we can generate the inventory without test failing right now.
         // In a real PR this would be a panic.
-        println!("The following flag inconsistencies were found:\n{}", errors.join("\n"));
+        println!(
+            "The following flag inconsistencies were found:\n{}",
+            errors.join("\n")
+        );
     }
 }

@@ -10,10 +10,9 @@
 /// the creating user.
 ///
 /// Key expiry is handled by a background sweep task that runs every 30 seconds.
-
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Mutex, oneshot};
+use tokio::sync::{oneshot, Mutex};
 use tokio::time;
 
 use crate::agent::keystore::KeyStore;
@@ -84,8 +83,9 @@ async fn run_unix(
     // Remove stale socket file from a previous (crashed) run.
     let _ = std::fs::remove_file(socket_path.as_path());
 
-    let listener = UnixListener::bind(socket_path.as_path())
-        .map_err(|e| anyhow::anyhow!("Failed to bind agent socket {}: {e}", socket_path.display()))?;
+    let listener = UnixListener::bind(socket_path.as_path()).map_err(|e| {
+        anyhow::anyhow!("Failed to bind agent socket {}: {e}", socket_path.display())
+    })?;
 
     // Restrict access to owner only (0600).
     std::fs::set_permissions(
@@ -177,8 +177,7 @@ async fn run_windows(
     use tokio::net::windows::named_pipe::{PipeMode, ServerOptions};
 
     let pipe_name = socket_path.display();
-    let (shutdown_tx_internal, mut shutdown_rx_internal) =
-        tokio::sync::watch::channel(false);
+    let (shutdown_tx_internal, mut shutdown_rx_internal) = tokio::sync::watch::channel(false);
 
     tokio::spawn(async move {
         let _ = shutdown_rx.await;
@@ -361,7 +360,7 @@ async fn dispatch_request(
             tracing::info!("agent: shutdown requested by client");
             // Signal the listener loop.
             let _ = shutdown_tx; // receiver side — we use the watch channel approach below
-            // Zeroize immediately.
+                                 // Zeroize immediately.
             let mut store = keystore.lock().await;
             store.remove_all();
             AgentResponse::ok(AgentResponseData::ShuttingDown)
@@ -381,14 +380,8 @@ fn prompt_sign_confirmation(preview: &str, wallet_name: &str) -> bool {
     println!("{}", "═══ Signing Request ═══".cyan().bold());
     println!("{}", preview);
     println!();
-    println!(
-        "  Wallet  : {}",
-        wallet_name.cyan()
-    );
-    println!(
-        "  {}",
-        "Sign this transaction? [y/N] ".yellow()
-    );
+    println!("  Wallet  : {}", wallet_name.cyan());
+    println!("  {}", "Sign this transaction? [y/N] ".yellow());
 
     let mut input = String::new();
     if std::io::stdin().read_line(&mut input).is_err() {

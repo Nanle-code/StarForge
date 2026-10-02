@@ -227,7 +227,10 @@ impl ProjectManifest {
                 bail!("Script name in starforge.toml cannot be empty.");
             }
             if s_cmd.trim().is_empty() {
-                bail!("Script command for '{}' in starforge.toml cannot be empty.", s_name);
+                bail!(
+                    "Script command for '{}' in starforge.toml cannot be empty.",
+                    s_name
+                );
             }
         }
 

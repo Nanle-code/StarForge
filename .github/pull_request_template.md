@@ -51,6 +51,24 @@ Describe what scenarios have been tested:
 
 If checked, describe the breaking changes and migration path:
 
+### GraphQL Breaking-Change Checklist
+
+<!-- Complete this section for ANY PR that touches src/graphql/ — leave unchecked items as-is if not applicable -->
+
+- [ ] **No non-deprecated field is removed** — if a field is removed, confirm
+      it carried `#[graphql(deprecation)]` for ≥ 90 days (see `GRAPHQL_SCHEMA_VERSIONING.md`).
+- [ ] **Deprecation registered** — new deprecations are recorded in
+      `src/graphql/schema_deprecations.rs` with correct `deprecated_since`
+      and `earliest_removal` dates (≥ deprecated_since + 90 days).
+- [ ] **Replacement documented** — the `#[graphql(deprecation = "...")]` reason string
+      names the replacement field/type.
+- [ ] **Schema version bumped** — `SCHEMA_VERSION` in `src/graphql/schema.rs`
+      updated if a field/type is removed or a type signature changed.
+- [ ] **CHANGELOG updated** — entry added under `### Deprecated` or `### Removed` as appropriate.
+- [ ] **CI lint passes** — `bash scripts/check-graphql-deprecations.sh` exits 0.
+- [ ] **Consumer impact assessed** — first-party client libraries
+      (`client.go`, `client.py`, `client.rs`, `client.ts`) checked or updated.
+
 ## Documentation
 
 - [ ] README.md updated

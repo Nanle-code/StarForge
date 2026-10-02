@@ -13,9 +13,9 @@ mod agent_tests {
 
     use starforge::agent::client;
     use starforge::agent::keystore::{seed_to_public_key, stellar_secret_to_seed, KeyStore};
+    use starforge::agent::proto::PROTOCOL_VERSION;
     use starforge::agent::server;
     use starforge::agent::socket::AgentSocketPath;
-    use starforge::agent::proto::PROTOCOL_VERSION;
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -150,7 +150,11 @@ mod agent_tests {
 
             // Key should be present immediately.
             let status = client::get_status().await.unwrap();
-            assert_eq!(status.loaded_keys.len(), 1, "key should be present before expiry");
+            assert_eq!(
+                status.loaded_keys.len(),
+                1,
+                "key should be present before expiry"
+            );
 
             // Wait for expiry + a sweep cycle margin (server sweeps every 30 s,
             // so we call sweep by restarting the key with TTL 0 which immediately
@@ -159,7 +163,10 @@ mod agent_tests {
             // already covers the sweep path directly). Here we verify the TTL counter:
             let key_info = &status.loaded_keys[0];
             let ttl = key_info.ttl_remaining_secs.unwrap_or(999);
-            assert!(ttl <= 1, "TTL should be ≤1 s immediately after add, got {ttl}");
+            assert!(
+                ttl <= 1,
+                "TTL should be ≤1 s immediately after add, got {ttl}"
+            );
         })
         .await;
     }

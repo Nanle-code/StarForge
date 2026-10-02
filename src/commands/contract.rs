@@ -891,7 +891,6 @@ fn handle_build(args: BuildArgs) -> Result<()> {
         command.args(["--manifest-path", manifest_path]);
     }
 
-
     if !args.no_provenance {
         if let Some(repository) =
             git_output(&["config", "--get", "remote.origin.url"], &project_dir)
@@ -1594,13 +1593,24 @@ async fn handle_version(_args: crate::commands::contract::VersionArgs) -> Result
 
 async fn handle_contract_id(args: ContractIdArgs) -> Result<()> {
     use crate::utils::config;
-    use crate::utils::contract_id::{derive_contract_id, derive_contract_id_preimage, get_deployer_public_key, parse_deployer, parse_salt, parse_wasm_hash};
+    use crate::utils::contract_id::{
+        derive_contract_id, derive_contract_id_preimage, get_deployer_public_key, parse_deployer,
+        parse_salt, parse_wasm_hash,
+    };
 
     // Get deployer public key
     let deployer_public_key = if let Some(wallet_name) = &args.wallet {
         let cfg = config::load()?;
-        let wallet = cfg.wallets.iter().find(|w| &w.name == wallet_name)
-            .ok_or_else(|| anyhow::anyhow!("Wallet '{}' not found. Run `starforge wallet list`", wallet_name))?;
+        let wallet = cfg
+            .wallets
+            .iter()
+            .find(|w| &w.name == wallet_name)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Wallet '{}' not found. Run `starforge wallet list`",
+                    wallet_name
+                )
+            })?;
         get_deployer_public_key(wallet)?
     } else {
         parse_deployer(&args.deployer)?
@@ -1637,7 +1647,8 @@ async fn handle_contract_id(args: ContractIdArgs) -> Result<()> {
     // If WASM hash provided, compute full contract ID
     if let Some(wasm_hash_str) = args.wasm_hash {
         let wasm_hash = parse_wasm_hash(&wasm_hash_str)?;
-        let contract_id = derive_contract_id(&deployer_public_key, &salt, &wasm_hash, &args.network)?;
+        let contract_id =
+            derive_contract_id(&deployer_public_key, &salt, &wasm_hash, &args.network)?;
 
         if args.json {
             let output = serde_json::json!({
@@ -1657,7 +1668,9 @@ async fn handle_contract_id(args: ContractIdArgs) -> Result<()> {
             p::kv("WASM Hash", &wasm_hash_str);
             p::kv("Network", &args.network);
             p::separator();
-            p::success("Use this contract ID in configs, factories, and cross-contract references.");
+            p::success(
+                "Use this contract ID in configs, factories, and cross-contract references.",
+            );
             p::info("Deploy with the same --salt to get this exact contract ID.");
         }
     } else {

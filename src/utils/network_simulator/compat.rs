@@ -4,8 +4,8 @@
 //! This facade preserves the old constructor and result/state shapes for callers
 //! migrating to `crate::utils::network_simulator::simulator::NetworkSimulator`.
 
-pub use super::scenarios::{SimScenario, SimScenarioResult, SimScenarioStep};
 pub use super::failure::FailureMode;
+pub use super::scenarios::{SimScenario, SimScenarioResult, SimScenarioStep};
 use super::simulator::{ContractInstance, NetworkSimulator as Engine};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -209,11 +209,8 @@ impl NetworkSimulator {
     pub fn deploy_contract(&mut self, wasm_hash: &str) -> Result<String> {
         self.check_failure()?;
         self.simulate_latency();
-        let contract_id = deterministic_contract_id(
-            wasm_hash,
-            self.seed,
-            self.engine.ledger.sequence,
-        );
+        let contract_id =
+            deterministic_contract_id(wasm_hash, self.seed, self.engine.ledger.sequence);
         self.deploy_at_id(contract_id, wasm_hash)
     }
 
@@ -325,7 +322,11 @@ impl NetworkSimulator {
                 let result = self.invoke(contract_id, function, args)?;
                 if let Some(expected) = expected_return {
                     if result.return_value != *expected {
-                        anyhow::bail!("Expected return '{}', got '{}'", expected, result.return_value);
+                        anyhow::bail!(
+                            "Expected return '{}', got '{}'",
+                            expected,
+                            result.return_value
+                        );
                     }
                 }
                 Ok(())
@@ -354,9 +355,7 @@ impl NetworkSimulator {
                         Some(FailureMode::ContractNotFound)
                     }
                     super::scenarios::ScriptFailureMode::Random { probability_pct } => {
-                        Some(FailureMode::RandomFailure(
-                            *probability_pct as f64 / 100.0,
-                        ))
+                        Some(FailureMode::RandomFailure(*probability_pct as f64 / 100.0))
                     }
                 };
                 Ok(())
@@ -380,7 +379,10 @@ impl NetworkSimulator {
                 anyhow::bail!("Simulated RPC timeout (injected failure)")
             }
             Some(FailureMode::RpcError { code }) => {
-                anyhow::bail!("Simulated RPC error: {} internal error (injected failure)", code)
+                anyhow::bail!(
+                    "Simulated RPC error: {} internal error (injected failure)",
+                    code
+                )
             }
             Some(FailureMode::InsufficientFee) => {
                 anyhow::bail!("Simulated insufficient fee error (injected failure)")
@@ -500,9 +502,7 @@ mod tests {
     #[test]
     fn named_snapshot_restore_preserves_legacy_state() {
         let mut simulator = NetworkSimulator::new(42);
-        simulator
-            .deploy_contract_with_id("C_TEST", "hash")
-            .unwrap();
+        simulator.deploy_contract_with_id("C_TEST", "hash").unwrap();
         simulator.fund_account("GACC", 1000);
         simulator.snapshot("checkpoint");
         simulator.fund_account("GACC", 5000);
@@ -544,14 +544,15 @@ mod tests {
     #[test]
     fn invoke_keeps_legacy_result_and_event_behavior() {
         let mut simulator = NetworkSimulator::new(42);
-        simulator
-            .deploy_contract_with_id("C_TEST", "wasm")
-            .unwrap();
+        simulator.deploy_contract_with_id("C_TEST", "wasm").unwrap();
         let result = simulator
             .invoke("C_TEST", "increment", &["1".to_string()])
             .unwrap();
         assert_eq!(result.fee, 10_000 + 900 + 500 + 43);
-        assert_eq!(result.events, vec![format!("increment:{}", result.return_value)]);
+        assert_eq!(
+            result.events,
+            vec![format!("increment:{}", result.return_value)]
+        );
         assert_eq!(simulator.state().events.len(), 1);
         assert_eq!(simulator.state().events[0].data, "1");
     }
@@ -561,9 +562,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("legacy-sim.json");
         let mut simulator = NetworkSimulator::new(7);
-        simulator
-            .deploy_contract_with_id("C_TEST", "wasm")
-            .unwrap();
+        simulator.deploy_contract_with_id("C_TEST", "wasm").unwrap();
         simulator.fund_account("G_TEST", 1234);
         simulator
             .invoke("C_TEST", "balance", &["G_TEST".to_string()])

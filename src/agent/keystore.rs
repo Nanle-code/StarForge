@@ -12,7 +12,6 @@
 ///   zeroizes and removes expired entries; it should be driven by a periodic
 ///   tokio timer (see `server.rs`).
 /// * `RemoveAll` and `Drop` both zeroize every remaining entry.
-
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -163,15 +162,10 @@ fn mlock_seed(seed: &[u8; 32]) {
     use std::ffi::c_void;
     // SAFETY: VirtualLock is a benign advisory call; failure is non-fatal.
     let ok = unsafe {
-        windows_sys::Win32::System::Memory::VirtualLock(
-            seed.as_ptr() as *const c_void,
-            32,
-        )
+        windows_sys::Win32::System::Memory::VirtualLock(seed.as_ptr() as *const c_void, 32)
     };
     if ok == 0 {
-        tracing::warn!(
-            "signing agent: VirtualLock failed — key may be pageable to disk"
-        );
+        tracing::warn!("signing agent: VirtualLock failed — key may be pageable to disk");
     }
 }
 
@@ -179,10 +173,8 @@ fn mlock_seed(seed: &[u8; 32]) {
 fn munlock_seed(seed: &[u8; 32]) {
     use std::ffi::c_void;
     unsafe {
-        let _ = windows_sys::Win32::System::Memory::VirtualUnlock(
-            seed.as_ptr() as *const c_void,
-            32,
-        );
+        let _ =
+            windows_sys::Win32::System::Memory::VirtualUnlock(seed.as_ptr() as *const c_void, 32);
     }
 }
 

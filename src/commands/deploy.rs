@@ -512,7 +512,10 @@ fn resolve_deploy_target(args: &DeployArgs) -> Result<(PathBuf, String, Option<S
 
     let resolved_network = if let Some((_, ref manifest)) = manifest_opt {
         if let Some(target_cfg) = manifest.deploy.get(&args.network) {
-            target_cfg.network.clone().unwrap_or_else(|| args.network.clone())
+            target_cfg
+                .network
+                .clone()
+                .unwrap_or_else(|| args.network.clone())
         } else {
             args.network.clone()
         }
@@ -554,9 +557,7 @@ fn resolve_deploy_target(args: &DeployArgs) -> Result<(PathBuf, String, Option<S
             );
         }
     } else {
-        anyhow::bail!(
-            "Missing --wasm argument and no starforge.toml project manifest found."
-        );
+        anyhow::bail!("Missing --wasm argument and no starforge.toml project manifest found.");
     };
 
     Ok((resolved_wasm, resolved_network, resolved_wallet))
@@ -602,7 +603,7 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
     }
 
     p::header("Deploy Soroban Contract");
-    
+
     if args.all {
         return handle_deploy_all(args, dry_run, emit_json).await;
     }
@@ -632,7 +633,10 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
     } else if args.optimize {
         let optimized_path = wasm_path.with_file_name(format!(
             "{}-optimized.wasm",
-            target_wasm.file_stem().unwrap_or_default().to_string_lossy()
+            target_wasm
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
         ));
         p::header("WASM Optimization");
         p::kv("Input WASM", &target_wasm.display().to_string());
@@ -954,7 +958,10 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
                             &format!("{} signed", bundle.entries.len()),
                         );
                     }
-                } else if args.auth_import.is_some() || args.auth_export.is_some() || !args.auth_signers.is_empty() {
+                } else if args.auth_import.is_some()
+                    || args.auth_export.is_some()
+                    || !args.auth_signers.is_empty()
+                {
                     anyhow::bail!(
                         "No Soroban address authorization entries were returned by simulation"
                     );
@@ -1062,7 +1069,8 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
 
     if args.execute {
         // Handle Soroban authorization entries for deployment
-        if !args.auth_signers.is_empty() || args.auth_import.is_some() || args.auth_export.is_some() {
+        if !args.auth_signers.is_empty() || args.auth_import.is_some() || args.auth_export.is_some()
+        {
             p::info("Checking for Soroban authorization requirements...");
             match soroban::simulate_deploy_transaction(&wasm_hash, &args.network, wallet).await {
                 Ok(mut simulation) => {
@@ -1112,7 +1120,10 @@ pub async fn handle(args: DeployArgs) -> Result<()> {
                             );
                         }
 
-                        p::success(&format!("Signed {} authorization entries", bundle.entries.len()));
+                        p::success(&format!(
+                            "Signed {} authorization entries",
+                            bundle.entries.len()
+                        ));
                     } else {
                         anyhow::bail!(
                             "No Soroban address authorization entries were returned by simulation"

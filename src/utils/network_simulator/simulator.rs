@@ -802,9 +802,9 @@ impl NetworkSimulator {
         account: Option<&str>,
     ) -> Result<(), String> {
         let probability = self.rng.probability();
-        if let Some(mode) = self
-            .failure_injector
-            .check(rpc_method, contract_id, account, probability)
+        if let Some(mode) =
+            self.failure_injector
+                .check(rpc_method, contract_id, account, probability)
         {
             let (code, message) = failure_to_rpc_error(&mode);
             return Err(format!("RPC error {}: {}", code, message));
@@ -1238,7 +1238,10 @@ mod tests {
 
         let restored = NetworkSimulator::load_from_file(&path, 17).unwrap();
         assert_eq!(restored.current_ledger(), sim.current_ledger());
-        assert_eq!(restored.get_account(&account.public_key).unwrap().balance, 500.0);
+        assert_eq!(
+            restored.get_account(&account.public_key).unwrap().balance,
+            500.0
+        );
         assert_eq!(
             restored.read_contract_storage("C_FIXED", "key"),
             Some(&"value".to_string())

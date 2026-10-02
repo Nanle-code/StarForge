@@ -57,7 +57,9 @@ fn list() -> Result<()> {
         );
     }
     p::separator();
-    p::info("Start with: starforge tool tutorial start hello-world (or add --demo for offline mode)");
+    p::info(
+        "Start with: starforge tool tutorial start hello-world (or add --demo for offline mode)",
+    );
     Ok(())
 }
 
@@ -96,7 +98,10 @@ fn next() -> Result<()> {
     })?;
     let tutorial = tutorial_engine::load_tutorial(&root, &slug)?;
     let step = tutorial.steps.get(status.current_step).ok_or_else(|| {
-        anyhow::anyhow!("Tutorial progress is invalid; restart with starforge tool tutorial start {}", slug)
+        anyhow::anyhow!(
+            "Tutorial progress is invalid; restart with starforge tool tutorial start {}",
+            slug
+        )
     })?;
 
     if let Some(checkpoint) = &step.checkpoint {
@@ -141,7 +146,9 @@ fn next() -> Result<()> {
 
     p::header(&format!("Tutorial: {}", tutorial.title));
     print_current_step(&tutorial, &status);
-    p::info("Run the suggested command in your terminal, then `starforge tool tutorial next` again.");
+    p::info(
+        "Run the suggested command in your terminal, then `starforge tool tutorial next` again.",
+    );
     Ok(())
 }
 

@@ -50,10 +50,7 @@ impl TestServer {
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
             .await
             .expect("bind the test server");
-        let port = listener
-            .local_addr()
-            .expect("test server address")
-            .port();
+        let port = listener.local_addr().expect("test server address").port();
         let requests = Arc::new(Mutex::new(Vec::new()));
         let recorded = Arc::clone(&requests);
 
@@ -156,9 +153,10 @@ async fn the_shared_client_reaches_a_local_server_and_identifies_itself() {
         head[0].lines().next().unwrap_or_default()
     );
     assert!(
-        head[0]
-            .to_ascii_lowercase()
-            .contains(&format!("user-agent: {}", user_agent().to_ascii_lowercase())),
+        head[0].to_ascii_lowercase().contains(&format!(
+            "user-agent: {}",
+            user_agent().to_ascii_lowercase()
+        )),
         "the factory must set the starforge user agent: {head:?}"
     );
 }
@@ -273,10 +271,7 @@ async fn a_short_timeout_trips_before_a_slow_server_answers() {
         "the timeout must be honoured, took {:?}",
         started.elapsed()
     );
-    assert!(
-        error.is_timeout(),
-        "expected a timeout error, got: {error}"
-    );
+    assert!(error.is_timeout(), "expected a timeout error, got: {error}");
 }
 
 // ── Custom CA bundle ────────────────────────────────────────────────────────
@@ -531,7 +526,12 @@ fn collect_offenders(directory: &Path, factory: &Path, offenders: &mut Vec<Strin
                 continue;
             }
             if line.contains("Client::new()") || line.contains("Client::builder()") {
-                offenders.push(format!("{}:{}: {}", path.display(), number + 1, line.trim()));
+                offenders.push(format!(
+                    "{}:{}: {}",
+                    path.display(),
+                    number + 1,
+                    line.trim()
+                ));
             }
         }
     }

@@ -1576,18 +1576,42 @@ fn scaffold_workspace(name: String) -> Result<()> {
     fs::write(dir.join(".gitignore"), "target/\n.soroban/\n")?;
 
     p::step(3, 4, "Writing crates and contracts…");
-    fs::write(dir.join("crates/shared-types/Cargo.toml"), shared_types_cargo_toml())?;
-    fs::write(dir.join("crates/shared-types/src/lib.rs"), shared_types_lib())?;
-    
-    fs::write(dir.join("contracts/contract-a/Cargo.toml"), contract_a_cargo_toml())?;
-    fs::write(dir.join("contracts/contract-a/src/lib.rs"), contract_a_lib())?;
+    fs::write(
+        dir.join("crates/shared-types/Cargo.toml"),
+        shared_types_cargo_toml(),
+    )?;
+    fs::write(
+        dir.join("crates/shared-types/src/lib.rs"),
+        shared_types_lib(),
+    )?;
 
-    fs::write(dir.join("contracts/contract-b/Cargo.toml"), contract_b_cargo_toml())?;
-    fs::write(dir.join("contracts/contract-b/src/lib.rs"), contract_b_lib())?;
-    fs::write(dir.join("contracts/contract-b/tests/integration.rs"), workspace_integration_test())?;
+    fs::write(
+        dir.join("contracts/contract-a/Cargo.toml"),
+        contract_a_cargo_toml(),
+    )?;
+    fs::write(
+        dir.join("contracts/contract-a/src/lib.rs"),
+        contract_a_lib(),
+    )?;
+
+    fs::write(
+        dir.join("contracts/contract-b/Cargo.toml"),
+        contract_b_cargo_toml(),
+    )?;
+    fs::write(
+        dir.join("contracts/contract-b/src/lib.rs"),
+        contract_b_lib(),
+    )?;
+    fs::write(
+        dir.join("contracts/contract-b/tests/integration.rs"),
+        workspace_integration_test(),
+    )?;
 
     p::step(4, 4, "Writing README.md…");
-    fs::write(dir.join("README.md"), format!("# {}\n\nA multi-contract Soroban workspace.", name))?;
+    fs::write(
+        dir.join("README.md"),
+        format!("# {}\n\nA multi-contract Soroban workspace.", name),
+    )?;
 
     target_guard.commit();
 
@@ -1623,14 +1647,16 @@ lto = true
 
 fn shared_types_cargo_toml() -> String {
     let sdk = templates::SOROBAN_SDK_VERSION;
-    format!(r#"[package]
+    format!(
+        r#"[package]
 name = "shared-types"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 soroban-sdk = "{sdk}"
-"#)
+"#
+    )
 }
 
 fn shared_types_lib() -> &'static str {
@@ -1648,7 +1674,8 @@ pub struct UserConfig {
 
 fn contract_a_cargo_toml() -> String {
     let sdk = templates::SOROBAN_SDK_VERSION;
-    format!(r#"[package]
+    format!(
+        r#"[package]
 name = "contract-a"
 version = "0.1.0"
 edition = "2021"
@@ -1665,7 +1692,8 @@ soroban-sdk = { version = "{sdk}", features = ["testutils"] }
 
 [features]
 testutils = ["soroban-sdk/testutils"]
-"#)
+"#
+    )
 }
 
 fn contract_a_lib() -> &'static str {
@@ -1691,7 +1719,8 @@ impl ContractATrait for ContractA {
 
 fn contract_b_cargo_toml() -> String {
     let sdk = templates::SOROBAN_SDK_VERSION;
-    format!(r#"[package]
+    format!(
+        r#"[package]
 name = "contract-b"
 version = "0.1.0"
 edition = "2021"
@@ -1707,7 +1736,8 @@ contract-a = { path = "../contract-a" }
 [dev-dependencies]
 soroban-sdk = { version = "{sdk}", features = ["testutils"] }
 contract-a = { path = "../contract-a", features = ["testutils"] }
-"#)
+"#
+    )
 }
 
 fn contract_b_lib() -> &'static str {
