@@ -394,10 +394,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
       - name: Install StarForge
         run: cargo install --path .
+            - name: Build Soroban WASM
+                run: starforge contract build
       - name: Run Soroban contract coverage
         run: {}
       - uses: actions/upload-artifact@v4

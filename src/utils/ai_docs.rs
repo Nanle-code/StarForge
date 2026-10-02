@@ -344,7 +344,7 @@ fn build_sections(
     sections.push(DocSection {
         title: "Getting Started".to_string(),
         content: format!(
-            "1. Build the contract WASM with `cargo build --target wasm32v1-none --release`.\n\
+            "1. Build the contract WASM with `starforge contract build`.\n\
              2. Deploy with `starforge deploy --wasm <path> --network {network}`.\n\
              3. Call public entrypoints via `starforge contract invoke` or generated bindings.\n\
              4. Keep rustdoc comments (`///`, `//!`) in sync — re-run `starforge docs generate --source` after API changes."
@@ -449,8 +449,8 @@ fn build_troubleshooting(
             .to_string(),
     );
     tips.push(
-        "**Build fails on `wasm32v1-none`** — ensure the target is installed with \
-         `rustup target add wasm32v1-none` and that `#![no_std]` is present for on-chain builds."
+        "**Build fails for the Soroban WASM target** — run `starforge config doctor` to check \
+         the selected target and install it, and ensure `#![no_std]` is present for on-chain builds."
             .to_string(),
     );
 

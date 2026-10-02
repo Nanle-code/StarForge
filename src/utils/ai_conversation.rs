@@ -372,7 +372,7 @@ impl ConversationManager {
                     title: "Compile contract".to_string(),
                     description: "Build the WASM file".to_string(),
                     action_type: SuggestionAction::Command(
-                        "cargo build --target wasm32-unknown-unknown --release".to_string(),
+                        "starforge contract build".to_string(),
                     ),
                     confidence: 0.95,
                 });

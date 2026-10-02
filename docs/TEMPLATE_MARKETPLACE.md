@@ -276,7 +276,7 @@ twice and diffing the results — the output will be byte-identical.
    ```bash norun
    cd my-dex
    stellar contract build
-   starforge deploy --wasm target/wasm32-unknown-unknown/release/my_dex.wasm
+  starforge deploy --wasm target/wasm32v1-none/release/my_dex.wasm
    ```
 
 ### For Template Authors

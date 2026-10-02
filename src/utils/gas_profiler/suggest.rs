@@ -177,8 +177,7 @@ fn compatibility_rules(r: &GasProfileReport, b: &mut Builder) {
             ),
             _ => (
                 "GAS-103",
-                "Soroban's VM does not enable this Wasm proposal. Build with the stable \
-                 `wasm32-unknown-unknown` target (or `wasm32v1-none`) through `stellar \
+                "Soroban's VM does not enable this Wasm proposal. Build with `starforge \
                  contract build` and avoid `-C target-feature` flags that enable it.",
             ),
         };

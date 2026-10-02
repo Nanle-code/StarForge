@@ -1084,8 +1084,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
       - name: Install StarForge
         run: cargo install --path .
       - name: Run mutation testing

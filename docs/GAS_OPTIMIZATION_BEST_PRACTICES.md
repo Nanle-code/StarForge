@@ -7,7 +7,7 @@ A practical guide to writing cheaper, faster Soroban contracts, and to using
 
 ```bash norun
 # Profile a single contract
-starforge gas analyze ./target/wasm32-unknown-unknown/release/my_contract.wasm
+starforge gas analyze ./target/wasm32v1-none/release/my_contract.wasm
 
 # Export a shareable HTML report
 starforge gas analyze ./my_contract.wasm --format html --output report.html
@@ -19,7 +19,7 @@ starforge gas analyze ./my_contract.wasm --format json --output report.json
 starforge gas diff ./old.wasm ./new.wasm
 
 # Benchmark every contract in a directory
-starforge gas benchmark --dir ./target/wasm32-unknown-unknown/release
+starforge gas benchmark --dir ./target/wasm32v1-none/release
 ```
 
 ## What drives cost

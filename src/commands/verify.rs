@@ -129,11 +129,8 @@ pub struct CiArgs {
     #[arg(long, default_value = "github", value_parser = ["github", "gitlab", "circleci"])]
     pub platform: String,
     /// WASM path to embed in the snippet
-    #[arg(
-        long,
-        default_value = "target/wasm32-unknown-unknown/release/contract.wasm"
-    )]
-    pub wasm: String,
+    #[arg(long)]
+    pub wasm: Option<String>,
     /// Contract label to embed in the snippet
     #[arg(long, default_value = "my-contract")]
     pub contract: String,
@@ -348,6 +345,8 @@ fn generate_harness_content(wasm_path: &Path, properties: &[PropertySpec]) -> St
         })
         .collect::<Vec<_>>()
         .join("\n");
+    let wasm_target = crate::utils::wasm_target::resolve_target(None)
+        .unwrap_or_else(|_| "<selected-target>".to_string());
 
     format!(
         r#"//! Formal verification harness for: {wasm_name}
@@ -370,7 +369,7 @@ mod property_tests {{
     fn wasm_exists() {{
         assert!(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("target/wasm32-unknown-unknown/release/{wasm_name}.wasm")
+                .join("target/{wasm_target}/release/{wasm_name}.wasm")
                 .exists()
                 || true, // path may differ; update accordingly
             "WASM artifact not found"
@@ -380,6 +379,7 @@ mod property_tests {{
 "#,
         wasm_name = wasm_name,
         prop_stubs = prop_stubs,
+        wasm_target = wasm_target,
     )
 }
 
@@ -806,6 +806,11 @@ fn handle_reports(args: ReportsArgs) -> Result<()> {
 
 fn handle_ci(args: CiArgs) -> Result<()> {
     p::header("CI Configuration for Continuous Verification");
+    let target = crate::utils::wasm_target::resolve_target(None)?;
+    let wasm = match args.wasm {
+        Some(wasm) => wasm,
+        None => format!("target/{target}/release/contract.wasm"),
+    };
 
     let snippet = match args.platform.as_str() {
         "github" => format!(
@@ -820,12 +825,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-      - name: Build contract WASM
-        run: cargo build --target wasm32-unknown-unknown --release
+            - uses: dtolnay/rust-toolchain@stable
+                with:
+                    targets: {target}
+            - name: Build contract WASM
+                run: cargo build --target {target} --release
       - name: Install starforge
         run: cargo install --path .
       - name: Add verification properties
@@ -845,8 +849,9 @@ jobs:
         if: always()
         run: starforge verify report --contract {contract}
 "#,
-            wasm = args.wasm,
-            contract = args.contract
+            wasm = wasm,
+            contract = args.contract,
+            target = target
         ),
         "gitlab" => format!(
             r#"# .gitlab-ci.yml (verification job)
@@ -854,16 +859,17 @@ verify-contract:
   image: rust:latest
   stage: test
   before_script:
-    - rustup target add wasm32-unknown-unknown
+    - rustup target add {target}
     - cargo install --path .
   script:
-    - cargo build --target wasm32-unknown-unknown --release
+    - cargo build --target {target} --release
     - starforge verify property add --contract {contract} --name no-overflow --spec no_overflow --severity critical
     - starforge verify run --wasm {wasm} --contract {contract} --fail-on-critical true
     - starforge verify report --contract {contract}
 "#,
-            wasm = args.wasm,
-            contract = args.contract
+            wasm = wasm,
+            contract = args.contract,
+            target = target
         ),
         "circleci" => format!(
             r#"# .circleci/config.yml (verification job)
@@ -877,8 +883,8 @@ jobs:
       - run:
           name: Build WASM
           command: |
-            rustup target add wasm32-unknown-unknown
-            cargo build --target wasm32-unknown-unknown --release
+            rustup target add {target}
+            cargo build --target {target} --release
       - run:
           name: Run formal verification
           command: |
@@ -886,11 +892,18 @@ jobs:
             starforge verify property add --contract {contract} --name no-overflow --spec no_overflow --severity critical
             starforge verify run --wasm {wasm} --contract {contract} --fail-on-critical true
 "#,
-            wasm = args.wasm,
-            contract = args.contract
+            wasm = wasm,
+            contract = args.contract,
+            target = target
         ),
         _ => unreachable!(),
     };
+    let snippet = snippet
+        .replace("            - uses: actions/checkout", "      - uses: actions/checkout")
+        .replace("                with:", "        with:")
+        .replace("                    targets:", "          targets:")
+        .replace("            - name: Build contract WASM", "      - name: Build contract WASM")
+        .replace("                run: cargo build", "        run: cargo build");
 
     p::separator();
     println!("{}", snippet.bright_white());

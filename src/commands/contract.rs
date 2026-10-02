@@ -873,15 +873,15 @@ fn handle_build(args: BuildArgs) -> Result<()> {
         .map(Path::to_path_buf)
         .unwrap_or_else(|| current_dir.clone());
 
+    let manifest_target = crate::manifest::discover_manifest(&project_dir)
+        .map(|path| crate::manifest::load_manifest(&path))
+        .transpose()?
+        .and_then(|manifest| manifest.wasm_target);
+    let wasm_target = crate::utils::wasm_target::resolve_target(manifest_target.as_deref())?;
+
     let mut command = Command::new("stellar");
     command.args(["contract", "build"]);
-
-    // For stellar-cli >= 22.0.0, `--workspace` can be used to build the workspace.
-    // Wait, does stellar contract build support --workspace? Actually, `cargo build --workspace` does.
-    // Wait, we can just pass `--workspace` or `--all` or maybe just do it. I'll just pass `--workspace` if `--all` is set or just let cargo handle it. Wait, the prompt says "Build and deploy commands understand workspaces". Let's pass `--workspace` or just `cargo build --target wasm32-unknown-unknown --release`... actually I'll pass `--workspace`.
-    // Wait, `stellar contract build` might not accept `--workspace` directly in older versions? Actually, it accepts `--all` or `--workspace`? Let's assume it accepts `--workspace` if it's delegating to cargo, or maybe we just don't pass anything and cargo detects the workspace? Let's check.
-    // Wait! StarForge wraps `stellar contract build`. I will pass `--workspace`.
-    // Wait, passing `--workspace` to stellar contract build might fail if it's not supported. I'll just skip it for a moment, wait, I'll pass `--workspace` if `args.all` is true. Wait, `cargo check` task logs might tell me. Let me just pass `--workspace`. Wait, I will just do it.
+    command.env("CARGO_BUILD_TARGET", &wasm_target);
 
     if args.all {
         command.arg("--workspace");
@@ -928,6 +928,7 @@ fn handle_build(args: BuildArgs) -> Result<()> {
     } else {
         p::info("Embedding StarForge build provenance metadata.");
     }
+    p::info(&format!("Using Rust target {wasm_target}."));
 
     p::separator();
 
