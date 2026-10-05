@@ -200,4 +200,6 @@ test_snapshots/
 
 # Python bytecode (release/notes script tests)
 __pycache__/
-.vendor/
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
