@@ -176,14 +176,18 @@ fn dry_run_plan(cmd: &PluginCommands) -> Option<DryRunPlan> {
                 .writes_filesystem(),
         ),
         PluginCommands::Update { name, .. } => {
-            let target = name.clone().unwrap_or_else(|| "all installed plugins".to_string());
+            let target = name
+                .clone()
+                .unwrap_or_else(|| "all installed plugins".to_string());
             Some(
                 DryRunPlan::new("plugin update", format!("Update {target}"))
                     .operation(
                         PlannedOperation::new(
                             "plugin.update",
                             target.clone(),
-                            format!("would check sources and replace outdated libraries for {target}"),
+                            format!(
+                                "would check sources and replace outdated libraries for {target}"
+                            ),
                         )
                         .detail("Preserves config and trust settings", "yes"),
                     )

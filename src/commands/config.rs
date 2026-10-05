@@ -2,8 +2,7 @@ use crate::utils::database;
 use crate::utils::{
     config,
     dry_run::{self, DryRunPlan, PlannedOperation},
-    output,
-    print as p,
+    output, print as p,
 };
 use anyhow::Result;
 use clap::Subcommand;
@@ -253,6 +252,7 @@ fn dry_run_plan(cmd: &ConfigCommands) -> Option<DryRunPlan> {
         )
         | ConfigCommands::Show
         | ConfigCommands::Doctor => None,
+        _ => None,
     }
 }
 
@@ -472,6 +472,19 @@ fn show() -> Result<()> {
     }
     p::kv("Active network", &cfg.network);
     p::kv(
+        "network.ca_bundle",
+        &cfg.networks
+            .get(&cfg.network)
+            .and_then(|net| net.ca_bundle.clone())
+            .unwrap_or_else(|| "none".to_string()),
+    );
+    if let Some(overrides) = crate::utils::http_client::ca_bundle_from_env() {
+        p::kv(
+            &crate::utils::http_client::CA_BUNDLE_ENV_VAR,
+            &format!("{} (overrides the config)", overrides.display()),
+        );
+    }
+    p::kv(
         "Telemetry",
         if cfg.telemetry_enabled.unwrap_or(false) {
             "enabled"
@@ -651,9 +664,16 @@ fn set_encryption(
 }
 
 fn set(key: &str, value: &str) -> Result<()> {
+    let normalized = key.trim().to_lowercase();
+
+    // String-valued keys come first: they are not booleans, so the boolean
+    // parsing below must not see them (#902).
+    if matches!(normalized.as_str(), "network.ca_bundle" | "ca_bundle") {
+        return set_ca_bundle(value);
+    }
+
     let mut cfg = config::load()?;
 
-    let normalized = key.to_lowercase();
     let enabled = match value.to_lowercase().as_str() {
         "true" | "1" | "on" | "yes" => true,
         "false" | "0" | "off" | "no" => false,
@@ -674,8 +694,56 @@ fn set(key: &str, value: &str) -> Result<()> {
             Ok(())
         }
         _ => anyhow::bail!(
-            "Unsupported config key '{}'. Supported keys: telemetry.enabled, privacy.mode",
+            "Unsupported config key '{}'. Supported keys: telemetry.enabled, privacy.mode, network.ca_bundle",
             key
         ),
     }
+}
+
+/// `starforge config set network.ca_bundle <path>` (#902).
+///
+/// The bundle is trusted for the *active* network: it adds root certificates to
+/// the platform store, which is what an internal Horizon/Soroban deployment
+/// behind a private CA needs. `none`, `clear` or `unset` removes it.
+///
+/// The file is parsed before it is stored, so a typo or a bundle with no
+/// certificates is reported here instead of by the next HTTPS request.
+fn set_ca_bundle(value: &str) -> Result<()> {
+    let mut cfg = config::load()?;
+    let network = cfg.network.clone();
+
+    let trimmed = value.trim();
+    let clearing = matches!(
+        trimmed.to_lowercase().as_str(),
+        "" | "none" | "clear" | "unset" | "default"
+    );
+
+    let requested = if clearing {
+        None
+    } else {
+        Some(std::path::PathBuf::from(trimmed))
+    };
+
+    let previous = config::set_network_ca_bundle(&mut cfg, &network, requested.clone())?;
+    config::save(&cfg)?;
+
+    match requested {
+        Some(path) => p::success(&format!(
+            "network.ca_bundle for '{}' set to '{}'.",
+            network,
+            path.display()
+        )),
+        None => match previous {
+            Some(previous) => p::success(&format!(
+                "network.ca_bundle for '{}' cleared (was '{}').",
+                network, previous
+            )),
+            None => p::info(&format!(
+                "network.ca_bundle for '{}' was already unset.",
+                network
+            )),
+        },
+    }
+
+    Ok(())
 }

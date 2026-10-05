@@ -1,0 +1,196 @@
+name: VS Code Extension
+
+on:
+  push:
+    paths:
+      - "editors/vscode/**"
+      - ".github/workflows/vscode-extension.yml"
+    tags:
+      - "v*"
+  pull_request:
+    paths:
+      - "editors/vscode/**"
+      - ".github/workflows/vscode-extension.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vscode-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: editors/vscode
+
+jobs:
+  # ── lint & type-check ────────────────────────────────────────────────────
+  lint:
+    name: Lint & Type-check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type-check
+        run: npm run compile
+
+      - name: ESLint
+        run: npm run lint
+
+  # ── build (esbuild bundle) ───────────────────────────────────────────────
+  build:
+    name: Build extension bundle
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Bundle with esbuild
+        run: npm run build
+
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-bundle
+          path: editors/vscode/dist/extension.js
+          retention-days: 7
+
+  # ── extension tests (headless VS Code) ──────────────────────────────────
+  test:
+    name: Extension tests
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install system dependencies for headless VS Code
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            xvfb \
+            libgtk-3-0 \
+            libxss1 \
+            libasound2 \
+            libgbm1
+
+      - name: Compile extension + tests
+        run: npm run pretest
+
+      - name: Run extension tests (headless)
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" npm test
+
+  # ── VSIX package ─────────────────────────────────────────────────────────
+  package:
+    name: Package VSIX
+    needs: [lint, build, test]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build bundle
+        run: npm run build
+
+      - name: Package VSIX
+        run: npm run package
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: starforge-vscode-vsix
+          path: editors/vscode/*.vsix
+          retention-days: 30
+
+  # ── publish to VS Code Marketplace ──────────────────────────────────────
+  publish-marketplace:
+    name: Publish to VS Code Marketplace
+    needs: package
+    runs-on: ubuntu-24.04
+    # Only runs on version tags pushed to the repository
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    environment: marketplace
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build bundle
+        run: npm run build
+
+      - name: Publish to VS Code Marketplace
+        run: npm run deploy-marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+  # ── publish to Open VSX ──────────────────────────────────────────────────
+  publish-ovsx:
+    name: Publish to Open VSX
+    needs: package
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    environment: ovsx
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build bundle
+        run: npm run build
+
+      - name: Publish to Open VSX
+        run: npm run deploy-ovsx
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}

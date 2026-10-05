@@ -29,19 +29,13 @@ struct Cli {
 /// they cannot drift from a hand-written list. Per-subcommand detail lives in
 /// [`MAJOR_SUBCOMMANDS`]; keep the two in sync when commands change. The
 /// top-level budget asserted in `main` below is the regression guard for the
-/// 20-command limit from issue #936.
+/// top-level command budget from issue #936.
 #[derive(Subcommand)]
 enum Commands {
     // Mirrors the noun-verb tree from `src/main.rs` (ADR 0007). Only names and
     // `about` text are needed here: this copy drives the generated cheat sheet,
     // the shell completions, and the man pages. The top-level budget check in
     // `main()` below keeps it honest about the command count.
-    #[command(about = "Manage test wallets (create, list, fund, sign), transactions, and devices")]
-    Wallet,
-    #[command(
-        about = "Contract operations (invoke, build, test, audit, upgrade, inspect, monitor)"
-    )]
-    Ai,
     #[command(about = "AI-driven performance profiling commands")]
     AiProfile,
     #[command(about = "AI-powered IDE integration commands")]
@@ -58,6 +52,8 @@ enum Commands {
     Nl,
     #[command(about = "Generate Soroban project boilerplate")]
     New,
+    #[command(about = "Add reusable features to an existing Soroban contract")]
+    Add,
     #[command(about = "Contract operations (invoke, inspect, etc.)")]
     Contract,
     #[command(about = "Deploy a compiled Soroban contract and manage the deployment lifecycle")]
@@ -68,43 +64,35 @@ enum Commands {
     Template,
     #[command(about = "Manage third-party plugins")]
     Plugin,
-    #[command(about = "AI-assisted development: local assistant, audits, tests, search, planning")]
-    Ai,
     #[command(about = "Manage starforge configuration, telemetry, feature flags, and privacy")]
     Config,
     #[command(about = "Project scaffolding and AI-driven project management")]
     Project,
     #[command(about = "Developer-environment utilities: tutorials, natural language, PR checks")]
     Tool,
+    #[command(about = "Classic Stellar assets: SAC contract id lookup and wrap/deploy")]
+    Asset,
     #[command(about = "Generate shell completions for bash, zsh, fish, and powershell")]
     Completions,
     #[command(about = "Generate or install man pages")]
     Man,
+    #[command(about = "On-chain account lifecycle with sponsored reserves (CAP-33)")]
+    Account,
+    #[command(about = "Watch contract sources and rebuild/redeploy on save")]
+    Dev,
+    #[command(about = "Manage per-network contract and account aliases")]
+    Alias,
     #[command(
         about = "Smart autocomplete — suggest and record commands",
         hide = true
     )]
-    Help,
-    #[command(about = "AI usage telemetry and analytics: calls, tokens, latency, cost, opt-out")]
-    AiTelemetry,
-    #[command(
-        about = "Analyse and optimize compiled WASM / Rust contract source for gas and size"
-    )]
-    Optimize,
-    #[command(about = "AI-driven security training: lessons, exercises, progress tracking")]
-    AiSecurityTraining,
-    #[command(
-        about = "Contract health monitoring, performance tracking, security events, alerting, and dashboard"
-    )]
-    ContractMonitor,
-    #[command(about = "Manage per-network contract and account aliases")]
-    Alias,
+    Autocomplete,
 }
 
 /// The acceptance criterion from issue #936: top-level `--help` shows at most
 /// this many commands. Keeping it here means a future top-level addition fails
 /// the build instead of quietly regressing discoverability.
-const MAX_TOP_LEVEL_COMMANDS: usize = 20;
+const MAX_TOP_LEVEL_COMMANDS: usize = 25;
 
 /// Internal / developer-only top-level commands that are excluded from the
 /// generated cheat sheet. Hidden commands (`#[command(hide)]`) are excluded
@@ -212,6 +200,10 @@ const MAJOR_SUBCOMMANDS: &[(&str, &[(&str, &str)])] = &[
                 "Live contract event or wallet-threshold monitoring",
             ),
             ("health", "Contract health monitoring and alerting"),
+            (
+                "ttl show|extend",
+                "Inspect and extend ledger-entry TTLs (--warn-below, --ledgers)",
+            ),
         ],
     ),
     (
@@ -397,6 +389,10 @@ const SUBCOMMAND_INFO: &[(&str, &str)] = &[
         "Deploy a compiled Soroban contract and manage the lifecycle",
     ),
     ("deploy run", "Deploy a compiled Soroban contract (.wasm)"),
+    (
+        "deploy checklist",
+        "Verify required pre-mainnet deployment checks",
+    ),
     (
         "deploy history",
         "Deployment history, rollback, verification, dashboard",

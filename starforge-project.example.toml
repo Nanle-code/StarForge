@@ -36,3 +36,17 @@ trusted_publishers = []
 horizon_url = "https://horizon-futurenet.stellar.org"
 soroban_rpc_url = "https://soroban-futurenet.stellar.org"
 friendbot_url = "https://friendbot-futurenet.stellar.org"
+
+# Mainnet deployment checks. Pin the hash produced by your reviewed,
+# reproducible WASM build before deploying. Checks omitted from required_checks
+# are still reported, but their failures are advisory.
+[deployment_checklist]
+expected_wasm_hash = "0000000000000000000000000000000000000000000000000000000000000000"
+minimum_balance_xlm = 1.0
+required_checks = [
+	"wasm_hash_reproducibility",
+	"simulation_success",
+	"balance",
+	"auth_setup",
+	"network_identity",
+]

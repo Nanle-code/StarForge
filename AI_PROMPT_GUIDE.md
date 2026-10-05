@@ -105,3 +105,5 @@ When adding new prompts or modifying assistants, follow these rules:
 3. **Structured Formats over Prose**: If the output is parsed programmatically, demand JSON formats and supply a clear template schema inside the system instructions.
 4. **Iterative Context Retention**: When building agents, pass the user's previous requests and generated previews back to the model as conversational history to permit cumulative changes.
 5. **No Hallucinations on the API/ABI**: Never let the LLM guess function names. In the doc enricher, we strictly supply the extracted functions list and instruct the model not to add or modify function signatures.
+
+.....

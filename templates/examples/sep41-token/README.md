@@ -31,3 +31,18 @@ cargo build --target wasm32-unknown-unknown --release
 # Test
 cargo test
 ```
+
+## Using a classic asset via its SAC
+
+Many DeFi flows take a SEP-41 token contract id. For a classic asset, resolve or
+wrap the Stellar Asset Contract first:
+
+```bash
+# Deterministic id (no transaction)
+starforge asset contract-id USDC:G... --network testnet
+
+# Deploy the SAC if missing, then pass the C… id into token clients
+starforge asset wrap USDC:G... --wallet deployer --network testnet --yes
+```
+
+Native XLM uses `starforge asset contract-id XLM` (same as `native`).

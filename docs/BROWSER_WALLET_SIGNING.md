@@ -1,114 +1,103 @@
-# Signing with browser wallets
+# Browser wallet signing (`--signer browser`)
 
-`starforge` normally signs with a key stored locally (encrypted or not). That is
-convenient but it means a funded secret has to live on the machine running the
-CLI. If your keys are already in Freighter, xBull, Rabet, or another
-[Stellar Wallets Kit](https://github.com/Creit-Tech/Stellar-Wallets-Kit)
-compatible wallet, you can keep them there and still sign with the CLI.
+`starforge wallet sign-tx --signer browser` signs a transaction envelope XDR
+with a browser wallet (Freighter, xBull, Rabet, …) instead of importing a
+secret key into the CLI. The CLI starts a one-time HTTP server on
+`127.0.0.1`, opens a page that uses
+[Stellar Wallets Kit](https://github.com/Creit-Tech/Stellar-Wallets-Kit), shows
+a decoded view of the transaction, and returns the signed XDR to the CLI.
+
+## Prerequisites
+
+- A Stellar Wallets Kit compatible browser wallet installed (this checklist
+  uses **Freighter**).
+- The wallet switched to **Testnet** and holding a funded testnet account
+  (fund it through Friendbot: `starforge wallet fund <name>` or
+  <https://friendbot.stellar.org>).
+- An unsigned, base64-encoded transaction envelope XDR in a file. Any source
+  works (for example a multi-sig setup payload or a transaction exported from
+  another tool).
+- A machine with a browser that can reach `http://127.0.0.1:<port>` (a local
+  desktop session; the port is printed to the terminal and the CLI tries to
+  open the page for you).
+
+## Command
 
 ```bash
-starforge wallet sign-tx --transaction unsigned.xdr --signer browser
+starforge wallet sign-tx \
+  --transaction unsigned.xdr \
+  --signer browser \
+  --network testnet \
+  --timeout 120 \
+  --output signed.xdr
 ```
 
-## How the localhost handoff works
-
-`--signer browser` never loads a secret key into the CLI:
-
-1. The CLI reads the base64 transaction envelope XDR from `--transaction`.
-2. It binds a one-time HTTP server to `127.0.0.1` on an ephemeral port, generates
-   a 32-byte nonce from the OS RNG, and opens
-   `http://127.0.0.1:<port>/?nonce=<nonce>` in your browser.
-3. The page renders the unsigned envelope, its decoded summary, and its SHA-256
-   digest so you can compare it with what your wallet displays.
-4. Pressing **Sign with browser wallet** loads the pinned Stellar Wallets Kit
-   bundle and asks your wallet to sign the envelope against the network
-   passphrase.
-5. The signed XDR is POSTed back to the same server. The server validates that
-   it is a non-empty base64 envelope, consumes the nonce, and returns the signed
-   XDR to the CLI.
-6. The CLI writes the signed XDR to `--output`, or prints it to stdout.
-
-The server stops listening as soon as a signature arrives or after `--timeout`
-seconds (default `120`). The nonce is single-use: a replay gets HTTP `410`, and
-a malformed payload is rejected without burning the nonce.
-
-### Flags
-
-| Flag | Meaning |
-| --- | --- |
-| `--transaction <PATH>` | File containing the base64 transaction envelope XDR (required). |
-| `--signer <browser\|local>` | `browser` for the handoff, `local` for a stored key (default `browser`). |
-| `--wallet <NAME>` | Wallet name; required when `--signer local`. |
-| `--network <testnet\|mainnet>` | Network passphrase to sign against (default `testnet`). |
-| `--output <PATH>` | Write the signed XDR here instead of stdout. |
-| `--timeout <SECONDS>` | How long to wait for the wallet (default `120`). |
+- `--transaction` — file containing the base64 transaction envelope XDR.
+- `--signer browser` — use the localhost handoff (the default).
+- `--signer local --wallet <name>` — sign with a locally stored secret key.
+- `--network` — `testnet` or `mainnet`; the passphrase is resolved from config.
+- `--timeout` — seconds to wait for the wallet (default `120`).
+- `--output` — file to write the signed XDR to; omit it to print to stdout.
 
 ## Manual test checklist (Freighter on testnet)
 
-Run this once against a real wallet before relying on the command. Everything
-below uses testnet only.
+Run the command above, then verify each item. Tick a box only when the checkbox
+was observed on a real run.
 
-- [ ] Install the [Freighter extension](https://www.freighter.app/) and switch it
-      to **Testnet**.
-- [ ] Create or import a funded testnet account in Freighter and copy its public
-      key.
-- [ ] Build an unsigned transaction envelope for that account, for example with
-      a payment built by your own flow, and save the base64 XDR to
-      `unsigned.xdr`.
-- [ ] Run:
+- [ ] The CLI prints a `http://127.0.0.1:<port>/?nonce=<hex>` URL and opens it
+      in the default browser (or tells you to open it manually).
+- [ ] The page shows the network (`testnet`), the envelope type, the byte
+      length, and a SHA-256 digest for the unsigned transaction.
+- [ ] The "Decoded transaction" panel renders the transaction summary.
+- [ ] **Browser check:** open the page with the nonce removed or changed
+      (`http://127.0.0.1:<port>/` and `...?nonce=deadbeef`); both are rejected
+      (HTTP 400 / 403) and no signing UI can be used.
+- [ ] **CSP check:** the browser devtools console shows no CSP violations when
+      the page loads, and the network response for `/` carries a
+      `Content-Security-Policy` header starting with `default-src 'none'`.
+- [ ] Clicking **Sign with browser wallet** opens Freighter, which shows the
+      same transaction and network as the page.
+- [ ] Approving in Freighter returns the signed XDR to the CLI; the terminal
+      exits successfully and, when `--output` is set, the file contains the
+      signed XDR.
+- [ ] Reloading the page after signing and trying to submit again is rejected
+      (the nonce was consumed, HTTP 410).
+- [ ] Running the command again with a fresh invocation prints a **new** nonce
+      and a **new** port.
+- [ ] Letting the command sit without approving until `--timeout` elapses makes
+      the CLI exit with a timeout error, and the port is no longer listening.
+- [ ] Rejecting the request in Freighter leaves the CLI waiting until the
+      timeout, and no `signed.xdr` is written.
+- [ ] `--network mainnet` shows the mainnet passphrase on the page and in
+      Freighter, and the CLI never submits the transaction itself.
 
-      starforge wallet sign-tx --transaction unsigned.xdr --signer browser --network testnet --timeout 120
+### Expected results
 
-- [ ] Confirm the CLI prints a `http://127.0.0.1:<port>/?nonce=<nonce>` URL and
-      that your browser opens it.
-- [ ] Confirm the page shows the network, the envelope type, the byte length,
-      the SHA-256 digest, the decoded summary, and the raw XDR.
-- [ ] Confirm the page's digest and byte length match the local envelope (for
-      example `base64 -d unsigned.xdr | shasum -a 256`).
-- [ ] Click **Sign with browser wallet**, approve in Freighter, and check that
-      the page reports the signature was returned to the CLI.
-- [ ] Confirm the CLI prints the signed XDR (or writes `--output`).
-- [ ] Submit the signed XDR to testnet Horizon and confirm it succeeds.
-- [ ] Negative checks:
-  - [ ] Closing the page and waiting produces a timeout error, not a hang.
-  - [ ] Reloading the page after signing does not allow a second signature
-        (nonce already consumed).
-  - [ ] Rejecting in Freighter leaves the CLI waiting until the timeout.
-  - [ ] Visiting `http://127.0.0.1:<port>/` **without** the nonce returns
-        `400`; with a wrong nonce it returns `403`.
-  - [ ] A request with `Host: attacker.example` returns `403`.
-  - [ ] A POST with a foreign `Origin` header returns `403`.
+- Success: the signed XDR written to `--output` differs from the input XDR and
+  decodes as base64. Submitting it is a separate, explicit step.
+- Timeout: `browser handoff timed out after <n>s; no signature was returned`,
+  with a non-zero exit status.
+- Bad payload: if the wallet returns something that is not base64, the CLI
+  reports `browser wallet returned an invalid signature: …` and does not write
+  output.
 
-## Automated tests
+## Troubleshooting
 
-The handoff is covered without a browser:
-
-- `src/utils/browser_signer.rs` unit tests cover nonce single-use, CSP contents,
-  nonce gating, loopback `Host` enforcement, cross-origin rejection, nonce
-  preservation on malformed payloads, replay (`410`), the mocked signer, the
-  decoded summary, and a full raw-TCP handshake.
-- `tests/browser_wallet_handoff.rs` drives the public API with a mocked
-  `WalletSigner` (a fake wallet and a declining wallet) and with a raw TCP "mock
-  browser wallet", including the rebound-host rejection path.
-
-Run them with:
-
-```bash
-cargo test --test browser_wallet_handoff
-cargo test utils::browser_signer
-```
+- **The browser did not open.** Copy the printed URL into a browser manually.
+  The server is only reachable from the same machine.
+- **"handoff rejected the page: HTTP 400/403".** The URL lost its `?nonce=…`
+  parameter, or it is from an expired earlier run.
+- **Nothing happens after clicking Sign.** Confirm the wallet extension is
+  installed, unlocked, and set to Testnet, then check the browser console for
+  wallet errors.
+- **The page fails to load Stellar Wallets Kit.** The page imports a pinned
+  bundle from `https://cdn.jsdelivr.net`; a restrictive network or ad blocker
+  can block it. This is the only external resource the page loads.
 
 ## Security notes
 
-The nonce, loopback bind, strict CSP, origin/host checks, request size cap, and
-short timeout are documented in
-[`docs/SECURITY_THREAT_MODEL.md`](SECURITY_THREAT_MODEL.md) under
-"Browser-wallet localhost handoff". In short:
-
-- the page is only reachable from `127.0.0.1` and only with the one-time nonce;
-- requests whose `Host` is not the loopback handoff are refused, which closes
-  the DNS-rebinding window on the ephemeral port;
-- cross-origin signature submissions are refused;
-- inline script only runs with the per-response CSP nonce;
-- the CLI never reads a secret key for `--signer browser` — only the signed XDR
-  crosses the handoff.
+See `docs/SECURITY_THREAT_MODEL.md` → "Browser-wallet localhost handoff" for the
+threats and mitigations: loopback-only bind, a single-use 32-byte nonce, a
+strict `Content-Security-Policy` scoped to a script nonce, a short timeout, and
+base64 validation of the returned envelope XDR. The CLI never reads a secret
+key for `--signer browser`.

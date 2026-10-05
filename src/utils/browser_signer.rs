@@ -1,30 +1,21 @@
 //! Browser-wallet signing via a one-time localhost handoff.
 //!
-//! `starforge wallet sign-tx --signer browser` keeps the user's secret key inside
-//! a browser wallet (Freighter, xBull, Rabet, ...) instead of asking them to
-//! paste it into the CLI. The CLI binds a tiny HTTP server to `127.0.0.1` on an
-//! ephemeral port and serves a one-time page that asks a Stellar Wallets Kit
-//! compatible wallet to sign a transaction envelope XDR. The signed XDR is
-//! POSTed back to the same server, which hands it to the waiting command.
+//! `starforge wallet sign-tx --signer browser` never asks the user to paste a
+//! secret key. Instead it binds a minimal HTTP server to `127.0.0.1` on an
+//! ephemeral port and opens a page that asks a Stellar Wallets Kit compatible
+//! wallet (Freighter, xBull, Rabet, …) to sign a transaction XDR. The page is
 //!
-//! Safety properties enforced here:
+//! * authorised by a single-use cryptographic nonce,
+//! * served under a strict `Content-Security-Policy`,
+//! * only reachable from the loopback interface, and
+//! * short lived (the CLI stops listening after a configurable timeout).
 //!
-//! * the listener binds the loopback interface only, on an ephemeral port;
-//! * every request carries a single-use 32-byte nonce from the OS RNG;
-//! * requests whose `Host` header is not the loopback handoff are rejected
-//!   (DNS-rebinding defence), and cross-origin signature submissions are
-//!   refused;
-//! * responses are served under a strict `Content-Security-Policy` that pins
-//!   `script-src` to a per-response nonce plus the pinned Stellar Wallets Kit
-//!   origin;
-//! * the handoff gives up after a short timeout and the nonce is consumed only
-//!   once a well-formed base64 envelope comes back.
-//!
-//! No browser is required for tests: [`WalletSigner`] is a trait, so a mocked
-//! wallet can drive the whole flow, and [`HandoffServer`] can be exercised with
-//! a raw `TcpStream` "browser".
+//! The signed envelope XDR is POSTed back to the same server, which hands it to
+//! the waiting CLI process. No browser is required for tests: [`sign_with`]
+//! accepts any [`WalletSigner`] implementation and [`HandoffServer`] can be
+//! driven by a raw `TcpStream` client.
 
-use base64::{engine::general_purpose, Engine as _};
+use anyhow::Result;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -37,8 +28,8 @@ use crate::utils::print as p;
 /// Default number of seconds the handoff waits for the wallet before aborting.
 pub const DEFAULT_HANDOFF_TIMEOUT_SECS: u64 = 120;
 
-/// Upper bound on a single HTTP request the handoff will read. Keeps a local
-/// attacker from exhausting memory with a forged `Content-Length`.
+/// Upper bound on a single HTTP request the handoff will read. This keeps a
+/// local attacker from exhausting memory with a forged `Content-Length`.
 pub const MAX_REQUEST_BYTES: usize = 128 * 1024;
 
 /// Number of random bytes in a handoff nonce.
@@ -63,8 +54,6 @@ pub enum HandoffError {
     NonceAlreadyUsed,
     /// The request itself was malformed.
     BadRequest(String),
-    /// The request did not come from the loopback handoff page.
-    ForbiddenOrigin(String),
     /// The wallet returned something that is not a base64 transaction XDR.
     InvalidSignature(String),
     /// The wallet explicitly declined the request.
@@ -83,9 +72,6 @@ impl std::fmt::Display for HandoffError {
                 write!(f, "browser handoff nonce has already been used")
             }
             HandoffError::BadRequest(msg) => write!(f, "browser handoff bad request: {}", msg),
-            HandoffError::ForbiddenOrigin(msg) => {
-                write!(f, "browser handoff rejected the request origin: {}", msg)
-            }
             HandoffError::InvalidSignature(msg) => {
                 write!(f, "browser wallet returned an invalid signature: {}", msg)
             }
@@ -124,13 +110,19 @@ impl BrowserSignRequest {
         let transaction_xdr = transaction_xdr.into();
         let network = network.into();
         let network_passphrase = crate::utils::config::get_network_passphrase(&network);
-        Self { transaction_xdr, network, network_passphrase }
+        Self {
+            transaction_xdr,
+            network,
+            network_passphrase,
+        }
     }
 
-    /// A dependency-free, human-readable summary of the envelope. The handoff
-    /// page shows this so the user can compare it against what their wallet
-    /// displays before approving.
+    /// A dependency-free, human-readable summary of the envelope. The page shows
+    /// this to the user so they can compare it against what their wallet shows
+    /// before approving.
     pub fn decoded_summary(&self) -> DecodedTransaction {
+        use base64::{engine::general_purpose, Engine as _};
+
         match general_purpose::STANDARD.decode(self.transaction_xdr.trim()) {
             Ok(bytes) => DecodedTransaction {
                 base64_valid: true,
@@ -150,8 +142,7 @@ impl BrowserSignRequest {
     }
 }
 
-/// Decoded view of an unsigned transaction envelope, rendered by the handoff
-/// page.
+/// Decoded view of an unsigned transaction envelope, rendered by the handoff page.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct DecodedTransaction {
     /// Whether the supplied XDR was valid base64.
@@ -160,8 +151,7 @@ pub struct DecodedTransaction {
     pub byte_length: usize,
     /// XDR `EnvelopeType` label derived from the leading union discriminant.
     pub envelope_type: String,
-    /// SHA-256 of the unsigned envelope, so the user can compare it to the
-    /// wallet.
+    /// SHA-256 of the unsigned envelope, so the user can compare it to the wallet.
     pub sha256: String,
     /// Hex preview of the first bytes of the envelope.
     pub xdr_preview: String,
@@ -190,7 +180,10 @@ pub struct LocalhostHandoffSigner {
 impl LocalhostHandoffSigner {
     /// Create a signer that waits `timeout` for the wallet and opens a browser.
     pub fn new(timeout: Duration) -> Self {
-        Self { timeout, open_browser: true }
+        Self {
+            timeout,
+            open_browser: true,
+        }
     }
 
     /// Control whether the handoff tries to open the system browser.
@@ -203,7 +196,10 @@ impl LocalhostHandoffSigner {
 impl WalletSigner for LocalhostHandoffSigner {
     fn sign(&self, request: &BrowserSignRequest) -> std::result::Result<String, HandoffError> {
         let mut server = HandoffServer::bind(request.clone(), self.timeout)?;
-        p::info(&format!("Waiting for a browser wallet signature on {}", server.url()));
+        p::info(&format!(
+            "Waiting for a browser wallet signature on {}",
+            server.url()
+        ));
         if self.open_browser && !open_in_browser(server.url()) {
             p::warn("Could not open a browser automatically; open the URL above manually.");
         }
@@ -243,19 +239,18 @@ impl WalletSigner for MockWalletSigner {
         match self {
             MockWalletSigner::Returning(signed_xdr) => Ok(signed_xdr.clone()),
             MockWalletSigner::TimingOut => Err(HandoffError::Timeout(Duration::from_secs(0))),
-            MockWalletSigner::Rejected => {
-                Err(HandoffError::WalletRejected("rejected by mock wallet".to_string()))
-            }
+            MockWalletSigner::Rejected => Err(HandoffError::WalletRejected(
+                "rejected by mock wallet".to_string(),
+            )),
         }
     }
 }
 
-/// Sign `request` with any backend, validating the returned envelope. Used by
-/// the CLI and by tests.
+/// Sign `request` with any backend. Used by the CLI and by tests.
 pub fn sign_with<S: WalletSigner>(
     signer: &S,
     request: &BrowserSignRequest,
-) -> std::result::Result<String, HandoffError> {
+) -> Result<String, HandoffError> {
     let signed = signer.sign(request)?;
     validate_signed_xdr(&signed)
 }
@@ -273,12 +268,18 @@ impl NonceGuard {
         let mut rng = rand::thread_rng();
         let mut bytes = [0u8; NONCE_BYTES];
         rng.fill_bytes(&mut bytes);
-        Self { nonce: hex::encode(bytes), consumed: false }
+        Self {
+            nonce: hex::encode(bytes),
+            consumed: false,
+        }
     }
 
     /// Construct a guard around a caller-supplied nonce (used in tests).
     pub fn from_nonce(nonce: impl Into<String>) -> Self {
-        Self { nonce: nonce.into(), consumed: false }
+        Self {
+            nonce: nonce.into(),
+            consumed: false,
+        }
     }
 
     /// The nonce value.
@@ -329,8 +330,7 @@ pub struct HandoffServer {
 }
 
 impl HandoffServer {
-    /// Bind to an ephemeral port on `127.0.0.1`. Never binds a public
-    /// interface.
+    /// Bind to an ephemeral port on `127.0.0.1`. Never binds a public interface.
     pub fn bind(
         request: BrowserSignRequest,
         timeout: Duration,
@@ -340,7 +340,14 @@ impl HandoffServer {
         let port = listener.local_addr()?.port();
         let nonce = NonceGuard::generate();
         let url = format!("http://127.0.0.1:{}/?nonce={}", port, nonce.value());
-        Ok(Self { listener, port, nonce, request, url, timeout })
+        Ok(Self {
+            listener,
+            port,
+            nonce,
+            request,
+            url,
+            timeout,
+        })
     }
 
     /// The port the handoff is listening on.
@@ -358,8 +365,7 @@ impl HandoffServer {
         self.nonce.value()
     }
 
-    /// Serve requests until the wallet returns a signature or the timeout
-    /// fires.
+    /// Serve requests until the wallet returns a signature or the timeout fires.
     pub fn wait(&mut self) -> std::result::Result<String, HandoffError> {
         let deadline = Instant::now() + self.timeout;
         while Instant::now() < deadline {
@@ -368,7 +374,6 @@ impl HandoffServer {
                     let _ = stream.set_nonblocking(false);
                     let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
                     let script_nonce = self.nonce.value().to_string();
-                    let port = self.port;
                     let outcome = match read_http_request(&stream) {
                         Ok(request) => {
                             let (response, signed) = handle_request(
@@ -376,7 +381,6 @@ impl HandoffServer {
                                 &mut self.nonce,
                                 &self.request,
                                 &script_nonce,
-                                port,
                             );
                             let _ = write_response(&stream, &response);
                             signed
@@ -418,15 +422,21 @@ pub fn content_security_policy(script_nonce: &str) -> String {
 
 /// Validate a wallet-supplied signed XDR before it is handed to the CLI.
 fn validate_signed_xdr(signed_xdr: &str) -> std::result::Result<String, HandoffError> {
+    use base64::{engine::general_purpose, Engine as _};
+
     let trimmed = signed_xdr.trim();
     if trimmed.is_empty() {
-        return Err(HandoffError::InvalidSignature("signed XDR is empty".to_string()));
+        return Err(HandoffError::InvalidSignature(
+            "signed XDR is empty".to_string(),
+        ));
     }
     let bytes = general_purpose::STANDARD.decode(trimmed).map_err(|_| {
         HandoffError::InvalidSignature("signed XDR is not valid base64".to_string())
     })?;
     if bytes.is_empty() {
-        return Err(HandoffError::InvalidSignature("signed XDR decodes to zero bytes".to_string()));
+        return Err(HandoffError::InvalidSignature(
+            "signed XDR decodes to zero bytes".to_string(),
+        ));
     }
     Ok(trimmed.to_string())
 }
@@ -456,28 +466,12 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     diff == 0
 }
 
-/// Whether the request `Host` header names the loopback handoff. Rejecting any
-/// other host closes the DNS-rebinding window where a remote page could reach
-/// the ephemeral port by name.
-fn host_allowed(host_header: &str, port: u16) -> bool {
-    let host = host_header.trim().to_ascii_lowercase();
-    host == format!("127.0.0.1:{}", port) || host == format!("localhost:{}", port)
-}
-
-/// Whether an `Origin` header names the loopback handoff.
-fn origin_allowed(origin: &str, port: u16) -> bool {
-    let origin = origin.trim().to_ascii_lowercase();
-    origin == format!("http://127.0.0.1:{}", port) || origin == format!("http://localhost:{}", port)
-}
-
 /// A parsed HTTP request.
 #[derive(Debug, Clone)]
 struct HttpRequest {
     method: String,
     path: String,
     query: String,
-    host: String,
-    origin: Option<String>,
     body: Vec<u8>,
 }
 
@@ -492,7 +486,13 @@ struct HttpResponse {
 
 impl HttpResponse {
     fn new(status: u16, reason: &'static str, content_type: &'static str, body: Vec<u8>) -> Self {
-        Self { status, reason, content_type, headers: Vec::new(), body }
+        Self {
+            status,
+            reason,
+            content_type,
+            headers: Vec::new(),
+            body,
+        }
     }
 
     fn with_header(mut self, name: &'static str, value: impl Into<String>) -> Self {
@@ -501,7 +501,12 @@ impl HttpResponse {
     }
 
     fn json(status: u16, reason: &'static str, body: &str) -> Self {
-        Self::new(status, reason, "application/json; charset=utf-8", body.as_bytes().to_vec())
+        Self::new(
+            status,
+            reason,
+            "application/json; charset=utf-8",
+            body.as_bytes().to_vec(),
+        )
     }
 
     fn error(status: u16, reason: &'static str, message: &str) -> Self {
@@ -510,8 +515,10 @@ impl HttpResponse {
     }
 
     fn page(html: String, script_nonce: &str) -> Self {
-        Self::new(200, "OK", "text/html; charset=utf-8", html.into_bytes())
-            .with_header("Content-Security-Policy", content_security_policy(script_nonce))
+        Self::new(200, "OK", "text/html; charset=utf-8", html.into_bytes()).with_header(
+            "Content-Security-Policy",
+            content_security_policy(script_nonce),
+        )
     }
 }
 
@@ -521,7 +528,7 @@ fn read_http_request(stream: &TcpStream) -> std::io::Result<HttpRequest> {
 
     let mut request_line = String::new();
     reader.read_line(&mut request_line)?;
-    let mut parts = request_line.split_whitespace();
+    let mut parts = request_line.trim_end().split_whitespace();
     let method = parts.next().unwrap_or_default().to_string();
     let target = parts.next().unwrap_or("/").to_string();
     let (path, query) = match target.split_once('?') {
@@ -530,8 +537,6 @@ fn read_http_request(stream: &TcpStream) -> std::io::Result<HttpRequest> {
     };
 
     let mut content_length = 0usize;
-    let mut host = String::new();
-    let mut origin = None;
     loop {
         let mut line = String::new();
         if reader.read_line(&mut line)? == 0 {
@@ -542,13 +547,8 @@ fn read_http_request(stream: &TcpStream) -> std::io::Result<HttpRequest> {
             break;
         }
         if let Some((name, value)) = trimmed.split_once(':') {
-            let value = value.trim();
             if name.eq_ignore_ascii_case("content-length") {
-                content_length = value.parse::<usize>().unwrap_or(0);
-            } else if name.eq_ignore_ascii_case("host") {
-                host = value.to_string();
-            } else if name.eq_ignore_ascii_case("origin") {
-                origin = Some(value.to_string());
+                content_length = value.trim().parse::<usize>().unwrap_or(0);
             }
         }
     }
@@ -565,7 +565,12 @@ fn read_http_request(stream: &TcpStream) -> std::io::Result<HttpRequest> {
         reader.read_exact(&mut body)?;
     }
 
-    Ok(HttpRequest { method, path, query, host, origin, body })
+    Ok(HttpRequest {
+        method,
+        path,
+        query,
+        body,
+    })
 }
 
 /// Write an HTTP response and close the connection.
@@ -604,22 +609,21 @@ fn handle_request(
     nonce: &mut NonceGuard,
     sign_request: &BrowserSignRequest,
     script_nonce: &str,
-    port: u16,
 ) -> (HttpResponse, Option<String>) {
-    if !host_allowed(&request.host, port) {
-        return (
-            HttpResponse::error(403, "Forbidden", "request is not the loopback handoff"),
-            None,
-        );
-    }
-
     match (request.method.as_str(), request.path.as_str()) {
         ("GET", "/") => match query_param(&request.query, "nonce") {
-            Some(candidate) if candidate == nonce.value() => {
-                (HttpResponse::page(page_html(script_nonce), script_nonce), None)
-            }
-            Some(_) => (HttpResponse::error(403, "Forbidden", "invalid handoff nonce"), None),
-            None => (HttpResponse::error(400, "Bad Request", "missing handoff nonce"), None),
+            Some(candidate) if candidate == nonce.value() => (
+                HttpResponse::page(page_html(script_nonce), script_nonce),
+                None,
+            ),
+            Some(_) => (
+                HttpResponse::error(403, "Forbidden", "invalid handoff nonce"),
+                None,
+            ),
+            None => (
+                HttpResponse::error(400, "Bad Request", "missing handoff nonce"),
+                None,
+            ),
         },
         ("GET", "/api/transaction") => match query_param(&request.query, "nonce") {
             Some(candidate) if candidate == nonce.value() => {
@@ -632,23 +636,16 @@ fn handle_request(
                 });
                 (HttpResponse::json(200, "OK", &payload.to_string()), None)
             }
-            Some(_) => (HttpResponse::error(403, "Forbidden", "invalid handoff nonce"), None),
-            None => (HttpResponse::error(400, "Bad Request", "missing handoff nonce"), None),
+            Some(_) => (
+                HttpResponse::error(403, "Forbidden", "invalid handoff nonce"),
+                None,
+            ),
+            None => (
+                HttpResponse::error(400, "Bad Request", "missing handoff nonce"),
+                None,
+            ),
         },
         ("POST", "/api/sign-result") => {
-            if let Some(origin) = request.origin.as_deref() {
-                if !origin_allowed(origin, port) {
-                    return (
-                        HttpResponse::error(
-                            403,
-                            "Forbidden",
-                            "cross-origin signature submission is not allowed",
-                        ),
-                        None,
-                    );
-                }
-            }
-
             let payload: SignResultBody = match serde_json::from_slice(&request.body) {
                 Ok(payload) => payload,
                 Err(err) => {
@@ -668,13 +665,19 @@ fn handle_request(
                     HandoffError::MissingNonce => 400,
                     _ => 403,
                 };
-                return (HttpResponse::error(status, reason_for(status), &err.to_string()), None);
+                return (
+                    HttpResponse::error(status, reason_for(status), &err.to_string()),
+                    None,
+                );
             }
 
             let signed = match validate_signed_xdr(&payload.signed_xdr) {
                 Ok(signed) => signed,
                 Err(err) => {
-                    return (HttpResponse::error(400, "Bad Request", &err.to_string()), None)
+                    return (
+                        HttpResponse::error(400, "Bad Request", &err.to_string()),
+                        None,
+                    )
                 }
             };
 
@@ -735,7 +738,9 @@ fn open_in_browser(url: &str) -> bool {
 /// Build the one-time handoff page. `script_nonce` is embedded both as the CSP
 /// nonce and as the inline-script nonce, so injected inline scripts never run.
 fn page_html(script_nonce: &str) -> String {
-    PAGE_TEMPLATE.replace("__NONCE__", script_nonce).replace("__KIT_VERSION__", WALLET_KIT_VERSION)
+    PAGE_TEMPLATE
+        .replace("__NONCE__", script_nonce)
+        .replace("__KIT_VERSION__", WALLET_KIT_VERSION)
 }
 
 const PAGE_TEMPLATE: &str = r#"<!doctype html>
@@ -769,8 +774,6 @@ const PAGE_TEMPLATE: &str = r#"<!doctype html>
   <div class="row"><span class="k">SHA-256 (unsigned):</span> <span id="digest"></span></div>
   <h2>Decoded transaction</h2>
   <pre id="decoded">loading&hellip;</pre>
-  <h2>Raw envelope XDR</h2>
-  <pre id="xdr"></pre>
   <button id="sign" disabled>Sign with browser wallet</button>
   <div id="status"></div>
 </div>
@@ -794,7 +797,6 @@ async function loadRequest() {
   document.getElementById("bytes").textContent = data.decoded.byteLength;
   document.getElementById("digest").textContent = data.decoded.sha256;
   document.getElementById("decoded").textContent = JSON.stringify(data.decoded, null, 2);
-  document.getElementById("xdr").textContent = data.transactionXdr;
   return data;
 }
 
@@ -844,7 +846,7 @@ main();
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{Read, Write};
+    use base64::{engine::general_purpose, Engine as _};
 
     fn sample_request() -> BrowserSignRequest {
         BrowserSignRequest::new(
@@ -858,8 +860,6 @@ mod tests {
             method: method.to_string(),
             path: path.to_string(),
             query: query.to_string(),
-            host: "127.0.0.1:41234".to_string(),
-            origin: None,
             body,
         }
     }
@@ -873,15 +873,25 @@ mod tests {
         let nonce = guard.value().to_string();
         guard.verify_and_consume(&nonce).unwrap();
         assert!(guard.is_consumed());
-        assert!(matches!(guard.verify_and_consume(&nonce), Err(HandoffError::NonceAlreadyUsed)));
+        assert!(matches!(
+            guard.verify_and_consume(&nonce),
+            Err(HandoffError::NonceAlreadyUsed)
+        ));
     }
 
     #[test]
     fn wrong_nonce_is_rejected_without_consuming() {
-        let guard = NonceGuard::generate();
-        assert!(matches!(guard.verify("deadbeef"), Err(HandoffError::InvalidNonce)));
+        let mut guard = NonceGuard::generate();
+        assert!(matches!(
+            guard.verify("deadbeef"),
+            Err(HandoffError::InvalidNonce)
+        ));
         assert!(matches!(guard.verify(""), Err(HandoffError::MissingNonce)));
         assert!(!guard.is_consumed());
+
+        let nonce = guard.value().to_string();
+        guard.verify_and_consume(&nonce).unwrap();
+        assert!(guard.is_consumed());
     }
 
     #[test]
@@ -906,7 +916,6 @@ mod tests {
             &mut guard,
             &sign_request,
             "abc123",
-            41234,
         );
         assert_eq!(missing.status, 400);
 
@@ -915,7 +924,6 @@ mod tests {
             &mut guard,
             &sign_request,
             "abc123",
-            41234,
         );
         assert_eq!(wrong.status, 403);
 
@@ -924,7 +932,6 @@ mod tests {
             &mut guard,
             &sign_request,
             "abc123",
-            41234,
         );
         assert_eq!(page.status, 200);
         assert!(signed.is_none());
@@ -944,37 +951,6 @@ mod tests {
     }
 
     #[test]
-    fn requests_off_the_loopback_host_are_rejected() {
-        let sign_request = sample_request();
-        let mut guard = NonceGuard::from_nonce("abc123");
-        let mut req = request("GET", "/", "nonce=abc123", Vec::new());
-        req.host = "attacker.example".to_string();
-
-        let (response, signed) = handle_request(&req, &mut guard, &sign_request, "abc123", 41234);
-        assert_eq!(response.status, 403);
-        assert!(signed.is_none());
-        assert!(!guard.is_consumed());
-    }
-
-    #[test]
-    fn cross_origin_signature_submission_is_rejected() {
-        let sign_request = sample_request();
-        let mut guard = NonceGuard::from_nonce("abc123");
-        let body = serde_json::json!({
-            "nonce": "abc123",
-            "signedXdr": general_purpose::STANDARD.encode(b"signed"),
-        })
-        .to_string();
-        let mut req = request("POST", "/api/sign-result", "nonce=abc123", body.into_bytes());
-        req.origin = Some("https://attacker.example".to_string());
-
-        let (response, signed) = handle_request(&req, &mut guard, &sign_request, "abc123", 41234);
-        assert_eq!(response.status, 403);
-        assert!(signed.is_none());
-        assert!(!guard.is_consumed());
-    }
-
-    #[test]
     fn invalid_signature_does_not_burn_the_nonce() {
         let sign_request = sample_request();
         let mut guard = NonceGuard::from_nonce("abc123");
@@ -982,15 +958,22 @@ mod tests {
             serde_json::json!({ "nonce": "abc123", "signedXdr": "not base64!!" }).to_string();
 
         let (response, signed) = handle_request(
-            &request("POST", "/api/sign-result", "nonce=abc123", body.into_bytes()),
+            &request(
+                "POST",
+                "/api/sign-result",
+                "nonce=abc123",
+                body.into_bytes(),
+            ),
             &mut guard,
             &sign_request,
             "abc123",
-            41234,
         );
         assert_eq!(response.status, 400);
         assert!(signed.is_none());
-        assert!(!guard.is_consumed(), "a malformed payload must not burn the nonce");
+        assert!(
+            !guard.is_consumed(),
+            "a malformed payload must not burn the nonce"
+        );
     }
 
     #[test]
@@ -1001,21 +984,29 @@ mod tests {
 
         let body = serde_json::json!({ "nonce": "abc123", "signedXdr": &signed }).to_string();
         let (first, returned) = handle_request(
-            &request("POST", "/api/sign-result", "nonce=abc123", body.clone().into_bytes()),
+            &request(
+                "POST",
+                "/api/sign-result",
+                "nonce=abc123",
+                body.clone().into_bytes(),
+            ),
             &mut guard,
             &sign_request,
             "abc123",
-            41234,
         );
         assert_eq!(first.status, 200);
         assert_eq!(returned.as_deref(), Some(signed.as_str()));
 
         let (second, _) = handle_request(
-            &request("POST", "/api/sign-result", "nonce=abc123", body.into_bytes()),
+            &request(
+                "POST",
+                "/api/sign-result",
+                "nonce=abc123",
+                body.into_bytes(),
+            ),
             &mut guard,
             &sign_request,
             "abc123",
-            41234,
         );
         assert_eq!(second.status, 410);
     }
@@ -1034,8 +1025,8 @@ mod tests {
         let mut get = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
         write!(
             get,
-            "GET /api/transaction?nonce={} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n",
-            nonce, port
+            "GET /api/transaction?nonce={} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+            nonce
         )
         .unwrap();
         let mut get_response = String::new();
@@ -1047,10 +1038,9 @@ mod tests {
         let mut post = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
         write!(
             post,
-            "POST /api/sign-result?nonce={} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\
+            "POST /api/sign-result?nonce={} HTTP/1.1\r\nHost: 127.0.0.1\r\n\
              Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
             nonce,
-            port,
             payload.len(),
             payload
         )

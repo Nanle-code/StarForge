@@ -15,7 +15,10 @@ use std::net::{Ipv4Addr, TcpStream};
 use std::time::Duration;
 
 fn unsigned_envelope() -> BrowserSignRequest {
-    BrowserSignRequest::new(general_purpose::STANDARD.encode(b"unsigned-envelope-bytes"), "testnet")
+    BrowserSignRequest::new(
+        general_purpose::STANDARD.encode(b"unsigned-envelope-bytes"),
+        "testnet",
+    )
 }
 
 /// A stand-in for a Stellar Wallets Kit wallet: it returns a canned signed
@@ -35,7 +38,9 @@ struct DecliningBrowserWallet;
 
 impl WalletSigner for DecliningBrowserWallet {
     fn sign(&self, _request: &BrowserSignRequest) -> Result<String, HandoffError> {
-        Err(HandoffError::WalletRejected("user declined in the extension".to_string()))
+        Err(HandoffError::WalletRejected(
+            "user declined in the extension".to_string(),
+        ))
     }
 }
 
@@ -43,10 +48,15 @@ impl WalletSigner for DecliningBrowserWallet {
 fn mocked_wallet_returns_a_validated_signed_xdr() {
     let request = unsigned_envelope();
     let signed = general_purpose::STANDARD.encode(b"signed-envelope-bytes");
-    let wallet = FakeBrowserWallet { signed_xdr: signed.clone() };
+    let wallet = FakeBrowserWallet {
+        signed_xdr: signed.clone(),
+    };
 
     assert_eq!(sign_with(&wallet, &request).unwrap(), signed);
-    assert_eq!(sign_with(&MockWalletSigner::returning(signed.clone()), &request).unwrap(), signed);
+    assert_eq!(
+        sign_with(&MockWalletSigner::returning(signed.clone()), &request).unwrap(),
+        signed
+    );
 }
 
 #[test]
@@ -106,7 +116,10 @@ fn handoff_page_and_signature_round_trip_over_tcp() {
     post.read_to_string(&mut post_response).unwrap();
     assert!(post_response.contains("200 OK"), "{post_response}");
 
-    let returned = handle.join().unwrap().expect("handoff returns the signature");
+    let returned = handle
+        .join()
+        .unwrap()
+        .expect("handoff returns the signature");
     assert_eq!(returned, signed);
 }
 
@@ -163,5 +176,8 @@ fn nonce_guard_rejects_reuse() {
     assert!(!guard.is_consumed());
     guard.verify_and_consume("abc123").unwrap();
     assert!(guard.is_consumed());
-    assert!(matches!(guard.verify_and_consume("abc123"), Err(HandoffError::NonceAlreadyUsed)));
+    assert!(matches!(
+        guard.verify_and_consume("abc123"),
+        Err(HandoffError::NonceAlreadyUsed)
+    ));
 }

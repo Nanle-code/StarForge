@@ -1,8 +1,7 @@
 use crate::utils::{
     config,
     dry_run::{self, DryRunPlan, PlannedOperation},
-    output,
-    print as p,
+    output, print as p, soroban,
 };
 use anyhow::Result;
 use clap::Subcommand;
@@ -175,6 +174,9 @@ fn dry_run_plan(cmd: &NetworkCommands) -> Option<DryRunPlan> {
             .writes_filesystem(),
         ),
         NetworkCommands::Show { .. } | NetworkCommands::Test { .. } => None,
+        NetworkCommands::Node(_) | NetworkCommands::Simulate(_) | NetworkCommands::Snapshot(_) => {
+            None
+        }
     }
 }
 
@@ -189,6 +191,8 @@ fn show(json: bool) -> Result<()> {
             horizon_url: String,
             soroban_rpc_url: Option<String>,
             friendbot_url: Option<String>,
+            /// Extra root CAs trusted for this network (#902).
+            ca_bundle: Option<String>,
             active: bool,
         }
 
@@ -206,6 +210,7 @@ fn show(json: bool) -> Result<()> {
                 horizon_url: net_cfg.horizon_url.clone(),
                 soroban_rpc_url: net_cfg.soroban_rpc_url.clone(),
                 friendbot_url: net_cfg.friendbot_url.clone(),
+                ca_bundle: net_cfg.ca_bundle.clone(),
                 active: cfg.network == *name,
             })
             .collect();
@@ -228,6 +233,9 @@ fn show(json: bool) -> Result<()> {
         }
         if let Some(friendbot_url) = &net_cfg.friendbot_url {
             p::kv("Friendbot", friendbot_url);
+        }
+        if let Some(ca_bundle) = &net_cfg.ca_bundle {
+            p::kv("CA bundle", ca_bundle);
         }
         println!();
     }
@@ -370,6 +378,8 @@ pub struct NetworkHealthReport {
     pub timestamp: String,
     pub horizon: HorizonHealthDetails,
     pub soroban_rpc: Option<EndpointHealth>,
+    pub soroban_protocol_version: Option<u32>,
+    pub soroban_protocol_version_error: Option<String>,
     pub friendbot: Option<EndpointHealth>,
 }
 
@@ -384,10 +394,10 @@ async fn test_network(network_name: Option<String>, json: bool) -> Result<()> {
         p::info(&format!("Horizon: {}", net_cfg.horizon_url));
     }
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .pool_max_idle_per_host(10)
-        .build()?;
+    // #902: the shared factory applies the proxy, the custom CA bundle and the
+    // `starforge/<version>` user agent to this probe exactly as it does to the
+    // requests the rest of the CLI sends.
+    let client = crate::utils::http_client::client_with_timeout(Duration::from_secs(10));
 
     // Test Horizon endpoint & parse details
     let start_horizon = std::time::Instant::now();
@@ -442,6 +452,8 @@ async fn test_network(network_name: Option<String>, json: bool) -> Result<()> {
 
     // Test Soroban RPC if available
     let mut soroban_health = None;
+    let mut soroban_protocol_version = None;
+    let mut soroban_protocol_version_error = None;
     if let Some(ref soroban_url) = net_cfg.soroban_rpc_url {
         if !emit_json {
             p::info(&format!("Soroban RPC: {}", soroban_url));
@@ -500,6 +512,22 @@ async fn test_network(network_name: Option<String>, json: bool) -> Result<()> {
                 });
             }
         }
+
+        match soroban::get_protocol_version_for_url(soroban_url).await {
+            Ok(version) => {
+                soroban_protocol_version = Some(version);
+                if !emit_json {
+                    p::kv("Soroban protocol version", &version.to_string());
+                }
+            }
+            Err(error) => {
+                let message = format!("Soroban protocol version unavailable: {error:#}");
+                if !emit_json {
+                    p::warn(&message);
+                }
+                soroban_protocol_version_error = Some(message);
+            }
+        }
     }
 
     // Test Friendbot if available
@@ -538,6 +566,8 @@ async fn test_network(network_name: Option<String>, json: bool) -> Result<()> {
             error: horizon_err,
         },
         soroban_rpc: soroban_health,
+        soroban_protocol_version,
+        soroban_protocol_version_error,
         friendbot: friendbot_health,
     };
 

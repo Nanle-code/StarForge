@@ -204,7 +204,7 @@ impl OperationSummary {
 
     fn print_auth_node(node: &crate::utils::soroban::AuthNode, indent: usize) {
         let pad = " ".repeat(indent * 2);
-        
+
         let function_name = if node.function == "transfer" || node.function == "approve" {
             node.function.cyan().bold().to_string()
         } else {
@@ -212,7 +212,8 @@ impl OperationSummary {
         };
 
         // Try to get alias for contract ID if known
-        let alias_or_id = crate::utils::config::load().ok()
+        let alias_or_id = crate::utils::config::load()
+            .ok()
             .and_then(|cfg| {
                 cfg.contracts.iter().find_map(|(alias, id)| {
                     if id == &node.contract_id {
@@ -232,7 +233,7 @@ impl OperationSummary {
                 println!("{}  Arg [{}]: {}", pad, i, arg);
             }
         }
-        
+
         if !node.sub_invocations.is_empty() {
             for sub in &node.sub_invocations {
                 Self::print_auth_node(sub, indent + 1);

@@ -590,8 +590,23 @@ query {
 }
 ```
 
+## Schema Versioning and Deprecation Policy
+
+StarForge uses a 90-day deprecation SLA before any schema field may be removed.
+Before making breaking schema changes, read the full policy:
+
+→ **[GRAPHQL_SCHEMA_VERSIONING.md](./GRAPHQL_SCHEMA_VERSIONING.md)**
+
+Key points:
+
+- Fields must carry `#[graphql(deprecation = "...")]` for ≥ 90 days before removal.
+- Deprecations are registered in `src/graphql/schema_deprecations.rs`.
+- The `GraphQL Schema Lint` CI job enforces the window automatically.
+- Every schema-touching PR must complete the [breaking-change checklist](./GRAPHQL_SCHEMA_VERSIONING.md#breaking-change-checklist-for-prs).
+
 ## Documentation
 
+- [Schema Versioning & Deprecation Policy](./GRAPHQL_SCHEMA_VERSIONING.md)
 - [Implementation Guide](./GRAPHQL_IMPLEMENTATION.md)
 - [Acceptance Criteria](./GRAPHQL_ACCEPTANCE.md)
 - [Performance Benchmarks](./GRAPHQL_PERFORMANCE.md)

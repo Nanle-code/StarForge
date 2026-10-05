@@ -546,6 +546,50 @@
                                         ],
                           "verified":  true,
                           "maintenance":  "active"
+                      },
+                      {
+                          "name": "amm-dex",
+                          "version": "1.0.0",
+                          "description": "Automated market maker decentralized exchange contract",
+                          "author": "StarForge",
+                          "source": { "type": "builtin", "id": "amm-dex" },
+                          "tags": ["defi", "dex", "amm"],
+                          "license": "MIT",
+                          "documented": true,
+                          "maintenance": "active"
+                      },
+                      {
+                          "name": "simple-counter",
+                          "version": "1.0.0",
+                          "description": "Minimal counter contract demonstrating Soroban storage and tests",
+                          "author": "StarForge",
+                          "source": { "type": "builtin", "id": "simple-counter" },
+                          "tags": ["example", "counter"],
+                          "license": "MIT",
+                          "documented": true,
+                          "maintenance": "active"
+                      },
+                      {
+                          "name": "token-allowlist",
+                          "version": "1.0.0",
+                          "description": "Token contract with an allowlist for transfer authorization",
+                          "author": "StarForge",
+                          "source": { "type": "builtin", "id": "token-allowlist" },
+                          "tags": ["token", "allowlist"],
+                          "license": "MIT",
+                          "documented": true,
+                          "maintenance": "active"
+                      },
+                      {
+                          "name": "vesting-streaming",
+                          "version": "1.0.0",
+                          "description": "Token vesting and streaming contract with scheduled release",
+                          "author": "StarForge",
+                          "source": { "type": "builtin", "id": "vesting-streaming" },
+                          "tags": ["token", "vesting", "streaming"],
+                          "license": "MIT",
+                          "documented": true,
+                          "maintenance": "active"
                       }
                   ]
 }

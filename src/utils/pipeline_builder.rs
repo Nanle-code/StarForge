@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 use crate::utils::config;
-use crate::utils::test_runner::{run_contract_tests, TestOptions};
 use crate::utils::progress::ProgressReporter;
+use crate::utils::test_runner::{run_contract_tests, TestOptions};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -391,7 +391,11 @@ pub fn execute_pipeline(
                 completed += 1;
             }
             Err(e) => {
-                reporter.failed(index + 1, pipeline.stages[index].name.clone(), e.to_string());
+                reporter.failed(
+                    index + 1,
+                    pipeline.stages[index].name.clone(),
+                    e.to_string(),
+                );
                 let rollback_on_failure = {
                     let stage = &mut pipeline.stages[index];
                     stage.status = StageStatus::Failed;
