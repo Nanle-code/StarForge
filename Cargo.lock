@@ -4613,7 +4613,7 @@ dependencies = [
  "libloading",
  "minijinja",
  "mockito",
- "nix 0.29.0",
+ "nix 0.31.3",
  "once_cell",
  "proc-macro2",
  "proptest",
