@@ -7,6 +7,8 @@ on:
       - "src/utils/templates.rs"
       - "src/commands/new.rs"
       - "src/commands/add.rs"
+      - "src/manifest.rs"
+      - "src/utils/wasm_target.rs"
       - "templates/components/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -19,6 +21,8 @@ on:
       - "src/utils/templates.rs"
       - "src/commands/new.rs"
       - "src/commands/add.rs"
+      - "src/manifest.rs"
+      - "src/utils/wasm_target.rs"
       - "templates/components/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -66,16 +70,22 @@ jobs:
       fail-fast: false
       matrix:
         template: ${{ fromJSON(needs.discover.outputs.templates) }}
+        toolchain:
+          - version: 1.80.0
+            target: wasm32-unknown-unknown
+          - version: stable
+            target: wasm32v1-none
     env:
       CARGO_TERM_COLOR: always
       STARFORGE_NON_INTERACTIVE: "1"
       CARGO_TARGET_DIR: ${{ github.workspace }}/project/target
+      WASM_TARGET: ${{ matrix.toolchain.target }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          targets: wasm32-unknown-unknown
+          toolchain: ${{ matrix.toolchain.version }}
+          targets: ${{ matrix.toolchain.target }}
       - uses: actions/download-artifact@v4
         with:
           name: starforge-cli
@@ -95,7 +105,7 @@ jobs:
         run: cargo test
       - name: Build template for WASM
         working-directory: project
-        run: cargo build --target wasm32-unknown-unknown --release
+        run: cargo build --target "$WASM_TARGET" --release
       - name: Record WASM size
         id: wasm-size
         working-directory: project
@@ -104,7 +114,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import glob, json, os
-          files = sorted(glob.glob('target/wasm32-unknown-unknown/release/*.wasm'))
+          files = sorted(glob.glob(f"target/{os.environ['WASM_TARGET']}/release/*.wasm"))
           if not files:
               raise SystemExit('No WASM files found in release target directory')
           with open(f"../wasm-size-{os.environ['TEMPLATE_NAME']}.json", 'w', encoding='utf-8') as out:
@@ -117,7 +127,7 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: wasm-size-${{ matrix.template }}
+          name: wasm-size-${{ matrix.template }}-${{ matrix.toolchain.version }}
           path: wasm-size-${{ matrix.template }}.json
           if-no-files-found: error
           retention-days: 7
@@ -170,7 +180,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
       - uses: actions/download-artifact@v4
         with:
           name: starforge-cli
@@ -192,7 +202,7 @@ jobs:
         run: cargo test
       - name: Build modified contract for WASM
         working-directory: component-project
-        run: cargo build --target wasm32-unknown-unknown --release
+        run: cargo build --target wasm32v1-none --release
 
   templates-ok:
     name: templates-ok

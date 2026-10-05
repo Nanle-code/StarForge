@@ -25,6 +25,7 @@ Previously, StarForge settings were spread across command-line flags, global use
 |---|---|---|
 | `version` | `string` | **Required.** Manifest schema version. Must be `"1"`. |
 | `package` | `table` | Optional project metadata. |
+| `wasm_target` | `string` | Optional Soroban WASM target override. Defaults to the target supported by the active Rust toolchain. |
 | `contracts` | `table` | Smart contract target specifications. |
 | `networks` | `table` | Custom network endpoints and overrides. |
 | `deploy` | `table` | Target deployment environments (`deploy.testnet`, `deploy.mainnet`, etc.). |
@@ -36,6 +37,7 @@ Previously, StarForge settings were spread across command-line flags, global use
 
 ```toml
 version = "1"
+wasm_target = "wasm32v1-none"
 
 [package]
 name = "my_soroban_project"
@@ -46,8 +48,7 @@ license = "MIT"
 
 [contracts.my_contract]
 path = "."
-wasm = "target/wasm32-unknown-unknown/release/my_contract.wasm"
-build = "cargo build --target wasm32-unknown-unknown --release"
+build = "starforge contract build"
 
 [networks.testnet]
 horizon_url = "https://horizon-testnet.stellar.org"
@@ -62,7 +63,7 @@ fee = 100
 source_wallet = "alice"
 
 [scripts]
-build = "cargo build --target wasm32-unknown-unknown --release"
+build = "starforge contract build"
 test = "cargo test"
 deploy = "starforge deploy"
 ```

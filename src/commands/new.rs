@@ -180,8 +180,9 @@ async fn scaffold_contract_interactive(default_name: String) -> Result<()> {
     println!(
         "    Tests         : {}",
         if opts.include_tests {
+    let wasm_target = crate::utils::wasm_target::resolve_target(None)?;
             "yes".green()
-        } else {
+        "  starforge deploy --wasm target/{wasm_target}/release/{}.wasm",
             "no".yellow()
         }
     );
@@ -291,6 +292,7 @@ async fn scaffold_contract(
 
     // Roll back the partially-created directory if any step below fails.
     let mut target_guard = PathCleanup::new(dir.to_path_buf());
+    let wasm_target = crate::utils::wasm_target::resolve_target(None)?;
 
     p::step(1, 4, "Creating directory structure…");
     fs::create_dir_all(dir.join("src"))?;
@@ -298,7 +300,7 @@ async fn scaffold_contract(
 
     p::step(2, 4, "Writing Cargo.toml & starforge.toml…");
     fs::write(dir.join("Cargo.toml"), cargo_toml(&name, license, author))?;
-    fs::write(dir.join(".cargo/config.toml"), cargo_config())?;
+    fs::write(dir.join(".cargo/config.toml"), cargo_config(&wasm_target))?;
     fs::write(dir.join(".gitignore"), "target/\n.soroban/\n")?;
     let starter_manifest = crate::manifest::ProjectManifest::default_starter(&name);
     let manifest_toml = toml::to_string_pretty(&starter_manifest)?;
@@ -326,7 +328,10 @@ async fn scaffold_contract(
     fs::write(dir.join("src/lib.rs"), src)?;
 
     p::step(4, 4, "Writing README.md…");
-    fs::write(dir.join("README.md"), readme(&name, &template, source))?;
+    fs::write(
+        dir.join("README.md"),
+        readme(&name, &template, source, &wasm_target),
+    )?;
 
     // Scaffolding completed: keep the directory.
     target_guard.commit();
@@ -345,9 +350,9 @@ async fn scaffold_contract(
     println!();
     println!("  Next steps:");
     p::info(&format!("  cd {}", name));
-    p::info("  stellar contract build");
+    p::info("  starforge contract build");
     p::info(&format!(
-        "  starforge deploy --wasm target/wasm32v1-none/release/{}.wasm",
+        "  starforge deploy --wasm target/{wasm_target}/release/{}.wasm",
         name.replace('-', "_")
     ));
     println!();
@@ -444,10 +449,10 @@ lto = true
     )
 }
 
-fn cargo_config() -> &'static str {
-    r#"[target.wasm32-unknown-unknown]
-rustflags = ["-C", "target-feature=+multivalue,+sign-ext"]
-"#
+fn cargo_config(target: &str) -> String {
+    format!(
+        "[target.{target}]\nrustflags = [\"-C\", \"target-feature=+multivalue,+sign-ext\"]\n"
+    )
 }
 
 // ── Contract templates ────────────────────────────────────────────────────────
@@ -990,7 +995,7 @@ npm run dev
     )
 }
 
-fn readme(name: &str, template: &str, source: &str) -> String {
+fn readme(name: &str, template: &str, source: &str, wasm_target: &str) -> String {
     format!(
         r#"# {name}
 
@@ -999,7 +1004,7 @@ A Soroban smart contract scaffolded with [starforge](https://github.com/Nanle-co
 ## Build
 
 ```bash
-stellar contract build
+starforge contract build
 ```
 
 ## Test
@@ -1012,7 +1017,7 @@ cargo test
 
 ```bash
 starforge deploy \
-  --wasm target/wasm32v1-none/release/{snake}.wasm \
+    --wasm target/{wasm_target}/release/{snake}.wasm \
   --network testnet
 ```
 
@@ -1021,6 +1026,7 @@ Source: `{source}`
 "#,
         name = name,
         snake = name.replace('-', "_"),
+        wasm_target = wasm_target,
         template = template,
         source = source
     )
@@ -1272,9 +1278,9 @@ async fn scaffold_from_marketplace(name: String, template_name: String) -> Resul
     println!();
     println!("  Next steps:");
     p::info(&format!("  cd {}", name));
-    p::info("  stellar contract build");
+    p::info("  starforge contract build");
     p::info(&format!(
-        "  starforge deploy --wasm target/wasm32v1-none/release/{}.wasm",
+        "  starforge deploy --wasm target/{wasm_target}/release/{}.wasm",
         name.replace('-', "_")
     ));
     println!();

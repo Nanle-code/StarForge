@@ -10,9 +10,9 @@ Run the default rollback scenario:
 
 ```bash norun
 starforge test \
-  --wasm target/wasm32-unknown-unknown/release/contract_v2.wasm \
+  --wasm target/wasm32v1-none/release/contract_v2.wasm \
   --rollback \
-  --previous-wasm target/wasm32-unknown-unknown/release/contract_v1.wasm \
+  --previous-wasm target/wasm32v1-none/release/contract_v1.wasm \
   --report json
 ```
 

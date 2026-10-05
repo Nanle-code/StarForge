@@ -27,6 +27,40 @@ pub async fn run() -> Result<()> {
     let cfg = config::load()?;
     findings.extend(config::validate_config_integrity(&cfg));
 
+    let target_override = match crate::manifest::find_and_load_manifest(
+        &std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+    ) {
+        Ok(Some((_, manifest))) => manifest.wasm_target,
+        Ok(None) => None,
+        Err(error) => {
+            findings.push(config::DoctorFinding::fail(
+                "wasm_target",
+                format!("could not read starforge.toml: {error:#}"),
+            ));
+            None
+        }
+    };
+
+    match crate::utils::wasm_target::resolve_target(target_override.as_deref()) {
+        Ok(target) => match crate::utils::wasm_target::installed_target(&target) {
+            Ok(true) => findings.push(config::DoctorFinding::pass(
+                "wasm_target",
+                format!("Rust target '{target}' is installed"),
+            )),
+            Ok(false) => findings.push(config::DoctorFinding::fail(
+                "wasm_target",
+                format!(
+                    "Rust target '{target}' is not installed; run `rustup target add {target}`"
+                ),
+            )),
+            Err(error) => findings.push(config::DoctorFinding::fail(
+                "wasm_target",
+                format!("could not check Rust target '{target}': {error:#}"),
+            )),
+        },
+        Err(error) => findings.push(config::DoctorFinding::fail("wasm_target", error.to_string())),
+    }
+
     let network = cfg.network.clone();
     if horizon::check_network(&network).await {
         findings.push(config::DoctorFinding::pass(

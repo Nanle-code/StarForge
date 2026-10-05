@@ -242,7 +242,7 @@ fn pattern_wasm_invalid() -> DebugFinding {
             This can happen if the file is truncated, built with incompatible settings, \
             or is not a Soroban contract at all."
             .into(),
-        root_cause: "The binary was not compiled with `--target wasm32-unknown-unknown`, \
+        root_cause: "The binary was not compiled for a Soroban-compatible WASM target, \
             or build artifacts are stale after a `cargo clean`."
             .into(),
         fix_suggestion: "Rebuild from source: `stellar contract build`. Verify the output \
@@ -448,7 +448,7 @@ fn pattern_deployment_wasm_size_exceeded() -> DebugFinding {
             was not optimized before deployment. Debug builds are significantly larger \
             than release builds."
             .into(),
-        fix_suggestion: "Build with `--release` flag: `cargo build --release --target wasm32-unknown-unknown`. \
+        fix_suggestion: "Build with `starforge contract build`. \
             Use starforge's built-in optimizer: `starforge deploy --optimize`. \
             Remove unused dependencies from Cargo.toml. Consider splitting large contracts \
             into multiple smaller contracts."
@@ -460,7 +460,7 @@ fn pattern_deployment_wasm_size_exceeded() -> DebugFinding {
             "Apply optimization and retry.".into(),
         ],
         breakpoint_hints: vec![
-            "Check WASM file size: ls -lh target/wasm32-unknown-unknown/release/*.wasm".into(),
+            "Check WASM file size under target/<selected-target>/release/*.wasm".into(),
             "Run wasm-opt with --optimize flag for maximum size reduction.".into(),
         ],
         references: vec![
@@ -562,7 +562,7 @@ fn pattern_deployment_wasm_hash_mismatch() -> DebugFinding {
             "Compare expected vs actual WASM hash.".into(),
         ],
         breakpoint_hints: vec![
-            "Compute local WASM hash: sha256sum target/wasm32-unknown-unknown/release/*.wasm".into(),
+            "Compute the local WASM hash from target/<selected-target>/release/*.wasm".into(),
             "Fetch on-chain WASM hash from contract metadata.".into(),
         ],
         references: vec![
@@ -588,7 +588,7 @@ fn pattern_compilation_error() -> DebugFinding {
             to an existing module/item (E0433), a missing `derive` or trait bound required by \
             the soroban_sdk macros, or moving a value that is used again afterwards."
             .into(),
-        fix_suggestion: "Run `cargo build --target wasm32-unknown-unknown 2>&1 | head -50` \
+        fix_suggestion: "Run `starforge contract build` \
             and read the first reported error — later errors are often just consequences of \
             the first one. For E0308, check the exact types on both sides of the mismatch. \
             For E0433/E0432, verify the `use` path and that the target module is declared \
@@ -596,7 +596,7 @@ fn pattern_compilation_error() -> DebugFinding {
             value or restructuring so it is moved only once."
             .into(),
         reproduction_steps: vec![
-            "Run `cargo build --target wasm32-unknown-unknown`.".into(),
+            "Run `starforge contract build`.".into(),
             "Copy the first `error[EXXXX]` block reported.".into(),
             "Apply the compiler's suggested fix, then rebuild.".into(),
         ],

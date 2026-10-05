@@ -22,7 +22,7 @@ A non-fungible token (NFT) contract for Soroban. Each token has a unique `u32` I
 starforge new contract my-nft --template nft
 
 # Build
-cargo build --target wasm32-unknown-unknown --release
+cargo build --target wasm32v1-none --release
 
 # Test
 cargo test

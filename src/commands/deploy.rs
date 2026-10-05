@@ -537,20 +537,20 @@ fn resolve_deploy_target(args: &DeployArgs) -> Result<(PathBuf, String, Option<S
     let resolved_wasm = if let Some(ref wasm_path) = args.wasm {
         wasm_path.clone()
     } else if let Some((path_buf, ref manifest)) = manifest_opt {
-        let contract_wasm = manifest
+        let contract_name = manifest
             .deploy
             .get(&args.network)
             .and_then(|d| d.contracts.as_ref())
             .and_then(|c_list| c_list.first())
-            .and_then(|c_name| manifest.contracts.get(c_name))
-            .and_then(|c| c.wasm.clone())
-            .or_else(|| manifest.contracts.values().find_map(|c| c.wasm.clone()));
+            .filter(|name| manifest.contracts.contains_key(*name))
+            .cloned()
+            .or_else(|| manifest.contracts.keys().next().cloned());
 
-        if let Some(wasm_rel) = contract_wasm {
-            let manifest_dir = path_buf
-                .parent()
-                .unwrap_or_else(|| std::path::Path::new("."));
-            manifest_dir.join(wasm_rel)
+        if let Some(contract_name) = contract_name {
+            let manifest_dir = path_buf.parent().unwrap_or_else(|| std::path::Path::new("."));
+            manifest
+                .wasm_path_for_contract(&contract_name, manifest_dir)?
+                .ok_or_else(|| anyhow::anyhow!("No WASM artifact configured for '{contract_name}'"))?
         } else {
             anyhow::bail!(
                 "No contract WASM path found in starforge.toml. Please specify --wasm <path>."

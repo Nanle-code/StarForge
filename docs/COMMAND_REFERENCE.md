@@ -494,10 +494,10 @@ Full reference: [SIMULATION_RESOURCES.md](SIMULATION_RESOURCES.md) and
 | `advanced-perf generate-dashboard <CONTRACT>`     | Show the recorded-metrics performance dashboard                           |
 
 ```bash norun
-starforge contract profile profile ./target/wasm32-unknown-unknown/release/token.wasm \
+starforge contract profile profile ./target/wasm32v1-none/release/token.wasm \
   --label token --dashboard ./target/token-profile.html
 
-starforge contract profile profile ./target/wasm32-unknown-unknown/release/token.wasm \
+starforge contract profile profile ./target/wasm32v1-none/release/token.wasm \
   --baseline ~/.starforge/contract_profiles/profile-abc123def456.json \
   --output ./target/token-profile.json
 ```

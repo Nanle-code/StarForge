@@ -10,7 +10,7 @@ improvements.
 
 ```bash norun
 # Profile a compiled contract
-starforge gas profile ./target/wasm32-unknown-unknown/release/my_contract.wasm
+starforge gas profile ./target/wasm32v1-none/release/my_contract.wasm
 
 # Compare two builds
 starforge gas compare baseline.wasm optimized.wasm
@@ -154,7 +154,7 @@ debug = []
 
 Build for production without the `debug` feature:
 ```bash norun
-cargo build --release --target wasm32-unknown-unknown
+cargo build --release --target wasm32v1-none
 ```
 
 ---
@@ -247,23 +247,10 @@ impl MyContract {
 
 ### Continuous profiling in CI
 
-```yaml
-# .github/workflows/ci.yml
-- name: Build contract
-  run: cargo build --release --target wasm32-unknown-unknown
-
-- name: Gas profile
-  run: |
-    starforge gas profile \
-      target/wasm32-unknown-unknown/release/my_contract.wasm \
-      --fail-on-critical
-
-- name: Gas comparison (on PRs)
-  if: github.event_name == 'pull_request'
-  run: |
-    starforge gas compare \
-      artifacts/baseline.wasm \
-      target/wasm32-unknown-unknown/release/my_contract.wasm
+```bash
+cargo build --release --target wasm32v1-none
+starforge gas profile target/wasm32v1-none/release/my_contract.wasm --fail-on-critical
+starforge gas compare artifacts/baseline.wasm target/wasm32v1-none/release/my_contract.wasm
 ```
 
 ### Reading the optimization score

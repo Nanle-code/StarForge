@@ -264,7 +264,7 @@ Security implications for authors:
 summarises a compiled contract:
 
 ```bash norun
-starforge wasm-inspect target/wasm32-unknown-unknown/release/my_contract.wasm
+starforge wasm-inspect target/wasm32v1-none/release/my_contract.wasm
 ```
 
 It reports the module size, WebAssembly version, every section, and whether
