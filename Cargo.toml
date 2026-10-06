@@ -116,7 +116,7 @@ stellar-xdr = { version = "22.0.0", features = ["serde", "base64"] }
 base64     = "0.22"
 urlencoding = "2.1"
 sha2 = "0.10"
-indicatif = "0.17.7"
+indicatif = "0.18.4"
 libloading = "0.8.1"
 wasmtime = { version = "24.0.7", default-features = false, features = ["cranelift", "runtime", "wat"] }
 uuid = { version = "1.6.1", features = ["v4", "serde"] }
