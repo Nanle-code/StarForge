@@ -118,7 +118,7 @@ urlencoding = "2.1"
 sha2 = "0.10"
 indicatif = "0.18.4"
 libloading = "0.8.1"
-wasmtime = { version = "24.0.7", default-features = false, features = ["cranelift", "runtime", "wat"] }
+wasmtime = { version = "27.0.0", default-features = false, features = ["cranelift", "runtime", "wat"] }
 uuid = { version = "1.6.1", features = ["v4", "serde"] }
 hidapi = { version = "2.6.5", optional = true }
 trezor-client = { version = "0.1.5", default-features = false, features = ["stellar"], optional = true }
