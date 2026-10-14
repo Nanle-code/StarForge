@@ -163,7 +163,7 @@ memory-profiling = []
 ui = ["dep:ratatui", "dep:crossterm"]
 
 [dev-dependencies]
-criterion = "0.5.1"
+criterion = "0.7.0"
 tempfile = "3.8"
 mockito = "1.2"
 wasm-bindgen-test = "0.3"
