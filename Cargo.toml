@@ -107,7 +107,7 @@ tokio-tungstenite = { version = "0.29", default-features = false, features = ["c
 futures-util = "0.3"
 ctrlc      = "3.4"
 clap_complete  = "4.4"
-dialoguer  = { version = "0.11", features = ["fuzzy-select", "password"] }
+dialoguer  = { version = "0.12", features = ["fuzzy-select", "password"] }
 aes-gcm = "0.10.3"
 argon2 = "0.5.3"
 # Pinned: strkey encoding must stay aligned with stellar-xdr 22.x fixtures.
